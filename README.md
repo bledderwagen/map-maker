@@ -1,3 +1,6 @@
+> **This is a fork** of [ProbableTrain/MapGenerator](https://github.com/ProbableTrain/MapGenerator), maintained as **map-maker**.
+> All credit for the original work goes to ProbableTrain and its contributors. Licensed under LGPL-3.0 (see `COPYING` and `COPYING.LESSER`).
+
 
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 [![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg?style=flat-square)](#contributors-)
