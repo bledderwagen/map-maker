@@ -91,6 +91,20 @@ export default class HighwayGUI extends RoadGUI {
         return this.toScreen(this.streamlines.frontageRoads);
     }
 
+    replaceFrontageRoads(roads: Vector[][]): void {
+        this.streamlines.frontageRoads = RoadGUI.withoutDuplicatePoints(roads);
+    }
+
+    get frontageRoadsWorld(): Vector[][] {
+        return this.streamlines.frontageRoads;
+    }
+
+    get rampsWorld(): Vector[][] {
+        const ramps: Vector[][] = [];
+        for (const i of this.streamlines.interchanges) ramps.push(...i.ramps);
+        return ramps;
+    }
+
     get ramps(): Vector[][] {
         const ramps: Vector[][] = [];
         for (const i of this.streamlines.interchanges) ramps.push(...i.ramps);

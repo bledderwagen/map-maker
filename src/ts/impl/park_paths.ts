@@ -6,6 +6,8 @@ import {resampleEqual, smoothLine} from './hydrology';
 export interface ParkLayout {
     paths: Vector[][];  // World space
     ponds: Vector[][];
+    trees: Vector[][];  // Tree crowns
+    pitches: Vector[][];  // Pitch markings, drawn like paths
 }
 
 /**
@@ -18,7 +20,7 @@ export default class ParkPaths {
     private static readonly POND_MIN_AREA = 25000;  // 10 hectares
 
     static layout(park: Vector[]): ParkLayout {
-        const out: ParkLayout = {paths: [], ponds: []};
+        const out: ParkLayout = {paths: [], ponds: [], trees: [], pitches: []};
         if (park.length < 3) return out;
         const area = PolygonUtil.calcPolygonArea(park);
         const centroid = PolygonUtil.averagePoint(park);
@@ -98,7 +100,70 @@ export default class ParkPaths {
 
         // Keep everything inside the park
         out.paths = out.paths.map(p => p.filter(v => inside(v, 1))).filter(p => p.length >= 2);
+
+        if (area > 12000 && loop.length >= 3) {
+            const pitch = ParkPaths.pitch(loop, out.paths, pond);
+            if (pitch.length > 0) out.pitches.push(...pitch);
+        }
+        out.trees = ParkPaths.trees(park, out.paths, pond, out.pitches);
         return out;
+    }
+
+    /**
+     * Football pitch, about 100 x 64 m, somewhere on the open lawn
+     */
+    private static pitch(loop: Vector[], paths: Vector[][], pond: Vector[]): Vector[][] {
+        const L = 52;
+        const W = 34;
+        const centroid = PolygonUtil.averagePoint(loop);
+        for (let attempt = 0; attempt < 30; attempt++) {
+            const angle = Math.random() * Math.PI;
+            const t = new Vector(Math.cos(angle), Math.sin(angle));
+            const n = new Vector(-t.y, t.x);
+            const c = centroid.clone().add(new Vector(Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.5 * Math.sqrt(PolygonUtil.calcPolygonArea(loop))));
+            const at = (u: number, v: number): Vector => c.clone().add(t.clone().multiplyScalar(u)).add(n.clone().multiplyScalar(v));
+            const outline = [at(-L / 2, -W / 2), at(L / 2, -W / 2), at(L / 2, W / 2), at(-L / 2, W / 2)];
+            const clear = outline.every(p => PolygonUtil.insidePolygon(p, loop))
+                && !paths.some(path => path.some(p => PolygonUtil.insidePolygon(p, PolygonUtil.resizeGeometry(outline, 4))))
+                && (pond.length === 0 || !pond.some(p => PolygonUtil.insidePolygon(p, PolygonUtil.resizeGeometry(outline, 6))));
+            if (!clear) continue;
+            const circle = PolygonUtil.circle(c, 4.6, 20);
+            return [
+                outline.concat([outline[0]]),
+                [at(0, -W / 2), at(0, W / 2)],
+                circle.concat([circle[0]]),
+            ];
+        }
+        return [];
+    }
+
+    /**
+     * Trees in groves rather than evenly sprinkled, clear of paths, water and pitches
+     */
+    private static trees(park: Vector[], paths: Vector[][], pond: Vector[], pitches: Vector[][]): Vector[][] {
+        const noise = new SimplexNoise();
+        const box = PolygonUtil.boundingBox(park);
+        const area = PolygonUtil.calcPolygonArea(park);
+        const pathPoints: Vector[] = [];
+        for (const p of paths.concat(pitches)) pathPoints.push(...resampleEqual(p, 3));
+        const trees: Vector[][] = [];
+        const centres: Vector[] = [];
+        const candidates = Math.min(3000, Math.floor(area / 60));
+        for (let i = 0; i < candidates; i++) {
+            const c = new Vector(box[0] + Math.random() * (box[2] - box[0]), box[1] + Math.random() * (box[3] - box[1]));
+            if (!PolygonUtil.insidePolygon(c, park)) continue;
+            // Groves: dense where the noise is high, open lawn elsewhere
+            if (noise.noise2D(c.x / 90, c.y / 90) < 0.15) continue;
+            const r = 2.5 + Math.random() * 2;
+            if (PolygonUtil.distanceToPolyline(c, park.concat([park[0]])) < r + 1) continue;
+            if (pathPoints.some(p => p.distanceTo(c) < r + 2.5)) continue;
+            if (pond.length > 0 && (PolygonUtil.insidePolygon(c, pond) || PolygonUtil.distanceToPolyline(c, pond.concat([pond[0]])) < r + 3)) continue;
+            if (pitches.length > 0 && PolygonUtil.insidePolygon(c, pitches[0])) continue;
+            if (centres.some(p => p.distanceTo(c) < 1.4 * r)) continue;
+            centres.push(c);
+            trees.push(PolygonUtil.circle(c, r, 10));
+        }
+        return trees;
     }
 
     /**

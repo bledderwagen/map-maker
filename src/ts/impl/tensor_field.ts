@@ -26,6 +26,9 @@ export default class TensorField {
     public sea: Vector[] = [];
     public river: Vector[] = [];
     public ignoreRiver = false;
+    // Sand is no place for a road
+    private _beaches: Vector[][] = [];
+    private beachBoxes: number[][] = [];
 
     public smooth = false;
 
@@ -67,11 +70,30 @@ export default class TensorField {
         }
     }
 
+    set beaches(beaches: Vector[][]) {
+        this._beaches = beaches;
+        this.beachBoxes = beaches.map(b => PolygonUtil.boundingBox(b));
+    }
+
+    get beaches(): Vector[][] {
+        return this._beaches;
+    }
+
+    onBeach(point: Vector): boolean {
+        for (let i = 0; i < this._beaches.length; i++) {
+            const box = this.beachBoxes[i];
+            if (point.x < box[0] || point.y < box[1] || point.x > box[2] || point.y > box[3]) continue;
+            if (PolygonUtil.insidePolygon(point, this._beaches[i])) return true;
+        }
+        return false;
+    }
+
     reset(): void {
         this.basisFields = [];
         this.parks = [];
         this.sea = [];
         this.river = [];
+        this.beaches = [];
     }
 
     getCentrePoints(): Vector[] {
@@ -117,7 +139,7 @@ export default class TensorField {
     }
 
     onLand(point: Vector): boolean {
-        const inSea = PolygonUtil.insidePolygon(point, this.sea);
+        const inSea = PolygonUtil.insidePolygon(point, this.sea) || this.onBeach(point);
         if (this.ignoreRiver) {
             return !inSea;
         }

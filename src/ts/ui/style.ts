@@ -44,6 +44,7 @@ export interface ColourScheme {
     lowIncomeBuildingColour?: string;
     sandColour?: string;  // Beaches and sand bars
     pathColour?: string;  // Footpaths in parks
+    treeColour?: string;
 }
 
 /**
@@ -67,6 +68,7 @@ export default abstract class Style {
     public lakes: Vector[][] = [];  // Oxbow lakes and ponds
     public sandBars: Vector[][] = [];
     public paths: Vector[][] = [];
+    public trees: Vector[][] = [];
     public lowIncomeLots: Vector[][] = [];
     public fences: Vector[][] = [];  // Thin lines around yards
     public industrialLots: Vector[][] = [];
@@ -124,6 +126,7 @@ export default abstract class Style {
         if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
         if (!colourScheme.sandColour) colourScheme.sandColour = Util.mixColours(colourScheme.bgColour, 'rgb(245,215,140)', 0.4);
         if (!colourScheme.pathColour) colourScheme.pathColour = colourScheme.minorRoadColour;
+        if (!colourScheme.treeColour) colourScheme.treeColour = Util.mixColours(colourScheme.grassColour, 'rgb(60,110,60)', 0.22);
 
 
         if (!colourScheme.buildingSideColour) {
@@ -195,13 +198,7 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(0.1);
         canvas.drawPolygon(this.seaPolygon);
 
-        // Beaches
         canvas.setLineWidth(1);
-        if (!this.heightmap) {
-            canvas.setFillStyle(this.colourScheme.sandColour);
-            canvas.setStrokeStyle(this.colourScheme.sandColour);
-            for (const b of this.beaches) canvas.drawPolygon(b);
-        }
 
         // Riverside park
         canvas.setFillStyle(this.colourScheme.grassColour);
@@ -222,6 +219,13 @@ export class DefaultStyle extends Style {
         canvas.setFillStyle(this.colourScheme.grassColour);
         for (const p of this.parks) canvas.drawPolygon(p);
 
+        // Beaches, over any park that reaches the water
+        if (!this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.sandColour);
+            canvas.setStrokeStyle(this.colourScheme.sandColour);
+            for (const b of this.beaches) canvas.drawPolygon(b);
+        }
+
         // River
         canvas.setFillStyle(this.colourScheme.seaColour);
         canvas.setStrokeStyle(this.colourScheme.seaColour);
@@ -229,6 +233,10 @@ export class DefaultStyle extends Style {
         canvas.drawPolygon(this.river);
         for (const l of this.lakes) canvas.drawPolygon(l);
         if (!this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.treeColour);
+            canvas.setStrokeStyle(this.colourScheme.treeColour);
+            for (const t of this.trees) canvas.drawPolygon(t);
+
             canvas.setFillStyle(this.colourScheme.sandColour);
             canvas.setStrokeStyle(this.colourScheme.sandColour);
             for (const b of this.sandBars) canvas.drawPolygon(b);
@@ -401,12 +409,8 @@ export class RoughStyle extends Style {
         canvas.drawPolygon(this.seaPolygon);
 
         canvas.setOptions({
-            fill: this.colourScheme.sandColour,
-            stroke: "none",
-        });
-        this.beaches.forEach(b => canvas.drawPolygon(b));
-        canvas.setOptions({
             fill: this.colourScheme.grassColour,
+            stroke: "none",
         });
         canvas.drawPolygon(this.floodplain);
 
@@ -442,9 +446,17 @@ export class RoughStyle extends Style {
         });
         this.parks.forEach(p => canvas.drawPolygon(p));
         canvas.setOptions({
+            fill: this.colourScheme.sandColour,
+        });
+        this.beaches.forEach(b => canvas.drawPolygon(b));
+        canvas.setOptions({
             fill: this.colourScheme.seaColour,
         });
         this.lakes.forEach(l => canvas.drawPolygon(l));
+        canvas.setOptions({
+            fill: this.colourScheme.treeColour,
+        });
+        this.trees.forEach(t => canvas.drawPolygon(t));
         canvas.setOptions({
             stroke: this.colourScheme.minorRoadColour,
             strokeWidth: 0.6,

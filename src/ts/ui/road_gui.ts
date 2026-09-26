@@ -110,6 +110,18 @@ export default class RoadGUI {
     /**
      * Adds already simplified roads, e.g. links made after generation
      */
+    replaceRoads(roads: Vector[][]): void {
+        this.streamlines.allStreamlinesSimple = RoadGUI.withoutDuplicatePoints(roads);
+    }
+
+    /**
+     * Zero length segments upset the road graph
+     */
+    static withoutDuplicatePoints(roads: Vector[][]): Vector[][] {
+        return roads.map(line => line.filter((v, i) => i === 0 || v.distanceToSquared(line[i - 1]) > 1e-4))
+            .filter(line => line.length >= 2);
+    }
+
     addRoads(roads: Vector[][]): void {
         this.streamlines.allStreamlinesSimple.push(...roads);
     }

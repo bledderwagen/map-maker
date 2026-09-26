@@ -33,6 +33,7 @@ export default class WaterGenerator extends StreamlineGenerator {
     private _riverPolygon: Vector[] = []; // Simplified
     private _riverSecondaryRoad: Vector[] = [];
     private _shore: Vector[] = [];  // Simplified water's edge along the coast
+    private _backshore: Vector[] = [];  // Landward edge of the beach, or the water's edge where there is none
     private _shoreBeach: number[] = [];  // Beach width at each point of the unsimplified shore
     private _shoreDetailed: Vector[] = [];
     private _beaches: Vector[][] = [];
@@ -72,6 +73,10 @@ export default class WaterGenerator extends StreamlineGenerator {
 
     get shore(): Vector[] {
         return this._shore;
+    }
+
+    get backshore(): Vector[] {
+        return this._backshore;
     }
 
     get shoreDetailed(): Vector[] {
@@ -149,6 +154,11 @@ export default class WaterGenerator extends StreamlineGenerator {
             this._shoreBeach = shaped.beachWidths.map(() => 0);
         }
         this._beaches = this.beachPolygons(shore, this._shoreBeach, landward);
+        this.tensorField.beaches = this._beaches;
+        // Back of the beach, a little inland so streets that stop at the sand cross it
+        const shoreNormals = normals(shore);
+        this._backshore = this.simplifyShore(smoothLine(shore.map((p, i) =>
+            p.clone().add(shoreNormals[i].clone().multiplyScalar(landward * (this._shoreBeach[i] + 2)))), 2));
 
         const road = this.simplifyStreamline(this.coastRoadLine(shore, this._shoreBeach, landward));
         this._coastRoad = road;

@@ -9,6 +9,8 @@ import PolygonUtil from '../impl/polygon_util';
 import Zoning, {Zone} from '../impl/zoning';
 import IndustrialLayout, {IndustrialParams} from '../impl/industrial_layout';
 import YardHouseLayout from '../impl/yard_houses';
+import * as SimplexNoise from 'simplex-noise';
+import BuildingCleanup, {RoadClearance} from '../impl/building_cleanup';
 
 
 export interface BuildingModel {
@@ -117,6 +119,8 @@ export default class Buildings {
     private shore: Vector[] = [];
     private shoreBeach: number[] = [];
     private beaches: Vector[][] = [];
+    private waterfrontNoise = new SimplexNoise();
+    private roadClearance: RoadClearance[] = [];
     private _waterfrontParks: Vector[][] = [];
     private lowIncomeHouses: Vector[][] = [];
     private lowIncomeFences: Vector[][] = [];
@@ -174,6 +178,13 @@ export default class Buildings {
      */
     get waterfrontParks(): Vector[][] {
         return this._waterfrontParks;
+    }
+
+    /**
+     * Roads and their widths, buildings touching them are removed
+     */
+    setRoadClearance(roads: RoadClearance[]): void {
+        this.roadClearance = roads;
     }
 
     setZoning(zoning: Zoning): void {
@@ -267,6 +278,7 @@ export default class Buildings {
         this.industrialRoads = [];
         this.residentialHouses = [];
         this._waterfrontParks = [];
+        this.waterfrontNoise = new SimplexNoise();
         this.lowIncomeHouses = [];
         this.lowIncomeFences = [];
         this._models = new BuildingModels([], []);
@@ -307,6 +319,16 @@ export default class Buildings {
         const yards = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.LowIncome), YardHouseLayout.RUN_DOWN);
         this.lowIncomeHouses = yards.houses;
         this.lowIncomeFences = yards.fences;
+
+        // Nothing on the roads, and overlapping buildings either merged or removed
+        const roads = this.roadClearance.concat(this.industrialRoads.map(line => ({line, halfWidth: 2.25})));
+        const tidy = (buildings: Vector[][]): Vector[][] =>
+            BuildingCleanup.resolveOverlaps(BuildingCleanup.clearRoads(buildings, roads));
+        this.residentialHouses = tidy(this.residentialHouses);
+        this.lowIncomeHouses = tidy(this.lowIncomeHouses);
+        const port = new Set(this.portBuildings);
+        this.industrialBuildings = this.portBuildings.concat(
+            tidy(this.industrialBuildings.filter(b => !port.has(b))));
         this.redraw();
 
         const lots: Vector[][] = [];
@@ -371,7 +393,10 @@ export default class Buildings {
             }
         }
         if (!touching) return false;
-        return Math.random() < (beach > 6 ? 0.8 : 0.3);
+        // Decided in long stretches along the shore, not block by block
+        const c = PolygonUtil.averagePoint(block);
+        const stretch = this.waterfrontNoise.noise2D(c.x / 600, c.y / 600);
+        return beach > 6 ? stretch > -0.4 : stretch > 0.35;
     }
 
     private shrunkBlocks(zone: Zone): Vector[][] {

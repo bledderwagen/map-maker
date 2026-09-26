@@ -146,7 +146,7 @@ export default class WaterGUI extends RoadGUI {
      * Water's edge, for closing off waterfront blocks. Not a road
      */
     get waterEdges(): Vector[][] {
-        return this.streamlines.shore.length >= 2 ? [this.streamlines.shore] : [];
+        return this.streamlines.backshore.length >= 2 ? [this.streamlines.backshore] : [];
     }
 
     get seaPolygonWorld(): Vector[] {

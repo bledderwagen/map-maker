@@ -24,6 +24,7 @@ import {HighwayParams} from '../impl/highway_generator';
 import Zoning, {Zone, ZoningParams} from '../impl/zoning';
 import PortPlanner, {Port} from '../impl/port';
 import ParkPaths from '../impl/park_paths';
+import {polylineLength, resampleEqual} from '../impl/hydrology';
 
 /**
  * Handles Map folder, glues together impl
@@ -39,6 +40,8 @@ export default class MainGUI {
     private parkPaths: Vector[][] = [];  // World space
     private waterfrontPaths: Vector[][] = [];
     private ponds: Vector[][] = [];
+    private trees: Vector[][] = [];
+    private waterfrontTrees: Vector[][] = [];
     private smallParks: Vector[][] = [];
     private animate: boolean = true;
     private animationSpeed: number = 30;
@@ -171,6 +174,21 @@ export default class MainGUI {
             allStreamlines.push(...this.coastline.streamlinesWithSecondaryRoad);
             // The water's edge closes off the blocks between the coast road and the sea
             allStreamlines.push(...this.coastline.waterEdges);
+
+            // Half the drawn width of each kind of road, 1 world unit per pixel at zoom 1
+            const widths = this.roadHalfWidths();
+            const clearance: {line: Vector[]; halfWidth: number}[] = [];
+            const add = (lines: Vector[][], halfWidth: number): void => {
+                for (const line of lines) if (line.length >= 2) clearance.push({line, halfWidth});
+            };
+            add(this.minorRoads.allStreamlines, widths.minor);
+            add(this.majorRoads.allStreamlines, widths.major);
+            add(this.mainRoads.allStreamlines, widths.main);
+            add(this.coastline.streamlinesWithSecondaryRoad, widths.main);
+            add(this.highways.highwaysWorld, widths.highway);
+            add(this.highways.frontageRoadsWorld, widths.minor);
+            add(this.highways.rampsWorld, widths.ramp);
+            this.buildings.setRoadClearance(clearance);
             this.buildings.setAllStreamlines(allStreamlines);
             this.buildings.setWaterfront(this.coastline.shoreDetailedWorld, this.coastline.shoreBeachWidths, this.coastline.beachesWorld);
         });
@@ -199,10 +217,12 @@ export default class MainGUI {
             this.smallParks = [];
             this.parkPaths = [];
             this.ponds = [];
+            this.trees = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.sea = [];
             tensorField.river = [];
+            tensorField.beaches = [];
         });
 
         this.highways.setPreGenerateCallback(() => {
@@ -214,6 +234,7 @@ export default class MainGUI {
             this.smallParks = [];
             this.parkPaths = [];
             this.ponds = [];
+            this.trees = [];
             this.buildings.reset();
             tensorField.parks = [];
         });
@@ -226,6 +247,7 @@ export default class MainGUI {
             this.smallParks = [];
             this.parkPaths = [];
             this.ponds = [];
+            this.trees = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.ignoreRiver = true;
@@ -233,6 +255,7 @@ export default class MainGUI {
 
         this.mainRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
+            this.removeWanderingBridges(this.mainRoads);
             this.setupZoning();
         });
 
@@ -242,6 +265,7 @@ export default class MainGUI {
             this.smallParks = [];
             this.parkPaths = [];
             this.ponds = [];
+            this.trees = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.ignoreRiver = true;
@@ -249,6 +273,7 @@ export default class MainGUI {
 
         this.majorRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
+            this.removeWanderingBridges(this.majorRoads);
             this.setDistricts();
             this.addParks();
             this.redraw = true;
@@ -264,6 +289,49 @@ export default class MainGUI {
             this.trimMinorRoads();
             this.addParks();
         });
+    }
+
+    /**
+     * Roads may bridge the river, but only by crossing it fairly directly. Stretches that wander
+     * about inside the riverside park are removed, splitting the road
+     */
+    private removeWanderingBridges(roads: RoadGUI): void {
+        const park = this.coastline.floodplainWorld;
+        if (!park || park.length < 3) return;
+        const out: Vector[][] = [];
+        for (const line of roads.allStreamlines) {
+            const fine = resampleEqual(line, 4);
+            let current: Vector[] = [];
+            let i = 0;
+            while (i < fine.length) {
+                if (!PolygonUtil.insidePolygon(fine[i], park)) {
+                    current.push(fine[i]);
+                    i++;
+                    continue;
+                }
+                // A run inside the park
+                let j = i;
+                while (j < fine.length && PolygonUtil.insidePolygon(fine[j], park)) j++;
+                const run = fine.slice(Math.max(0, i - 1), Math.min(fine.length, j + 1));
+                const length = polylineLength(run);
+                const direct = run[0].distanceTo(run[run.length - 1]);
+                const reachesOtherSide = i > 0 && j < fine.length;
+                if (reachesOtherSide && length < 1.25 * direct + 10) {
+                    current.push(...fine.slice(i, j));
+                } else {
+                    if (current.length >= 2) out.push(current);
+                    current = [];
+                }
+                i = j;
+            }
+            if (current.length >= 2) out.push(current);
+        }
+        roads.replaceRoads(out.map(l => l.filter((_, k) => k % 3 === 0 || k === l.length - 1)));
+    }
+
+    private roadHalfWidths(): {minor: number; major: number; main: number; highway: number; ramp: number} {
+        // Matches the defaults in style.ts
+        return {minor: 2.25, major: 3.25, main: 4, highway: 9, ramp: 2.5};
     }
 
     private resetZoning(): void {
@@ -357,6 +425,98 @@ export default class MainGUI {
             || this.zoning.inInterchange(p)
             || this.inBigPark(p), 1);
         this.addUnderpasses(trimDistance);
+        this.pruneStubs();
+    }
+
+    /**
+     * Side streets that were cut off by a highway, interchange or park can end in the middle of
+     * nowhere a short way past their last junction. Cut those stubs back to the junction
+     */
+    private pruneStubs(): void {
+        this.minorRoads.replaceRoads(this.pruneLines(this.minorRoads.allStreamlines,
+            this.mainRoads.allStreamlines
+                .concat(this.majorRoads.allStreamlines)
+                .concat(this.coastline.streamlinesWithSecondaryRoad)
+                .concat(this.highways.frontageRoadsWorld), 90));
+        // Frontage roads cut off by a cloverleaf
+        this.highways.replaceFrontageRoads(this.pruneLines(this.highways.frontageRoadsWorld,
+            this.minorRoads.allStreamlines
+                .concat(this.mainRoads.allStreamlines)
+                .concat(this.majorRoads.allStreamlines)
+                .concat(this.coastline.streamlinesWithSecondaryRoad), 250));
+    }
+
+    /**
+     * Cuts dangling ends of lines back to their last crossing with another road
+     * @param maxStub longer dead ends are kept as real dead end streets
+     */
+    private pruneLines(minor: Vector[][], others: Vector[][], maxStub: number): Vector[][] {
+        const MAX_STUB = maxStub;
+        const TOUCH = 3;
+
+        // Segment grid over every road
+        const cell = 40;
+        const grid = new Map<string, {a: Vector; b: Vector; owner: number}[]>();
+        const addLine = (line: Vector[], owner: number): void => {
+            for (let i = 0; i < line.length - 1; i++) {
+                const a = line[i];
+                const b = line[i + 1];
+                for (let x = Math.floor(Math.min(a.x, b.x) / cell); x <= Math.floor(Math.max(a.x, b.x) / cell); x++) {
+                    for (let y = Math.floor(Math.min(a.y, b.y) / cell); y <= Math.floor(Math.max(a.y, b.y) / cell); y++) {
+                        const key = `${x},${y}`;
+                        if (!grid.has(key)) grid.set(key, []);
+                        grid.get(key).push({a, b, owner});
+                    }
+                }
+            }
+        };
+        minor.forEach((line, i) => addLine(line, i));
+        others.forEach(line => addLine(line, -1));
+
+        const nearby = (p: Vector, q: Vector, owner: number): {a: Vector; b: Vector}[] => {
+            const out: {a: Vector; b: Vector}[] = [];
+            for (let x = Math.floor((Math.min(p.x, q.x) - TOUCH) / cell); x <= Math.floor((Math.max(p.x, q.x) + TOUCH) / cell); x++) {
+                for (let y = Math.floor((Math.min(p.y, q.y) - TOUCH) / cell); y <= Math.floor((Math.max(p.y, q.y) + TOUCH) / cell); y++) {
+                    for (const s of grid.get(`${x},${y}`) || []) if (s.owner !== owner) out.push(s);
+                }
+            }
+            return out;
+        };
+        const touching = (p: Vector, owner: number): boolean =>
+            nearby(p, p, owner).some(s => PolygonUtil.distanceToSegment(p, s.a, s.b) < TOUCH);
+
+        // Returns the line with a dangling end cut back, walking from the end at index 0
+        const prune = (line: Vector[], owner: number): Vector[] => {
+            if (line.length < 2 || touching(line[0], owner)) return line;
+            let travelled = 0;
+            for (let i = 0; i < line.length - 1; i++) {
+                const a = line[i];
+                const b = line[i + 1];
+                let best: Vector = null;
+                let bestT = Infinity;
+                for (const s of nearby(a, b, owner)) {
+                    const hit = PolygonUtil.segmentIntersection(a, b, s.a, s.b);
+                    if (hit !== null && hit.t < bestT && hit.t * a.distanceTo(b) > 0.5) {
+                        bestT = hit.t;
+                        best = hit.point;
+                    }
+                }
+                if (best !== null) {
+                    if (travelled + a.distanceTo(best) > MAX_STUB) return line;
+                    return [best].concat(line.slice(i + 1));
+                }
+                travelled += a.distanceTo(b);
+                if (travelled > MAX_STUB) return line;
+            }
+            // Never meets another road, a short fragment on its own
+            return travelled > MAX_STUB ? line : [];
+        };
+
+        return minor.map((line, i) => {
+            const front = prune(line, i);
+            if (front.length < 2) return front;
+            return prune(front.slice().reverse(), i).reverse();
+        }).filter(line => line.length >= 2);
     }
 
     /**
@@ -451,6 +611,7 @@ export default class MainGUI {
             this.smallParks = [];
             this.parkPaths = [];
             this.ponds = [];
+            this.trees = [];
             if (polygons.length > this.numBigParks) {
                 if (this.clusterBigParks) {
                     // Group in adjacent polygons 
@@ -485,10 +646,12 @@ export default class MainGUI {
     private layoutParks(): void {
         this.parkPaths = [];
         this.ponds = [];
+        this.trees = [];
         for (const park of this.bigParks.concat(this.smallParks)) {
             const layout = ParkPaths.layout(park);
-            this.parkPaths.push(...layout.paths);
+            this.parkPaths.push(...layout.paths, ...layout.pitches);
             this.ponds.push(...layout.ponds);
+            this.trees.push(...layout.trees);
         }
     }
 
@@ -497,6 +660,7 @@ export default class MainGUI {
      */
     private layoutWaterfrontParks(): void {
         this.waterfrontPaths = [];
+        this.waterfrontTrees = [];
         const shore = this.coastline.shoreDetailedWorld;
         const beach = this.coastline.shoreBeachWidths;
         const sea = this.coastline.seaPolygonWorld;
@@ -513,6 +677,7 @@ export default class MainGUI {
             if (PolygonUtil.calcPolygonArea(park) > 6000) {
                 const layout = ParkPaths.layout(park);
                 this.waterfrontPaths.push(...layout.paths);
+                this.waterfrontTrees.push(...layout.trees);
             }
         }
     }
@@ -557,6 +722,7 @@ export default class MainGUI {
         style.floodplain = this.coastline.floodplain || [];
         style.lakes = this.coastline.lakes.concat(this.toScreen(this.ponds));
         style.sandBars = this.coastline.sandBars;
+        style.trees = this.toScreen(this.trees.concat(this.waterfrontTrees));
         style.paths = this.coastline.riversidePaths.concat(this.toScreen(this.parkPaths)).concat(this.toScreen(this.waterfrontPaths));
         style.lots = this.buildings.lots;
         style.lowIncomeLots = this.buildings.lowIncomeLots;

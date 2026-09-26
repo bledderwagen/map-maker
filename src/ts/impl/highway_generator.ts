@@ -20,6 +20,8 @@ interface Crossing {
     cloverleaf: boolean;
     highway: Vector[];
     distanceAlong: number;  // Distance along the highway to the crossing
+    road: Vector[];
+    roadDistanceAlong: number;
 }
 
 export interface Interchange {
@@ -168,7 +170,7 @@ export default class HighwayGenerator extends StreamlineGenerator {
             // No ramps out over the sea, e.g. near the coast; try a tighter interchange first
             for (const scale of [1, 0.75, 0.55]) {
                 const ramps = c.cloverleaf ?
-                    this.cloverleafRamps(c.point, c.highwayDir, c.roadDir, size * scale) :
+                    this.cloverleafRamps(c, size * scale) :
                     this.diamondRamps(c, size * scale);
                 if (ramps.length === 0) break;
 
@@ -215,7 +217,10 @@ export default class HighwayGenerator extends StreamlineGenerator {
                 let distanceAlong = 0;
                 for (let k = 0; k < i; k++) distanceAlong += highway[k].distanceTo(highway[k + 1]);
                 distanceAlong += hit.t * highway[i].distanceTo(highway[i + 1]);
-                out.push({point: hit.point, highwayDir, roadDir, cloverleaf, highway, distanceAlong});
+                let roadDistanceAlong = 0;
+                for (let k = 0; k < j; k++) roadDistanceAlong += road[k].distanceTo(road[k + 1]);
+                roadDistanceAlong += hit.u * road[j].distanceTo(road[j + 1]);
+                out.push({point: hit.point, highwayDir, roadDir, cloverleaf, highway, distanceAlong, road, roadDistanceAlong});
             }
         }
         return out;
@@ -331,27 +336,46 @@ export default class HighwayGenerator extends StreamlineGenerator {
     /**
      * Loops in each quadrant plus outer connecting ramps
      */
-    private cloverleafRamps(centre: Vector, h: Vector, r: Vector, L: number): Vector[][] {
+    private cloverleafRamps(c: Crossing, L: number): Vector[][] {
         const ramps: Vector[][] = [];
+        const h = c.highwayDir;
+        const r = c.roadDir;
         const sinTheta = Math.abs(h.x * r.y - h.y * r.x);
         const loopRadius = 0.6 * L;
-        const edge = this.HIGHWAY_HALF_WIDTH / sinTheta;
-        const at = (u: number, v: number): Vector => centre.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
+        const edge = this.HIGHWAY_HALF_WIDTH;
+        const alongA = HighwayGenerator.alongPolyline(c.highway);
+        const alongB = HighwayGenerator.alongPolyline(c.road);
+        const at = (u: number, v: number): Vector => c.point.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
+        const reach = 4.2 * L;
         for (const su of [-1, 1]) {
             for (const sv of [-1, 1]) {
-                // Loop just touching the edge of both highways
-                const d = (loopRadius + this.HIGHWAY_HALF_WIDTH) / sinTheta;
+                // Loop just touching the edge of both highways, close to the crossing where they're nearly straight
+                const d = (loopRadius + edge) / sinTheta;
                 const loop = PolygonUtil.circle(at(su * d, sv * d), loopRadius, 28);
                 loop.push(loop[0]);
                 ramps.push(loop);
 
-                // Outer ramp for right turns, leaving each highway at a shallow angle and bulging round the loop
+                // Outer ramp from the edge of one highway to the edge of the other, following both curves
+                const a = alongA(c.distanceAlong + su * reach);
+                const b = alongB(c.roadDistanceAlong + sv * reach);
+                // Offset towards the quadrant
+                const quadrant = at(su * reach, sv * reach);
+                const sideA = quadrant.clone().sub(a.point).dot(a.normal) >= 0 ? 1 : -1;
+                const sideB = quadrant.clone().sub(b.point).dot(b.normal) >= 0 ? 1 : -1;
+                const start = a.point.clone().add(a.normal.clone().multiplyScalar(sideA * edge));
+                const end = b.point.clone().add(b.normal.clone().multiplyScalar(sideB * edge));
+                // Leave each highway parallel to it, heading towards the crossing
+                const tangentA = new Vector(a.normal.y, -a.normal.x);
+                const tangentB = new Vector(b.normal.y, -b.normal.x);
+                const towardsA = c.point.clone().sub(a.point).dot(tangentA) >= 0 ? 1 : -1;
+                const towardsB = c.point.clone().sub(b.point).dot(tangentB) >= 0 ? 1 : -1;
+                const k = 0.55 * reach;
                 ramps.push(PolygonUtil.bezier(
-                    at(su * 4.2 * L, sv * edge),
-                    at(su * 2.4 * L, sv * (edge + 0.2 * L)),
-                    at(su * (edge + 0.2 * L), sv * 2.4 * L),
-                    at(su * edge, sv * 4.2 * L),
-                    20));
+                    start,
+                    start.clone().add(tangentA.clone().multiplyScalar(towardsA * k)),
+                    end.clone().add(tangentB.clone().multiplyScalar(towardsB * k)),
+                    end,
+                    24));
             }
         }
         return ramps;
