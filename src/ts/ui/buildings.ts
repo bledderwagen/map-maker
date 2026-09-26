@@ -5,6 +5,8 @@ import Graph from '../impl/graph';
 import Vector from '../vector';
 import PolygonFinder from '../impl/polygon_finder';
 import {PolygonParams} from '../impl/polygon_finder';
+import PolygonUtil from '../impl/polygon_util';
+import Zoning, {Zone} from '../impl/zoning';
 
 
 export interface BuildingModel {
@@ -13,7 +15,17 @@ export interface BuildingModel {
     lotScreen: Vector[]; // In screen space
     roof: Vector[]; // In screen space
     sides: Vector[][]; // In screen space
+    zone: Zone;
 }
+
+/**
+ * Building height range for each zone
+ */
+const HEIGHTS: {[zone: number]: {min: number, max: number}} = {
+    [Zone.Residential]: {min: 20, max: 40},
+    [Zone.LowIncome]: {min: 8, max: 18},
+    [Zone.Industrial]: {min: 6, max: 14},
+};
 
 /**
  * Pseudo 3D buildings
@@ -22,14 +34,16 @@ class BuildingModels {
     private domainController = DomainController.getInstance();
     private _buildingModels: BuildingModel[] = [];
 
-    constructor(lots: Vector[][]) {  // Lots in world space
-        for (const lot of lots) {
+    constructor(lots: Vector[][], zones: Zone[]) {  // Lots in world space
+        for (let i = 0; i < lots.length; i++) {
+            const range = HEIGHTS[zones[i]];
             this._buildingModels.push({
-                height: Math.random() * 20 + 20,
-                lotWorld: lot,
+                height: Math.random() * (range.max - range.min) + range.min,
+                lotWorld: lots[i],
                 lotScreen: [],
                 roof: [],
-                sides: []
+                sides: [],
+                zone: zones[i],
             });
         }
         this._buildingModels.sort((a, b) => a.height - b.height);
@@ -77,21 +91,44 @@ class BuildingModels {
 
 /**
  * Finds building lots and optionally pseudo3D buildings
+ * Each block is given a zone, which decides how it is divided up
  */
 export default class Buildings {
-    private polygonFinder: PolygonFinder;
+    private readonly BLOCK_MAX_LENGTH = 1000;  // Blocks next to smoothed highways or with many side streets have many sides
+
+    // One polygon finder per zone, indexed by Zone
+    private polygonFinders: PolygonFinder[];
     private allStreamlines: Vector[][] = [];
     private domainController = DomainController.getInstance();
     private preGenerateCallback: () => any = () => {};
     private postGenerateCallback: () => any = () => {};
-    private _models: BuildingModels = new BuildingModels([]);
+    private _models: BuildingModels = new BuildingModels([], []);
     private _blocks: Vector[][] = [];
+    private zoneBlocks: Vector[][][] = [[], [], []];  // Indexed by Zone, world space
+    private industrialBuildings: Vector[][] = [];  // Warehouses and tanks, replaces the industrial lots
+    private zoning: Zoning = null;
 
     private buildingParams: PolygonParams = {
         maxLength: 20,
         minArea: 50,
         shrinkSpacing: 4,
         chanceNoDivide: 0.05,
+    };
+
+    // Small, tightly packed houses
+    private lowIncomeParams: PolygonParams = {
+        maxLength: 20,
+        minArea: 28,
+        shrinkSpacing: 3,
+        chanceNoDivide: 0,
+    };
+
+    // Warehouses and factories on large lots
+    private industrialParams: PolygonParams = {
+        maxLength: 20,
+        minArea: 500,
+        shrinkSpacing: 5,
+        chanceNoDivide: 0,
     };
 
     constructor(private tensorField: TensorField,
@@ -103,15 +140,50 @@ export default class Buildings {
         folder.add(this.buildingParams, 'minArea');
         folder.add(this.buildingParams, 'shrinkSpacing');
         folder.add(this.buildingParams, 'chanceNoDivide');
-        this.polygonFinder = new PolygonFinder([], this.buildingParams, this.tensorField);
+        folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeMinArea');
+        folder.add(this.industrialParams, 'minArea').name('industrialMinArea');
+        this.polygonFinders = this.createPolygonFinders();
     }
 
     set animate(v: boolean) {
         this._animate = v;
     }
 
+    setZoning(zoning: Zoning): void {
+        this.zoning = zoning;
+    }
+
     get lots(): Vector[][] {
-        return this.polygonFinder.polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
+        return this.toScreen(this.polygonFinders[Zone.Residential].polygons);
+    }
+
+    get lowIncomeLots(): Vector[][] {
+        return this.toScreen(this.polygonFinders[Zone.LowIncome].polygons);
+    }
+
+    get industrialLots(): Vector[][] {
+        if (this.industrialBuildings.length > 0) return this.toScreen(this.industrialBuildings);
+        return this.toScreen(this.polygonFinders[Zone.Industrial].polygons);
+    }
+
+    get lowIncomeBlocks(): Vector[][] {
+        return this.toScreen(this.zoneBlocks[Zone.LowIncome]);
+    }
+
+    get industrialBlocks(): Vector[][] {
+        return this.toScreen(this.zoneBlocks[Zone.Industrial]);
+    }
+
+    private toScreen(polygons: Vector[][]): Vector[][] {
+        return polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
+    }
+
+    private createPolygonFinders(): PolygonFinder[] {
+        const finders: PolygonFinder[] = [];
+        finders[Zone.Residential] = new PolygonFinder([], this.buildingParams, this.tensorField);
+        finders[Zone.LowIncome] = new PolygonFinder([], this.lowIncomeParams, this.tensorField);
+        finders[Zone.Industrial] = new PolygonFinder([], this.industrialParams, this.tensorField);
+        return finders;
     }
 
     /**
@@ -136,30 +208,116 @@ export default class Buildings {
     }
 
     reset(): void {
-        this.polygonFinder.reset();
-        this._models = new BuildingModels([]);
+        for (const f of this.polygonFinders) f.reset();
+        this.zoneBlocks = [[], [], []];
+        this.industrialBuildings = [];
+        this._models = new BuildingModels([], []);
     }
 
     update(): boolean {
-        return this.polygonFinder.update();
+        let changed = false;
+        for (const f of this.polygonFinders) {
+            if (f.update()) changed = true;
+        }
+        return changed;
     }
 
     /**
-     * Finds blocks, shrinks and divides them to create building lots
+     * Finds blocks, assigns each a zone, then shrinks and divides them to create building lots
      */
     async generate(animate: boolean): Promise<void> {
         this.preGenerateCallback();
-        this._models = new BuildingModels([]);
+        this.reset();
         const g = new Graph(this.allStreamlines, this.dstep, true);
 
-        this.polygonFinder = new PolygonFinder(g.nodes, this.buildingParams, this.tensorField);
-        this.polygonFinder.findPolygons();
-        await this.polygonFinder.shrink(animate);
-        await this.polygonFinder.divide(animate);
+        const blockParams = Object.assign({}, this.buildingParams);
+        blockParams.maxLength = Math.max(blockParams.maxLength, this.BLOCK_MAX_LENGTH);
+        const blockFinder = new PolygonFinder(g.nodes, blockParams, this.tensorField);
+        blockFinder.findPolygons();
+
+        this.zoneBlocks = this.zoneAndClipBlocks(blockFinder.polygons);
+        this.polygonFinders = this.createPolygonFinders();
+        for (const zone of [Zone.Residential, Zone.LowIncome, Zone.Industrial]) {
+            this.polygonFinders[zone].setPolygons(this.zoneBlocks[zone]);
+        }
+
+        await Promise.all(this.polygonFinders.map(f => f.shrink(animate)));
+        await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
+        this.industrialBuildings = this.createIndustrialBuildings(this.polygonFinders[Zone.Industrial].polygons);
         this.redraw();
-        this._models = new BuildingModels(this.polygonFinder.polygons);
+
+        const lots: Vector[][] = [];
+        const zones: Zone[] = [];
+        const addLots = (polygons: Vector[][], zone: Zone) => {
+            lots.push(...polygons);
+            for (let i = 0; i < polygons.length; i++) zones.push(zone);
+        };
+        addLots(this.polygonFinders[Zone.Residential].polygons, Zone.Residential);
+        addLots(this.polygonFinders[Zone.LowIncome].polygons, Zone.LowIncome);
+        addLots(this.industrialBuildings, Zone.Industrial);
+        this._models = new BuildingModels(lots, zones);
 
         this.postGenerateCallback();
+    }
+
+    /**
+     * Cuts highway verges and interchanges out of blocks, then sorts blocks by zone
+     */
+    private zoneAndClipBlocks(blocks: Vector[][]): Vector[][][] {
+        const out: Vector[][][] = [[], [], []];
+        if (this.zoning === null || !this.zoning.enabled) {
+            out[Zone.Residential] = blocks;
+            return out;
+        }
+
+        const exclusions = this.zoning.exclusionAreas;
+        const exclusionBoxes = exclusions.map(e => PolygonUtil.boundingBox(e));
+
+        for (const block of blocks) {
+            const box = PolygonUtil.boundingBox(block);
+            const holes = exclusions.filter((e, i) => PolygonUtil.boundingBoxesOverlap(box, exclusionBoxes[i]));
+            const pieces = holes.length === 0 ? [block] : PolygonUtil.subtractPolygons(block, holes, this.lowIncomeParams.minArea);
+            for (const piece of pieces) {
+                out[this.zoning.zoneAt(PolygonUtil.averagePoint(piece))].push(piece);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Industrial lots become warehouses with a loading yard around them,
+     * open storage yards, or groups of storage tanks
+     */
+    private createIndustrialBuildings(lots: Vector[][]): Vector[][] {
+        const out: Vector[][] = [];
+        for (const lot of lots) {
+            const area = PolygonUtil.calcPolygonArea(lot);
+            const r = Math.random();
+            if (r < 0.15 && area > 400) {
+                out.push(...this.storageTanks(lot));
+            } else if (r < 0.25) {
+                // Open yard, no building
+            } else {
+                const warehouse = PolygonUtil.resizeGeometry(lot, -2.5);
+                out.push(warehouse.length > 2 ? warehouse : lot);
+            }
+        }
+        return out;
+    }
+
+    private storageTanks(lot: Vector[]): Vector[][] {
+        const tanks: Vector[][] = [];
+        const radius = 4 + Math.random() * 4;
+        const spacing = radius * 2.6;
+        const box = PolygonUtil.boundingBox(lot);
+        for (let x = box[0] + spacing / 2; x < box[2]; x += spacing) {
+            for (let y = box[1] + spacing / 2; y < box[3]; y += spacing) {
+                const tank = PolygonUtil.circle(new Vector(x, y), radius, 16);
+                if (tank.every(v => PolygonUtil.insidePolygon(v, lot))) tanks.push(tank);
+                if (tanks.length >= 8) return tanks;
+            }
+        }
+        return tanks;
     }
 
     setPreGenerateCallback(callback: () => any): void {

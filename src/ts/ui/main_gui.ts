@@ -18,6 +18,10 @@ import {DefaultStyle, RoughStyle} from './style';
 import CanvasWrapper from './canvas_wrapper';
 import Buildings, {BuildingModel} from './buildings';
 import PolygonUtil from '../impl/polygon_util';
+import Util from '../util';
+import HighwayGUI from './highway_gui';
+import {HighwayParams} from '../impl/highway_generator';
+import Zoning, {Zone, ZoningParams} from '../impl/zoning';
 
 /**
  * Handles Map folder, glues together impl
@@ -35,13 +39,22 @@ export default class MainGUI {
     private animationSpeed: number = 30;
 
     private coastline: WaterGUI;
+    private highways: HighwayGUI;
     private mainRoads: RoadGUI;
     private majorRoads: RoadGUI;
     private minorRoads: RoadGUI;
     private buildings: Buildings;
+    private zoning: Zoning;
 
     // Params
     private coastlineParams: WaterParams;
+    private highwayParams: HighwayParams;
+    private zoningParams: ZoningParams = {
+        numIndustrialZones: 2,
+        industrialSize: 160,
+        lowIncomeAmount: 0.5,
+        highwayBuffer: 8,
+    };
     private mainParams: StreamlineParams;
     private majorParams: StreamlineParams;
     private minorParams: StreamlineParams = {
@@ -88,6 +101,17 @@ export default class MainGUI {
         this.majorParams.dlookahead = 200;
         this.majorParams.collideEarly = 0;
 
+        this.highwayParams = Object.assign({
+            numHighways: 2,
+            frontageRoads: true,
+            frontageDistance: 17,
+            interchangeSize: 22,
+        }, this.minorParams);
+        this.highwayParams.dsep = 350;
+        this.highwayParams.dtest = 150;
+        this.highwayParams.simplifyTolerance = 4;
+        this.highwayParams.seedTries = 100;
+
         this.mainParams = Object.assign({}, this.minorParams);
         this.mainParams.dsep = 400;
         this.mainParams.dtest = 200;
@@ -99,6 +123,8 @@ export default class MainGUI {
 
         this.coastline = new WaterGUI(tensorField, this.coastlineParams, integrator,
             this.guiFolder, closeTensorFolder, 'Water', redraw).initFolder();
+        this.highways = new HighwayGUI(tensorField, this.highwayParams, integrator,
+            this.guiFolder, closeTensorFolder, 'Highways', redraw).initFolder();
         this.mainRoads = new RoadGUI(this.mainParams, integrator, this.guiFolder, closeTensorFolder, 'Main', redraw).initFolder();
         this.majorRoads = new RoadGUI(this.majorParams, integrator, this.guiFolder, closeTensorFolder, 'Major', redraw, this.animate).initFolder();
         this.minorRoads = new RoadGUI(this.minorParams, integrator, this.guiFolder, closeTensorFolder, 'Minor', redraw, this.animate).initFolder();
@@ -113,10 +139,19 @@ export default class MainGUI {
         parks.add(this, 'numBigParks');
         parks.add(this, 'numSmallParks');
 
+        this.zoning = new Zoning(this.zoningParams, tensorField);
+        const zoningFolder = guiFolder.addFolder('Zoning');
+        zoningFolder.add({Regenerate: () => this.regenerateZoning()}, 'Regenerate');
+        zoningFolder.add(this.zoningParams, 'numIndustrialZones', 0, 6).step(1);
+        zoningFolder.add(this.zoningParams, 'industrialSize', 40, 400);
+        zoningFolder.add(this.zoningParams, 'lowIncomeAmount', 0, 1);
+
         const buildingsFolder = guiFolder.addFolder('Buildings');
         this.buildings = new Buildings(tensorField, buildingsFolder, redraw, this.minorParams.dstep, this.animate);
+        this.buildings.setZoning(this.zoning);
         this.buildings.setPreGenerateCallback(() => {
             const allStreamlines = [];
+            allStreamlines.push(...this.highways.allStreamlines);
             allStreamlines.push(...this.mainRoads.allStreamlines);
             allStreamlines.push(...this.majorRoads.allStreamlines);
             allStreamlines.push(...this.minorRoads.allStreamlines);
@@ -130,11 +165,16 @@ export default class MainGUI {
             this.buildings.animate = b;
         });
 
-        this.minorRoads.setExistingStreamlines([this.coastline, this.mainRoads, this.majorRoads]);
-        this.majorRoads.setExistingStreamlines([this.coastline, this.mainRoads]);
-        this.mainRoads.setExistingStreamlines([this.coastline]);
+        this.minorRoads.setExistingStreamlines([this.coastline, this.highways, this.mainRoads, this.majorRoads]);
+        this.majorRoads.setExistingStreamlines([this.coastline, this.highways, this.mainRoads]);
+        this.mainRoads.setExistingStreamlines([this.coastline, this.highways]);
+
+        // Side streets don't cross highways, get cut off by interchanges, and leave industry to the larger roads
+        this.minorRoads.setBlocked(p => this.blockedForMinorRoads(p));
 
         this.coastline.setPreGenerateCallback(() => {
+            this.highways.clearStreamlines();
+            this.zoning.reset();
             this.mainRoads.clearStreamlines();
             this.majorRoads.clearStreamlines();
             this.minorRoads.clearStreamlines();
@@ -146,7 +186,19 @@ export default class MainGUI {
             tensorField.river = [];
         });
 
+        this.highways.setPreGenerateCallback(() => {
+            this.zoning.reset();
+            this.mainRoads.clearStreamlines();
+            this.majorRoads.clearStreamlines();
+            this.minorRoads.clearStreamlines();
+            this.bigParks = [];
+            this.smallParks = [];
+            this.buildings.reset();
+            tensorField.parks = [];
+        });
+
         this.mainRoads.setPreGenerateCallback(() => {
+            this.zoning.reset();
             this.majorRoads.clearStreamlines();
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
@@ -158,6 +210,7 @@ export default class MainGUI {
 
         this.mainRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
+            this.setupZoning();
         });
 
         this.majorRoads.setPreGenerateCallback(() => {
@@ -171,6 +224,7 @@ export default class MainGUI {
 
         this.majorRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
+            this.setDistricts();
             this.addParks();
             this.redraw = true;
         });
@@ -182,12 +236,85 @@ export default class MainGUI {
         });
 
         this.minorRoads.setPostGenerateCallback(() => {
+            this.trimMinorRoads();
             this.addParks();
         });
     }
 
+    /**
+     * Interchanges and industrial sites depend on where main roads meet highways
+     */
+    private setupZoning(): void {
+        this.highways.createInterchanges(this.mainRoads.allStreamlines
+            .concat(this.coastline.streamlinesWithSecondaryRoad));
+
+        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
+        const origin = this.domainController.origin;
+        const worldDimensions = this.domainController.worldDimensions;
+        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+
+        // No building lots between a highway and its frontage roads
+        this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 8;
+        this.zoning.setup(origin, worldDimensions,
+            this.highways.highwaysWorld, this.highways.interchanges,
+            this.coastline.allStreamlines);
+    }
+
+    /**
+     * Snap zones to the areas enclosed by highways, main and major roads
+     */
+    private setDistricts(): void {
+        if (!this.zoning.enabled) return;
+        const g = new Graph(this.highways.allStreamlines
+            .concat(this.mainRoads.allStreamlines)
+            .concat(this.majorRoads.allStreamlines)
+            .concat(this.coastline.streamlinesWithSecondaryRoad), this.minorParams.dstep, true);
+        const p = new PolygonFinder(g.nodes, {
+                maxLength: 1000,  // Districts next to smoothed highways have many sides
+                minArea: 80,
+                shrinkSpacing: 4,
+                chanceNoDivide: 1,
+            }, this.tensorField);
+        p.findPolygons();
+        this.zoning.setDistricts(p.polygons);
+    }
+
+    private blockedForMinorRoads(p: Vector): boolean {
+        if (!this.zoning.enabled) return false;
+        const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
+        return this.zoning.approxHighwayDistance(p) < trimDistance - 6
+            || this.zoning.zoneAt(p) === Zone.Industrial
+            || this.zoning.inInterchange(p);
+    }
+
+    /**
+     * Minor roads stop a little way past zone edges, cut them back so they end exactly on the
+     * frontage road or on the road bounding an industrial district
+     */
+    private trimMinorRoads(): void {
+        if (!this.zoning.enabled) return;
+        const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
+        // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
+        this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
+            || this.zoning.inIndustrialDistrict(p), 1);
+    }
+
+    /**
+     * Pick new industrial sites and rebuild everything that depends on them
+     */
+    async regenerateZoning(): Promise<void> {
+        if (this.highways.roadsEmpty() && this.mainRoads.roadsEmpty()) return;
+        this.setupZoning();
+        this.setDistricts();
+        await this.minorRoads.generateRoads(this.animate);
+        this.redraw = true;
+        await this.buildings.generate(this.animate);
+        this.redraw = true;
+    }
+
     addParks(): void {
         const g = new Graph(this.majorRoads.allStreamlines
+            .concat(this.highways.allStreamlines)
             .concat(this.mainRoads.allStreamlines)
             .concat(this.minorRoads.allStreamlines), this.minorParams.dstep);
         this.intersections = g.intersections;
@@ -199,7 +326,8 @@ export default class MainGUI {
                 chanceNoDivide: 1,
             }, this.tensorField);
         p.findPolygons();
-        const polygons = p.polygons;
+        // Nobody builds a park in the middle of an industrial estate
+        const polygons = p.polygons.filter(poly => this.zoning.zoneAt(PolygonUtil.averagePoint(poly)) !== Zone.Industrial);
 
         if (this.minorRoads.allStreamlines.length === 0) {
             // Big parks
@@ -237,6 +365,7 @@ export default class MainGUI {
 
     async generateEverything() {
         this.coastline.generateRoads();
+        await this.highways.generateRoads();
         await this.mainRoads.generateRoads();
         await this.majorRoads.generateRoads(this.animate);
         await this.minorRoads.generateRoads(this.animate);
@@ -271,6 +400,10 @@ export default class MainGUI {
         style.coastline = this.coastline.coastline;
         style.river = this.coastline.river;
         style.lots = this.buildings.lots;
+        style.lowIncomeLots = this.buildings.lowIncomeLots;
+        style.industrialLots = this.buildings.industrialLots;
+        style.lowIncomeAreas = this.buildings.lowIncomeBlocks;
+        style.industrialAreas = this.buildings.industrialBlocks;
 
         if (style instanceof DefaultStyle && style.showBuildingModels || style instanceof RoughStyle) {
             style.buildingModels = this.buildings.models;    
@@ -283,12 +416,19 @@ export default class MainGUI {
         style.majorRoads = this.majorRoads.roads;
         style.mainRoads = this.mainRoads.roads;
         style.coastlineRoads = this.coastline.roads;
+        style.highways = this.highways.roads;
+        style.frontageRoads = this.highways.frontageRoads;
+        style.ramps = this.highways.ramps;
         style.secondaryRiver = this.coastline.secondaryRiver;
         style.draw(customCanvas);
+
+        // Drawing an export shouldn't stop the screen from catching up
+        if (customCanvas) this.redraw = true;
     }
 
     roadsEmpty(): boolean {
         return this.majorRoads.roadsEmpty()
+            && this.highways.roadsEmpty()
             && this.minorRoads.roadsEmpty()
             && this.mainRoads.roadsEmpty()
             && this.coastline.roadsEmpty();
@@ -313,7 +453,7 @@ export default class MainGUI {
     }
 
     public get minorRoadPolygons(): Vector[][] {
-        return this.minorRoads.roads.map(r => PolygonUtil.resizeGeometry(r, 1 * this.domainController.zoom, false));
+        return this.minorRoads.roads.concat(this.highways.frontageRoads).map(r => PolygonUtil.resizeGeometry(r, 1 * this.domainController.zoom, false));
     }
 
     public get majorRoadPolygons(): Vector[][] {
@@ -321,7 +461,9 @@ export default class MainGUI {
     }
 
     public get mainRoadPolygons(): Vector[][] {
-        return this.mainRoads.roads.concat(this.coastline.roads).map(r => PolygonUtil.resizeGeometry(r, 2.5 * this.domainController.zoom, false));
+        return this.mainRoads.roads.concat(this.coastline.roads).map(r => PolygonUtil.resizeGeometry(r, 2.5 * this.domainController.zoom, false))
+            .concat(this.highways.roads.map(r => PolygonUtil.resizeGeometry(r, 4 * this.domainController.zoom, false)))
+            .concat(this.highways.ramps.map(r => PolygonUtil.resizeGeometry(r, 1.5 * this.domainController.zoom, false)));
     }
 
     public get coastlinePolygon(): Vector[] {

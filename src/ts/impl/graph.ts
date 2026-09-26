@@ -95,11 +95,16 @@ export default class Graph {
         }
 
         
-        for (const n of quadtree.data()) {
-            if (deleteDangling) {
+        // Prune every dead end before building adjacency lists, otherwise a node processed early
+        // keeps a reference to a neighbour that is deleted later
+        if (deleteDangling) {
+            for (const n of quadtree.data()) {
                 this.deleteDanglingNodes(n, quadtree);
             }
-                n.adj = Array.from(n.neighbors);
+        }
+
+        for (const n of quadtree.data()) {
+            n.adj = Array.from(n.neighbors);
         }
 
         this.nodes = quadtree.data();

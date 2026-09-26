@@ -198,29 +198,6 @@ export default class WaterGenerator extends StreamlineGenerator {
     }
 
     /**
-     * Insert samples in streamline until separated by dstep
-     */
-    private complexifyStreamline(s: Vector[]): Vector[] {
-        const out: Vector[] = [];
-        for (let i = 0; i < s.length - 1; i++) {
-            out.push(...this.complexifyStreamlineRecursive(s[i], s[i+1]));
-        }
-        return out;
-    }
-
-    private complexifyStreamlineRecursive(v1: Vector, v2: Vector): Vector[] {
-        if (v1.distanceToSquared(v2) <= this.paramsSq.dstep) {
-            return [v1, v2];
-        }
-        const d = v2.clone().sub(v1);
-        const halfway = v1.clone().add(d.multiplyScalar(0.5));
-        
-        const complex = this.complexifyStreamlineRecursive(v1, halfway);
-        complex.push(...this.complexifyStreamlineRecursive(halfway, v2));
-        return complex;
-    }
-
-    /**
      * Mutates streamline
      */
     private extendStreamline(streamline: Vector[]): Vector[] {

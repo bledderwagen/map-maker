@@ -37,6 +37,14 @@ export default class PolygonFinder {
         return this._polygons;
     }
 
+    /**
+     * Use these polygons instead of finding them from the graph
+     */
+    setPolygons(polygons: Vector[][]): void {
+        this.reset();
+        this._polygons = polygons;
+    }
+
     reset(): void {
         this.toShrink = [];
         this.toDivide = [];
@@ -171,7 +179,18 @@ export default class PolygonFinder {
             }
         }
 
-        this._polygons = this.filterPolygonsByWater(polygons);
+        this._polygons = this.filterPolygonsByWater(this.removeOuterFaces(polygons));
+    }
+
+    /**
+     * Walking the graph also traces the outside of each connected area of roads,
+     * those come out with the opposite winding to real blocks
+     */
+    private removeOuterFaces(polygons: Vector[][]): Vector[][] {
+        const areas = polygons.map(p => PolygonUtil.signedArea(p));
+        const positive = areas.filter(a => a > 0).length;
+        const blockSign = positive >= areas.length - positive ? 1 : -1;
+        return polygons.filter((p, i) => areas[i] * blockSign > 0);
     }
 
     private filterPolygonsByWater(polygons: Vector[][]): Vector[][] {

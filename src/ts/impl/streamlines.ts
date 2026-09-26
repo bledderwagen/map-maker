@@ -57,6 +57,9 @@ export default class StreamlineGenerator {
     public streamlinesMinor: Vector[][] = [];
     public allStreamlinesSimple: Vector[][] = [];  // Reduced vertex count
 
+    // Points where this generator may not seed or integrate (e.g. highway corridors, industrial zones)
+    public blocked: (point: Vector) => boolean = null;
+
     /**
      * Uses world-space coordinates
      */
@@ -246,6 +249,73 @@ export default class StreamlineGenerator {
         }).then(() => this.joinDanglingStreamlines());
     }
 
+    /**
+     * Cuts the ends of simplified streamlines back to where they leave the region described by `inside`
+     * The new end point is found by bisection, so it sits on the region boundary
+     * overshoot pushes the end slightly past the boundary so that it properly crosses a road there
+     * Streamlines left with fewer than 2 points are removed
+     */
+    trimSimplifiedEnds(inside: (point: Vector) => boolean, overshoot=0): void {
+        const trimmed: Vector[][] = [];
+        for (const s of this.allStreamlinesSimple) {
+            const forwards = this.trimEnd(s, inside, overshoot);
+            if (forwards.length < 2) continue;
+            const both = this.trimEnd(forwards.reverse(), inside, overshoot).reverse();
+            if (both.length >= 2) trimmed.push(both);
+        }
+        this.allStreamlinesSimple = trimmed;
+    }
+
+    private trimEnd(line: Vector[], inside: (point: Vector) => boolean, overshoot: number): Vector[] {
+        let end = line.length - 1;
+        while (end >= 0 && inside(line[end])) end--;
+        if (end === line.length - 1) return line;
+        if (end < 0) return [];
+
+        // Bisect between the last point outside and the first point inside
+        let outsidePoint = line[end];
+        let insidePoint = line[end + 1];
+        for (let i = 0; i < 12; i++) {
+            const mid = outsidePoint.clone().add(insidePoint).divideScalar(2);
+            if (inside(mid)) {
+                insidePoint = mid;
+            } else {
+                outsidePoint = mid;
+            }
+        }
+
+        const out = line.slice(0, end + 1);
+        const direction = line[end + 1].clone().sub(line[end]);
+        if (overshoot > 0 && direction.lengthSq() > 0) {
+            outsidePoint.add(direction.setLength(overshoot));
+        }
+        out.push(outsidePoint);
+        return out;
+    }
+
+    /**
+     * Insert samples in streamline until separated by dstep
+     */
+    protected complexifyStreamline(s: Vector[]): Vector[] {
+        const out: Vector[] = [];
+        for (let i = 0; i < s.length - 1; i++) {
+            out.push(...this.complexifyStreamlineRecursive(s[i], s[i+1]));
+        }
+        return out;
+    }
+
+    private complexifyStreamlineRecursive(v1: Vector, v2: Vector): Vector[] {
+        if (v1.distanceToSquared(v2) <= this.paramsSq.dstep) {
+            return [v1, v2];
+        }
+        const d = v2.clone().sub(v1);
+        const halfway = v1.clone().add(d.multiplyScalar(0.5));
+
+        const complex = this.complexifyStreamlineRecursive(v1, halfway);
+        complex.push(...this.complexifyStreamlineRecursive(halfway, v2));
+        return complex;
+    }
+
     protected simplifyStreamline(streamline: Vector[]): Vector[] {
         const simplified = [];
         for (const point of simplify(streamline, this.params.simplifyTolerance)) {
@@ -336,6 +406,7 @@ export default class StreamlineGenerator {
         if (bothGrids) {
             gridValid = gridValid && this.grid(!major).isValidSample(point, dSq);
         }
+        if (this.blocked !== null && this.blocked(point)) return false;
         return this.integrator.onLand(point) && gridValid;
     }
 

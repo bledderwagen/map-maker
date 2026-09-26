@@ -1,5 +1,7 @@
 > **This is a fork** of [ProbableTrain/MapGenerator](https://github.com/ProbableTrain/MapGenerator), maintained as **map-maker**.
 > All credit for the original work goes to ProbableTrain and its contributors. Licensed under LGPL-3.0 (see `COPYING` and `COPYING.LESSER`).
+>
+> See [What's new in map-maker](#whats-new-in-map-maker) for the changes made in this fork.
 
 
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
@@ -31,6 +33,7 @@
 
 ## Table of Contents
 
+* [What's new in map-maker](#whats-new-in-map-maker)
 * [About the Project](#about-the-project)
   * [Built With](#built-with)
 * [Getting Started](#getting-started)
@@ -42,6 +45,24 @@
 * [License](#license)
 * [Contact](#contact)
 
+
+
+## What's new in map-maker
+
+![Highways, a waterfront industrial district and low income housing](docs/images/highways-industry.png)
+
+Highways, industry and low income neighbourhoods are generated together, because in real cities each one shapes the others:
+
+* **Highways** (Map → Highways): one to four long, smooth expressways cross the whole map. They follow the city's tensor field, so they line up with the street grid, and they bridge rivers.
+  * **Interchanges**: diamond interchanges where main roads cross a highway, cloverleafs where two highways cross. Other roads pass under or over the highway.
+  * **Frontage roads** run alongside highways. Side streets end at the frontage road instead of crossing the highway, and no buildings go in the verge between them.
+* **Industry** (Map → Zoning): industrial districts are placed at highway interchanges and on the waterfront (ports). They are superblocks bounded by main and major roads, with no side streets. They contain large, low warehouses, open yards and groups of storage tanks, and parks are never placed in them.
+* **Low income neighbourhoods** form rings around industry and bands along the highways. Their houses are smaller, denser and lower.
+* **Zoning controls**: `numIndustrialZones`, `industrialSize` and `lowIncomeAmount`. `Regenerate` picks new industrial sites and rebuilds side streets and buildings without touching the main road network.
+* **Land use colours**: industrial areas are tinted purple and low income areas warm beige. Toggle them with Style → `showZones`. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour` and `lowIncomeBuildingColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Bug fixes** in the original lot generation: many blocks were left empty or turned into one giant building because block subdivision cut in the wrong place, dead ends broke block detection, and the build failed on case-sensitive file systems.
+
+![The Apple colour scheme shows land use clearly](docs/images/land-use-apple.png)
 
 
 ## About The Project
@@ -88,11 +109,12 @@ git clone https://github.com/probabletrain/mapgenerator.git
 cd mapgenerator
 npm install
 ```
-3. Build with Gulp. This will watch for changes to any Typescript files. If you edit the HTML or CSS you will have to rerun this command. [Gulp Notify](https://github.com/mikaelbr/gulp-notify) sends a notification whenever a build finishes.
+3. Build. `npm run build` builds once into `dist/`. `npm start` watches for changes to any Typescript files; if you edit the HTML or CSS you will have to rerun it. [Gulp Notify](https://github.com/mikaelbr/gulp-notify) sends a notification whenever a watch build finishes.
 ```
-gulp
+npm run build
 ```
 4. Open `dist/index.html` in a web browser, refresh the page whenever the project is rebuilt.
+5. `npm run typecheck` checks the Typescript without building.
 
 
 

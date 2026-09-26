@@ -32,6 +32,18 @@ export default class Util {
         }
     }
 
+    /**
+     * Linear blend of two CSS colours, t=0 gives a, t=1 gives b
+     * Returns a unchanged if either colour can't be parsed
+     */
+    static mixColours(a: string, b: string, t: number): string {
+        const ca = Util.parseCSSColor(a);
+        const cb = Util.parseCSSColor(b);
+        if (!ca || !cb) return a;
+        const mix = [0, 1, 2].map(i => Math.round(ca[i] * (1 - t) + cb[i] * t));
+        return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+    }
+
     static randomRange(max: number, min=0): number {
         return (Math.random() * (max - min)) + min;
     }

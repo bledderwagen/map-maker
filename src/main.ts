@@ -43,6 +43,7 @@ class Main {
     private zoomBuildings: boolean = false;  // Show buildings only when zoomed in?
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
     private showFrame: boolean = false;
+    private showZones: boolean = true;  // Tint industrial and low income areas
 
     // Force redraw of roads when switching from tensor vis to map vis
     private previousFrameDrawTensor = true;
@@ -94,6 +95,11 @@ class Main {
         this.styleFolder.add(this, 'showFrame').onChange((val: boolean) => {
             this.previousFrameDrawTensor = true;
             this._style.showFrame = val;
+        });
+
+        this.styleFolder.add(this, 'showZones').onChange((val: boolean) => {
+            this.previousFrameDrawTensor = true;
+            this._style.showZones = val;
         });
 
         this.styleFolder.add(this.domainController, 'orthographic');
@@ -153,6 +159,7 @@ class Main {
             this._style = new DefaultStyle(this.canvas, this.dragController, Object.assign({}, colourScheme), scheme.startsWith("Heightmap"));
         }
         this._style.showFrame = this.showFrame;
+        this._style.showZones = this.showZones;
         this.changeCanvasScale(this.highDPI);
     }
 
@@ -321,5 +328,6 @@ class Main {
 // Add log to window so we can use log.setlevel from the console
 (window as any).log = log;
 window.addEventListener('load', (): void => {
-    new Main();
+    // Exposed on window for debugging from the console
+    (window as any).mapGenerator = new Main();
 });

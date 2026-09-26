@@ -18,6 +18,7 @@ export default class RoadGUI {
     protected postGenerateCallback: () => any = () => {};
 
     private streamlinesInProgress: boolean = false;
+    private blocked: (point: Vector) => boolean = null;
 
     constructor(protected params: StreamlineParams,
                 protected integrator: FieldIntegrator,
@@ -92,6 +93,20 @@ export default class RoadGUI {
         this.streamlines.clearStreamlines();
     }
 
+    /**
+     * Roads will not be seeded or integrated where blocked returns true
+     */
+    setBlocked(blocked: (point: Vector) => boolean): void {
+        this.blocked = blocked;
+    }
+
+    /**
+     * Cuts road ends back to where they leave the region described by inside
+     */
+    trimEnds(inside: (point: Vector) => boolean, overshoot=0): void {
+        this.streamlines.trimSimplifiedEnds(inside, overshoot);
+    }
+
     async generateRoads(animate=false): Promise<unknown> {
         this.preGenerateCallback();
 
@@ -99,6 +114,7 @@ export default class RoadGUI {
         this.streamlines = new StreamlineGenerator(
             this.integrator, this.domainController.origin,
             this.domainController.worldDimensions, Object.assign({},this.params));
+        this.streamlines.blocked = this.blocked;
         this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
 
         for (const s of this.existingStreamlines) {

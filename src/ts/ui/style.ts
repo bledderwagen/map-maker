@@ -10,6 +10,7 @@ import DragController from './drag_controller';
 import DomainController from './domain_controller';
 import Vector from '../vector';
 import {BuildingModel} from './buildings';
+import {Zone} from '../impl/zoning';
 
 export interface ColourScheme {
     bgColour: string;
@@ -33,6 +34,14 @@ export interface ColourScheme {
     buildingModels?: boolean;
     frameColour?: string;
     frameTextColour?: string;
+    highwayColour?: string;
+    highwayOutline?: string;
+    highwayWidth?: number;
+    rampWidth?: number;
+    industrialColour?: string;  // Land use tint
+    industrialBuildingColour?: string;
+    lowIncomeColour?: string;  // Land use tint
+    lowIncomeBuildingColour?: string;
 }
 
 /**
@@ -51,6 +60,10 @@ export default abstract class Style {
     public lots: Vector[][] = [];
     public buildingModels: BuildingModel[] = [];
     public parks: Vector[][] = [];
+    public lowIncomeLots: Vector[][] = [];
+    public industrialLots: Vector[][] = [];
+    public lowIncomeAreas: Vector[][] = [];
+    public industrialAreas: Vector[][] = [];
 
     // Polylines
     public coastline: Vector[] = [];
@@ -60,7 +73,11 @@ export default abstract class Style {
     public majorRoads: Vector[][] = [];
     public mainRoads: Vector[][] = [];
     public coastlineRoads: Vector[][] = [];
+    public highways: Vector[][] = [];
+    public frontageRoads: Vector[][] = [];
+    public ramps: Vector[][] = [];
     public showFrame: boolean;
+    public showZones = true;
 
     constructor(protected dragController: DragController, protected colourScheme: ColourScheme) {
         if (!colourScheme.bgColour) log.error("ColourScheme Error - bgColour not defined");
@@ -87,6 +104,15 @@ export default abstract class Style {
         if (!colourScheme.frameColour) colourScheme.frameColour = colourScheme.bgColour;
         if (!colourScheme.frameTextColour) colourScheme.frameTextColour = colourScheme.minorRoadOutline;
 
+        if (!colourScheme.highwayColour) colourScheme.highwayColour = colourScheme.mainRoadColour;
+        if (!colourScheme.highwayOutline) colourScheme.highwayOutline = colourScheme.mainRoadOutline;
+        if (!colourScheme.highwayWidth) colourScheme.highwayWidth = colourScheme.mainWidth * 1.6;
+        if (!colourScheme.rampWidth) colourScheme.rampWidth = colourScheme.majorWidth * 0.7;
+        if (!colourScheme.industrialColour) colourScheme.industrialColour = Util.mixColours(colourScheme.bgColour, 'rgb(150,110,180)', 0.18);
+        if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = Util.mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
+        if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = Util.mixColours(colourScheme.buildingColour, 'rgb(120,130,160)', 0.3);
+        if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
+
         if (!colourScheme.buildingSideColour) {
             const parsedRgb = Util.parseCSSColor(colourScheme.buildingColour).map(v => Math.max(0, v - 40));
             if (parsedRgb) {
@@ -95,6 +121,12 @@ export default abstract class Style {
                 colourScheme.buildingSideColour = colourScheme.buildingColour;
             }
         }
+    }
+
+    protected roofColour(zone: Zone): string {
+        if (zone === Zone.Industrial) return this.colourScheme.industrialBuildingColour;
+        if (zone === Zone.LowIncome) return this.colourScheme.lowIncomeBuildingColour;
+        return this.colourScheme.buildingColour;
     }
 
     public set zoomBuildings(b: boolean) {
@@ -166,10 +198,21 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(1);
         canvas.drawPolygon(this.river);
 
+        // Land use
+        if (this.showZones && !this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.lowIncomeColour);
+            canvas.setStrokeStyle(this.colourScheme.lowIncomeColour);
+            for (const p of this.lowIncomeAreas) canvas.drawPolygon(p);
+            canvas.setFillStyle(this.colourScheme.industrialColour);
+            canvas.setStrokeStyle(this.colourScheme.industrialColour);
+            for (const p of this.industrialAreas) canvas.drawPolygon(p);
+        }
+
         // Road outline
         canvas.setStrokeStyle(this.colourScheme.minorRoadOutline);
         canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.minorWidth * this.domainController.zoom);
         for (const s of this.minorRoads) canvas.drawPolyline(s);
+        for (const s of this.frontageRoads) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
         canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
@@ -185,6 +228,7 @@ export class DefaultStyle extends Style {
         canvas.setStrokeStyle(this.colourScheme.minorRoadColour);
         canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
         for (const s of this.minorRoads) canvas.drawPolyline(s);
+        for (const s of this.frontageRoads) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
@@ -196,6 +240,25 @@ export class DefaultStyle extends Style {
         for (const s of this.mainRoads) canvas.drawPolyline(s);
         for (const s of this.coastlineRoads) canvas.drawPolyline(s);
 
+        // Highways go over everything else
+        const zoom = this.domainController.zoom;
+        canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+        canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.rampWidth * zoom);
+        for (const s of this.ramps) canvas.drawPolyline(s);
+        canvas.setStrokeStyle(this.colourScheme.highwayColour);
+        canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
+        for (const s of this.ramps) canvas.drawPolyline(s);
+
+        canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+        canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
+        for (const s of this.highways) canvas.drawPolyline(s);
+        canvas.setStrokeStyle(this.colourScheme.highwayColour);
+        canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
+        for (const s of this.highways) canvas.drawPolyline(s);
+        // Central reservation of a dual carriageway
+        canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+        canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
+        for (const s of this.highways) canvas.drawPolyline(s);
 
         canvas.setLineWidth(1);
 
@@ -214,6 +277,10 @@ export class DefaultStyle extends Style {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.lots) canvas.drawPolygon(b);
+                canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
+                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
+                canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
+                for (const b of this.industrialLots) canvas.drawPolygon(b);
             }
 
             // Pseudo-3D
@@ -226,9 +293,11 @@ export class DefaultStyle extends Style {
                 for (const b of this.buildingModels) {
                     for (const s of b.sides) canvas.drawPolygon(s);
                 }
-                canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
-                for (const b of this.buildingModels) canvas.drawPolygon(b.roof);
+                for (const b of this.buildingModels) {
+                    canvas.setFillStyle(this.roofColour(b.zone));
+                    canvas.drawPolygon(b.roof);
+                }
             }
         }
 
@@ -307,6 +376,18 @@ export class RoughStyle extends Style {
         });
         this.parks.forEach(p => canvas.drawPolygon(p));
 
+        // Land use
+        if (this.showZones) {
+            canvas.setOptions({
+                fill: this.colourScheme.lowIncomeColour,
+            });
+            this.lowIncomeAreas.forEach(p => canvas.drawPolygon(p));
+            canvas.setOptions({
+                fill: this.colourScheme.industrialColour,
+            });
+            this.industrialAreas.forEach(p => canvas.drawPolygon(p));
+        }
+
         // Roads
         canvas.setOptions({
             stroke: this.colourScheme.minorRoadColour,
@@ -315,6 +396,7 @@ export class RoughStyle extends Style {
         });
 
         this.minorRoads.forEach(s => canvas.drawPolyline(s));
+        this.frontageRoads.forEach(s => canvas.drawPolyline(s));
 
         canvas.setOptions({
             strokeWidth: 2,
@@ -332,6 +414,18 @@ export class RoughStyle extends Style {
         this.mainRoads.forEach(s => canvas.drawPolyline(s));
         this.coastlineRoads.forEach(s => canvas.drawPolyline(s));
 
+        canvas.setOptions({
+            strokeWidth: 2,
+            stroke: this.colourScheme.highwayColour,
+        });
+        this.ramps.forEach(s => canvas.drawPolyline(s));
+
+        canvas.setOptions({
+            strokeWidth: 5,
+            stroke: this.colourScheme.highwayColour,
+        });
+        this.highways.forEach(s => canvas.drawPolyline(s));
+
         // Buildings
         if (!this.dragging) {
             // Lots
@@ -344,6 +438,8 @@ export class RoughStyle extends Style {
                     fill: '',
                 });
                 for (const b of this.lots) canvas.drawPolygon(b);
+                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
+                for (const b of this.industrialLots) canvas.drawPolygon(b);
             }
 
             // Pseudo-3D

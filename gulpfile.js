@@ -24,16 +24,20 @@ for (var i = 0; i < globFiles.length; i++) {
     files.push(globFiles[i]);
 }
 
-var watchedBrowserify = watchify(browserify({
-    basedir: '.',
-    debug: true,
-    entries: files,
-    cache: {},
-    packageCache: {},
-})
-    .plugin(tsify)
-    .transform('babelify', babelconfig).on('error', fancy_log)
-);
+function createBrowserify(debug) {
+    return browserify({
+        basedir: '.',
+        debug: debug,
+        entries: files,
+        cache: {},
+        packageCache: {},
+    })
+        .plugin(tsify)
+        .transform('babelify', babelconfig).on('error', fancy_log);
+}
+
+// Only created when running the default (watch) task
+var watchedBrowserify;
 
 gulp.task('copy-html', function () {
     return gulp.src(paths.pages)
@@ -67,6 +71,11 @@ gulp.task('apply-babelify-patch', function(done){
 });
 
 function bundle() {
+    if (!watchedBrowserify) {
+        watchedBrowserify = watchify(createBrowserify(true));
+        watchedBrowserify.on('update', bundle);
+        watchedBrowserify.on('log', fancy_log);
+    }
     return watchedBrowserify
         .bundle()
         .on('error', fancy_log)
@@ -75,10 +84,27 @@ function bundle() {
         .pipe(notify("Done"));
 }
 
+// One-off production build, exits when done
+function bundleOnce() {
+    return createBrowserify(false)
+        .bundle()
+        .on('error', function (err) {
+            fancy_log(err.message);
+            process.exitCode = 1;
+            this.emit('end');
+        })
+        .pipe(source('bundle.js'))
+        .pipe(gulp.dest('dist'));
+}
+
 gulp.task('default', gulp.series(
     gulp.parallel('copy-html'),
     'apply-babelify-patch',
     bundle
 ));
-watchedBrowserify.on('update', bundle);
-watchedBrowserify.on('log', fancy_log);
+
+gulp.task('build', gulp.series(
+    gulp.parallel('copy-html'),
+    'apply-babelify-patch',
+    bundleOnce
+));
