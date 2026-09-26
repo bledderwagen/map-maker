@@ -8,6 +8,7 @@ import {PolygonParams} from '../impl/polygon_finder';
 import PolygonUtil from '../impl/polygon_util';
 import Zoning, {Zone} from '../impl/zoning';
 import IndustrialLayout, {IndustrialParams} from '../impl/industrial_layout';
+import YardHouseLayout from '../impl/yard_houses';
 
 
 export interface BuildingModel {
@@ -109,6 +110,8 @@ export default class Buildings {
     private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
+    private lowIncomeHouses: Vector[][] = [];
+    private lowIncomeFences: Vector[][] = [];
     private zoning: Zoning = null;
 
     private buildingParams: PolygonParams = {
@@ -118,10 +121,10 @@ export default class Buildings {
         chanceNoDivide: 0.05,
     };
 
-    // Small, tightly packed houses
+    // Small houses, each in its own fenced yard
     private lowIncomeParams: PolygonParams = {
         maxLength: 20,
-        minArea: 28,
+        minArea: 60,
         shrinkSpacing: 3,
         chanceNoDivide: 0,
     };
@@ -142,7 +145,7 @@ export default class Buildings {
         folder.add(this.buildingParams, 'minArea');
         folder.add(this.buildingParams, 'shrinkSpacing');
         folder.add(this.buildingParams, 'chanceNoDivide');
-        folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeMinArea');
+        folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeLotArea');
         folder.add(this.industrialParams, 'parcelWidth').name('industrialParcelWidth');
         folder.add(this.industrialParams, 'setback').name('industrialSetback');
         this.polygonFinders = this.createPolygonFinders();
@@ -161,7 +164,13 @@ export default class Buildings {
     }
 
     get lowIncomeLots(): Vector[][] {
-        return this.toScreen(this.polygonFinders[Zone.LowIncome].polygons);
+        // Until the yards are laid out, show the plain lots so animation still works
+        if (this.lowIncomeFences.length === 0) return this.toScreen(this.polygonFinders[Zone.LowIncome].polygons);
+        return this.toScreen(this.lowIncomeHouses);
+    }
+
+    get lowIncomeFenceLines(): Vector[][] {
+        return this.toScreen(this.lowIncomeFences);
     }
 
     get industrialLots(): Vector[][] {
@@ -233,6 +242,8 @@ export default class Buildings {
         this.zoneBlocks = [[], [], []];
         this.industrialBuildings = [];
         this.industrialRoads = [];
+        this.lowIncomeHouses = [];
+        this.lowIncomeFences = [];
         this._models = new BuildingModels([], []);
     }
 
@@ -266,6 +277,9 @@ export default class Buildings {
         await Promise.all(this.polygonFinders.map(f => f.shrink(animate)));
         await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
         this.layoutIndustry();
+        const yards = YardHouseLayout.layout(this.polygonFinders[Zone.LowIncome].polygons);
+        this.lowIncomeHouses = yards.houses;
+        this.lowIncomeFences = yards.fences;
         this.redraw();
 
         const lots: Vector[][] = [];
@@ -275,7 +289,7 @@ export default class Buildings {
             for (let i = 0; i < polygons.length; i++) zones.push(zone);
         };
         addLots(this.polygonFinders[Zone.Residential].polygons, Zone.Residential);
-        addLots(this.polygonFinders[Zone.LowIncome].polygons, Zone.LowIncome);
+        addLots(this.lowIncomeHouses, Zone.LowIncome);
         addLots(this.industrialBuildings, Zone.Industrial);
         this._models = new BuildingModels(lots, zones);
 

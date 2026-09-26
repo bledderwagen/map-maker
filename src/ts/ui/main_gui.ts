@@ -323,7 +323,8 @@ export default class MainGUI {
         const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
         // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
         this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
-            || this.zoning.inIndustrialDistrict(p), 1);
+            || this.zoning.inIndustrialDistrict(p)
+            || this.zoning.inInterchange(p), 1);
     }
 
     /**
@@ -428,6 +429,7 @@ export default class MainGUI {
         style.river = this.coastline.river;
         style.lots = this.buildings.lots;
         style.lowIncomeLots = this.buildings.lowIncomeLots;
+        style.fences = this.buildings.lowIncomeFenceLines;
         style.industrialLots = this.buildings.industrialLots;
         style.lowIncomeAreas = this.buildings.lowIncomeBlocks;
         style.industrialAreas = this.buildings.industrialBlocks;

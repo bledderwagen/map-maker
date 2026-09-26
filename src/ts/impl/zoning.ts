@@ -49,6 +49,10 @@ export default class Zoning {
 
     public industrialCentres: Vector[] = [];
 
+    // Low income housing is kept to one side of this highway, the 'wrong side of the freeway'
+    private divider: Vector[] = null;
+    private dividerSide = 1;
+
     constructor(public params: ZoningParams, private tensorField: TensorField) {}
 
     get enabled(): boolean {
@@ -65,6 +69,7 @@ export default class Zoning {
         this.districtBoxes = [];
         this.industrialDistricts = [];
         this.industrialDistrictBoxes = [];
+        this.divider = null;
     }
 
     /**
@@ -87,6 +92,7 @@ export default class Zoning {
         this.computeHighwayDistances();
         this.computeInterchangeCells();
         this.pickIndustrialCentres(origin, worldDimensions, interchanges.map(i => i.centre), waterfront, portCentre);
+        this.pickDivider();
         this.rasteriseZones([]);
     }
 
@@ -274,6 +280,46 @@ export default class Zoning {
     }
 
     /**
+     * The longest highway divides the city, low income housing goes on the side with more industry
+     */
+    private pickDivider(): void {
+        this.divider = null;
+        let longest = 0;
+        for (const h of this.highways) {
+            let length = 0;
+            for (let i = 0; i < h.length - 1; i++) length += h[i].distanceTo(h[i + 1]);
+            if (length > longest) {
+                longest = length;
+                this.divider = h;
+            }
+        }
+        if (this.divider === null) return;
+
+        let balance = 0;
+        for (const c of this.industrialCentres) balance += this.sideOfDivider(c);
+        this.dividerSide = balance !== 0 ? Math.sign(balance) : (Math.random() < 0.5 ? 1 : -1);
+    }
+
+    /**
+     * 1 or -1 depending on which side of the divider point is
+     */
+    private sideOfDivider(p: Vector): number {
+        const line = this.divider;
+        let best = 0;
+        let bestDistance = Infinity;
+        for (let i = 0; i < line.length - 1; i++) {
+            const d = PolygonUtil.distanceToSegment(p, line[i], line[i + 1]);
+            if (d < bestDistance) {
+                bestDistance = d;
+                best = i;
+            }
+        }
+        const a = line[best];
+        const b = line[best + 1];
+        return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0 ? 1 : -1;
+    }
+
+    /**
      * Zone of a single point, before snapping to districts
      */
     private pointZone(p: Vector, highwayDistance: number): Zone {
@@ -288,6 +334,17 @@ export default class Zoning {
         if (nearestIndustry < 1) return Zone.Industrial;
 
         if (amount <= 0) return Zone.Residential;
+
+        if (this.divider !== null) {
+            // Only on one side of the freeway, where it forms a solid neighbourhood rather than patches
+            if (this.sideOfDivider(p) !== this.dividerSide) return Zone.Residential;
+            const patch = this.noise.noise2D(p.x / 300 + 50, p.y / 300 - 50);
+            if (patch < -0.7 + 0.4 * (1 - amount)) return Zone.Residential;
+            if (nearestIndustry < 1 + 2 * amount) return Zone.LowIncome;
+            const band = 350 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
+            if (highwayDistance < band) return Zone.LowIncome;
+            return Zone.Residential;
+        }
 
         // Patchy rather than a perfect ring
         const patch = this.noise.noise2D(p.x / 260 + 50, p.y / 260 - 50);

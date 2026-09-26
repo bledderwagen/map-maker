@@ -18,6 +18,8 @@ interface Crossing {
     highwayDir: Vector;
     roadDir: Vector;
     cloverleaf: boolean;
+    highway: Vector[];
+    distanceAlong: number;  // Distance along the highway to the crossing
 }
 
 export interface Interchange {
@@ -35,6 +37,7 @@ export interface Interchange {
 export default class HighwayGenerator extends StreamlineGenerator {
     private readonly TRIES = 40;
     private readonly SMOOTHING_ITERATIONS = 3;
+    private readonly HIGHWAY_HALF_WIDTH = 5;  // Ramps leave from the edge of the carriageway
 
     public highways: Vector[][] = [];  // Simplified and smoothed
     public frontageRoads: Vector[][] = [];
@@ -162,28 +165,41 @@ export default class HighwayGenerator extends StreamlineGenerator {
             // Keep interchanges apart, cloverleafs take priority as they are added first
             if (this.interchanges.some(existing => existing.centre.distanceTo(c.point) < 5 * L)) continue;
 
-            const ramps = c.cloverleaf ?
-                this.cloverleafRamps(c.point, c.highwayDir, c.roadDir, size) :
-                this.diamondRamps(c.point, c.highwayDir, c.roadDir, size);
-            if (ramps.length === 0) continue;
+            // No ramps out over the sea, e.g. near the coast; try a tighter interchange first
+            for (const scale of [1, 0.75, 0.55]) {
+                const ramps = c.cloverleaf ?
+                    this.cloverleafRamps(c.point, c.highwayDir, c.roadDir, size * scale) :
+                    this.diamondRamps(c, size * scale);
+                if (ramps.length === 0) break;
 
-            const allPoints: Vector[] = [];
-            for (const r of ramps) allPoints.push(...r);
-            // No ramps out over the sea, e.g. where a highway ends at the coast
-            const wet = allPoints.filter(v => !this.integrator.onLand(v)).length;
-            if (wet > 0.05 * allPoints.length) continue;
-            const area = PolygonUtil.bufferedHull(allPoints, 6);
-            this.interchanges.push({centre: c.point, ramps, area, cloverleaf: c.cloverleaf});
+                const allPoints: Vector[] = [];
+                for (const r of ramps) allPoints.push(...r);
+                const wet = allPoints.filter(v => !this.integrator.onLand(v)).length;
+                if (wet > 0.05 * allPoints.length) continue;
+                const area = PolygonUtil.bufferedHull(allPoints, 6);
+                this.interchanges.push({centre: c.point, ramps, area, cloverleaf: c.cloverleaf});
+                break;
+            }
         }
 
-        // Frontage roads stop at interchanges
+        // Frontage roads run straight through diamond interchanges, but stop at cloverleafs
         this.frontageRoads = [];
+        const cloverleafs = this.interchanges.filter(i => i.cloverleaf);
         for (const f of this.rawFrontageRoads) {
-            const pieces = this.splitWhere(f, v => !this.interchanges.some(i => PolygonUtil.insidePolygon(v, i.area)));
+            const fine = PolygonUtil.resamplePolyline(f, 3).points;
+            const pieces = this.splitWhere(fine, v => !cloverleafs.some(i => PolygonUtil.insidePolygon(v, i.area)));
             for (const piece of pieces) {
                 if (piece.length >= 3) this.frontageRoads.push(piece);
             }
         }
+    }
+
+    /**
+     * Whether a frontage road runs alongside the highway at this point
+     */
+    private frontageAt(point: Vector): boolean {
+        if (!this.params.frontageRoads) return false;
+        return this.rawFrontageRoads.some(f => PolygonUtil.distanceToPolyline(point, f) < 1);
     }
 
     private findCrossings(highway: Vector[], road: Vector[], cloverleaf: boolean): Crossing[] {
@@ -196,7 +212,10 @@ export default class HighwayGenerator extends StreamlineGenerator {
                 const roadDir = this.tangentAt(road, j);
                 // Ignore glancing crossings, ramps would be degenerate
                 if (Math.abs(highwayDir.x * roadDir.y - highwayDir.y * roadDir.x) < 0.5) continue;
-                out.push({point: hit.point, highwayDir, roadDir, cloverleaf});
+                let distanceAlong = 0;
+                for (let k = 0; k < i; k++) distanceAlong += highway[k].distanceTo(highway[k + 1]);
+                distanceAlong += hit.t * highway[i].distanceTo(highway[i + 1]);
+                out.push({point: hit.point, highwayDir, roadDir, cloverleaf, highway, distanceAlong});
             }
         }
         return out;
@@ -212,22 +231,101 @@ export default class HighwayGenerator extends StreamlineGenerator {
     }
 
     /**
-     * Four slip roads leaving the highway, running alongside it and meeting the crossing road
+     * Four slip roads, one for each direction on and off the highway
+     *
+     * With frontage roads (Texas style) the ramps join the frontage road well before the crossroad,
+     * and the frontage road meets the crossroad at an ordinary junction.
+     * Without, the ramps run alongside the highway and meet the crossroad at two junctions either side.
+     * Ramps leave the highway at a shallow angle, as a real slip road does.
      */
-    private diamondRamps(centre: Vector, h: Vector, r: Vector, L: number): Vector[][] {
+    private diamondRamps(c: Crossing, L: number): Vector[][] {
         const ramps: Vector[][] = [];
-        const at = (u: number, v: number): Vector => centre.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
-        for (const su of [-1, 1]) {
-            for (const sv of [-1, 1]) {
-                ramps.push(PolygonUtil.bezier(
-                    at(su * 2.6 * L, 0),
-                    at(su * 1.6 * L, sv * 0.1 * L),
-                    at(su * 0.7 * L, sv * 0.75 * L),
-                    at(0, sv * 0.75 * L),
-                    12));
+        const h = c.highwayDir;
+        const r = c.roadDir;
+        const n = new Vector(-h.y, h.x);
+        // u is distance along the highway from the crossroad, v is offset to the side, so ramps follow curves
+        const along = HighwayGenerator.alongPolyline(c.highway);
+        const at = (u: number, v: number): Vector => {
+            const {point, normal} = along(c.distanceAlong + u);
+            // Keep offsets on the same side as n at the crossing
+            const sign = normal.dot(n) >= 0 ? 1 : -1;
+            return point.add(normal.multiplyScalar(sign * v));
+        };
+        const edge = this.HIGHWAY_HALF_WIDTH;
+        const F = this.params.frontageDistance;
+        const gore = 5 * L;  // Where the ramp leaves the highway, from the crossroad
+
+        // Distance along the highway at which the crossroad is offset v from the highway
+        const rn = r.dot(n);
+        const rh = r.dot(h);
+        const crossroadU = (v: number): number => Math.abs(rn) < 0.2 ? 0 : v * rh / rn;
+
+        for (const side of [-1, 1]) {
+            for (const dir of [-1, 1]) {
+                const start = dir * gore;
+                if (this.frontageAt(at(dir * 2.2 * L, side * F))) {
+                    // Merge into the frontage road
+                    const end = dir * 2.2 * L;
+                    const span = start - end;
+                    ramps.push(HighwayGenerator.bezierUV(at,
+                        [start, side * edge],
+                        [start - 0.5 * span, side * edge],
+                        [end + 0.4 * span, side * F],
+                        [end, side * F]));
+                } else {
+                    // Run alongside the highway to a junction with the crossroad
+                    const offset = 1.3 * L;
+                    const end = crossroadU(side * offset);
+                    const span = start - end;
+                    if (span * dir < L) continue;  // Crossroad too oblique on this side
+                    ramps.push(HighwayGenerator.bezierUV(at,
+                        [start, side * edge],
+                        [start - 0.45 * span, side * edge],
+                        [end + 0.45 * span, side * offset],
+                        [end, side * offset]));
+                }
             }
         }
         return ramps;
+    }
+
+    /**
+     * Cubic bezier in (along, offset) coordinates, mapped to world space point by point
+     */
+    private static bezierUV(at: (u: number, v: number) => Vector,
+                            p0: number[], p1: number[], p2: number[], p3: number[]): Vector[] {
+        const samples = 16;
+        const out: Vector[] = [];
+        for (let i = 0; i <= samples; i++) {
+            const t = i / samples;
+            const mt = 1 - t;
+            const a = mt * mt * mt, b = 3 * mt * mt * t, c = 3 * mt * t * t, d = t * t * t;
+            out.push(at(
+                a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+                a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]));
+        }
+        return out;
+    }
+
+    /**
+     * Returns a function giving the point and unit normal at a distance along a polyline
+     */
+    private static alongPolyline(line: Vector[]): (distance: number) => {point: Vector; normal: Vector} {
+        const cumulative = [0];
+        for (let i = 0; i < line.length - 1; i++) cumulative.push(cumulative[i] + line[i].distanceTo(line[i + 1]));
+        return (distance: number): {point: Vector; normal: Vector} => {
+            let i = 0;
+            while (i < line.length - 2 && cumulative[i + 1] < distance) i++;
+            const segment = line[i + 1].clone().sub(line[i]);
+            const length = segment.length();
+            const t = length === 0 ? 0 : (distance - cumulative[i]) / length;
+            const point = line[i].clone().add(segment.clone().multiplyScalar(t));
+            // Smooth the normal using neighbouring segments
+            const a = line[Math.max(0, i - 1)];
+            const b = line[Math.min(line.length - 1, i + 2)];
+            const tangent = b.clone().sub(a).normalize();
+            return {point, normal: new Vector(-tangent.y, tangent.x)};
+        };
     }
 
     /**
@@ -236,23 +334,24 @@ export default class HighwayGenerator extends StreamlineGenerator {
     private cloverleafRamps(centre: Vector, h: Vector, r: Vector, L: number): Vector[][] {
         const ramps: Vector[][] = [];
         const sinTheta = Math.abs(h.x * r.y - h.y * r.x);
-        const loopRadius = 0.55 * L;
+        const loopRadius = 0.6 * L;
+        const edge = this.HIGHWAY_HALF_WIDTH / sinTheta;
         const at = (u: number, v: number): Vector => centre.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
         for (const su of [-1, 1]) {
             for (const sv of [-1, 1]) {
-                // Loop tangent to both highways
-                const d = loopRadius / sinTheta;
+                // Loop just touching the edge of both highways
+                const d = (loopRadius + this.HIGHWAY_HALF_WIDTH) / sinTheta;
                 const loop = PolygonUtil.circle(at(su * d, sv * d), loopRadius, 28);
                 loop.push(loop[0]);
                 ramps.push(loop);
 
-                // Outer ramp for right turns, clear of the loop
+                // Outer ramp for right turns, leaving each highway at a shallow angle and bulging round the loop
                 ramps.push(PolygonUtil.bezier(
-                    at(su * 2.6 * L, 0),
-                    at(su * 1.6 * L, sv * 0.45 * L),
-                    at(su * 0.45 * L, sv * 1.6 * L),
-                    at(0, sv * 2.6 * L),
-                    16));
+                    at(su * 4.2 * L, sv * edge),
+                    at(su * 2.4 * L, sv * (edge + 0.2 * L)),
+                    at(su * (edge + 0.2 * L), sv * 2.4 * L),
+                    at(su * edge, sv * 4.2 * L),
+                    20));
             }
         }
         return ramps;

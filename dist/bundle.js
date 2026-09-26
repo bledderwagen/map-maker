@@ -130547,7 +130547,7 @@ window.addEventListener('load', function () {
   window.mapGenerator = new Main();
 });
 
-},{"./colour_schemes.json":101,"./ts/model_generator":118,"./ts/ui/canvas_wrapper":120,"./ts/ui/domain_controller":121,"./ts/ui/drag_controller":122,"./ts/ui/main_gui":124,"./ts/ui/style":126,"./ts/ui/tensor_field_gui":127,"./ts/util":129,"./ts/vector":130,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
+},{"./colour_schemes.json":101,"./ts/model_generator":119,"./ts/ui/canvas_wrapper":121,"./ts/ui/domain_controller":122,"./ts/ui/drag_controller":123,"./ts/ui/main_gui":125,"./ts/ui/style":127,"./ts/ui/tensor_field_gui":128,"./ts/util":130,"./ts/vector":131,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -131261,7 +131261,7 @@ function () {
 
 exports["default"] = Graph;
 
-},{"../vector":130,"d3-quadtree":6,"isect":16,"loglevel":54}],105:[function(require,module,exports){
+},{"../vector":131,"d3-quadtree":6,"isect":16,"loglevel":54}],105:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131549,7 +131549,7 @@ function () {
 
 exports["default"] = GridStorage;
 
-},{"../vector":130}],106:[function(require,module,exports){
+},{"../vector":131}],106:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -131660,6 +131660,8 @@ function (_super) {
     _this.tensorField = tensorField;
     _this.TRIES = 40;
     _this.SMOOTHING_ITERATIONS = 3;
+    _this.HIGHWAY_HALF_WIDTH = 5; // Ramps leave from the edge of the carriageway
+
     _this.highways = []; // Simplified and smoothed
 
     _this.frontageRoads = [];
@@ -131862,7 +131864,7 @@ function (_super) {
     }
 
     var _loop_1 = function _loop_1(c) {
-      var e_9, _a;
+      var e_9, _a, e_10, _b;
 
       var size = c.cloverleaf ? 1.3 * L : L;
       if (!this_1.integrator.onLand(c.point) || !this_1.pointInBounds(c.point)) return "continue"; // Keep interchanges apart, cloverleafs take priority as they are added first
@@ -131870,14 +131872,44 @@ function (_super) {
       if (this_1.interchanges.some(function (existing) {
         return existing.centre.distanceTo(c.point) < 5 * L;
       })) return "continue";
-      var ramps = c.cloverleaf ? this_1.cloverleafRamps(c.point, c.highwayDir, c.roadDir, size) : this_1.diamondRamps(c.point, c.highwayDir, c.roadDir, size);
-      if (ramps.length === 0) return "continue";
-      var allPoints = [];
 
       try {
-        for (var ramps_1 = (e_9 = void 0, __values(ramps)), ramps_1_1 = ramps_1.next(); !ramps_1_1.done; ramps_1_1 = ramps_1.next()) {
-          var r = ramps_1_1.value;
-          allPoints.push.apply(allPoints, __spread(r));
+        // No ramps out over the sea, e.g. near the coast; try a tighter interchange first
+        for (var _c = (e_9 = void 0, __values([1, 0.75, 0.55])), _d = _c.next(); !_d.done; _d = _c.next()) {
+          var scale = _d.value;
+          var ramps = c.cloverleaf ? this_1.cloverleafRamps(c.point, c.highwayDir, c.roadDir, size * scale) : this_1.diamondRamps(c, size * scale);
+          if (ramps.length === 0) break;
+          var allPoints = [];
+
+          try {
+            for (var ramps_1 = (e_10 = void 0, __values(ramps)), ramps_1_1 = ramps_1.next(); !ramps_1_1.done; ramps_1_1 = ramps_1.next()) {
+              var r = ramps_1_1.value;
+              allPoints.push.apply(allPoints, __spread(r));
+            }
+          } catch (e_10_1) {
+            e_10 = {
+              error: e_10_1
+            };
+          } finally {
+            try {
+              if (ramps_1_1 && !ramps_1_1.done && (_b = ramps_1["return"])) _b.call(ramps_1);
+            } finally {
+              if (e_10) throw e_10.error;
+            }
+          }
+
+          var wet = allPoints.filter(function (v) {
+            return !_this.integrator.onLand(v);
+          }).length;
+          if (wet > 0.05 * allPoints.length) continue;
+          var area = polygon_util_1["default"].bufferedHull(allPoints, 6);
+          this_1.interchanges.push({
+            centre: c.point,
+            ramps: ramps,
+            area: area,
+            cloverleaf: c.cloverleaf
+          });
+          break;
         }
       } catch (e_9_1) {
         e_9 = {
@@ -131885,24 +131917,11 @@ function (_super) {
         };
       } finally {
         try {
-          if (ramps_1_1 && !ramps_1_1.done && (_a = ramps_1["return"])) _a.call(ramps_1);
+          if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
         } finally {
           if (e_9) throw e_9.error;
         }
-      } // No ramps out over the sea, e.g. where a highway ends at the coast
-
-
-      var wet = allPoints.filter(function (v) {
-        return !_this.integrator.onLand(v);
-      }).length;
-      if (wet > 0.05 * allPoints.length) return "continue";
-      var area = polygon_util_1["default"].bufferedHull(allPoints, 6);
-      this_1.interchanges.push({
-        centre: c.point,
-        ramps: ramps,
-        area: area,
-        cloverleaf: c.cloverleaf
-      });
+      }
     };
 
     var this_1 = this;
@@ -131923,16 +131942,20 @@ function (_super) {
       } finally {
         if (e_6) throw e_6.error;
       }
-    } // Frontage roads stop at interchanges
+    } // Frontage roads run straight through diamond interchanges, but stop at cloverleafs
 
 
     this.frontageRoads = [];
+    var cloverleafs = this.interchanges.filter(function (i) {
+      return i.cloverleaf;
+    });
 
     try {
       for (var _h = __values(this.rawFrontageRoads), _j = _h.next(); !_j.done; _j = _h.next()) {
         var f = _j.value;
-        var pieces = this.splitWhere(f, function (v) {
-          return !_this.interchanges.some(function (i) {
+        var fine = polygon_util_1["default"].resamplePolyline(f, 3).points;
+        var pieces = this.splitWhere(fine, function (v) {
+          return !cloverleafs.some(function (i) {
             return polygon_util_1["default"].insidePolygon(v, i.area);
           });
         });
@@ -131966,6 +131989,17 @@ function (_super) {
       }
     }
   };
+  /**
+   * Whether a frontage road runs alongside the highway at this point
+   */
+
+
+  HighwayGenerator.prototype.frontageAt = function (point) {
+    if (!this.params.frontageRoads) return false;
+    return this.rawFrontageRoads.some(function (f) {
+      return polygon_util_1["default"].distanceToPolyline(point, f) < 1;
+    });
+  };
 
   HighwayGenerator.prototype.findCrossings = function (highway, road, cloverleaf) {
     var out = [];
@@ -131978,11 +132012,20 @@ function (_super) {
         var roadDir = this.tangentAt(road, j); // Ignore glancing crossings, ramps would be degenerate
 
         if (Math.abs(highwayDir.x * roadDir.y - highwayDir.y * roadDir.x) < 0.5) continue;
+        var distanceAlong = 0;
+
+        for (var k = 0; k < i; k++) {
+          distanceAlong += highway[k].distanceTo(highway[k + 1]);
+        }
+
+        distanceAlong += hit.t * highway[i].distanceTo(highway[i + 1]);
         out.push({
           point: hit.point,
           highwayDir: highwayDir,
           roadDir: roadDir,
-          cloverleaf: cloverleaf
+          cloverleaf: cloverleaf,
+          highway: highway,
+          distanceAlong: distanceAlong
         });
       }
     }
@@ -132000,53 +132043,150 @@ function (_super) {
     return b.clone().sub(a).normalize();
   };
   /**
-   * Four slip roads leaving the highway, running alongside it and meeting the crossing road
+   * Four slip roads, one for each direction on and off the highway
+   *
+   * With frontage roads (Texas style) the ramps join the frontage road well before the crossroad,
+   * and the frontage road meets the crossroad at an ordinary junction.
+   * Without, the ramps run alongside the highway and meet the crossroad at two junctions either side.
+   * Ramps leave the highway at a shallow angle, as a real slip road does.
    */
 
 
-  HighwayGenerator.prototype.diamondRamps = function (centre, h, r, L) {
-    var e_10, _a, e_11, _b;
+  HighwayGenerator.prototype.diamondRamps = function (c, L) {
+    var e_11, _a, e_12, _b;
 
     var ramps = [];
+    var h = c.highwayDir;
+    var r = c.roadDir;
+    var n = new vector_1["default"](-h.y, h.x); // u is distance along the highway from the crossroad, v is offset to the side, so ramps follow curves
+
+    var along = HighwayGenerator.alongPolyline(c.highway);
 
     var at = function at(u, v) {
-      return centre.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
+      var _a = along(c.distanceAlong + u),
+          point = _a.point,
+          normal = _a.normal; // Keep offsets on the same side as n at the crossing
+
+
+      var sign = normal.dot(n) >= 0 ? 1 : -1;
+      return point.add(normal.multiplyScalar(sign * v));
+    };
+
+    var edge = this.HIGHWAY_HALF_WIDTH;
+    var F = this.params.frontageDistance;
+    var gore = 5 * L; // Where the ramp leaves the highway, from the crossroad
+    // Distance along the highway at which the crossroad is offset v from the highway
+
+    var rn = r.dot(n);
+    var rh = r.dot(h);
+
+    var crossroadU = function crossroadU(v) {
+      return Math.abs(rn) < 0.2 ? 0 : v * rh / rn;
     };
 
     try {
       for (var _c = __values([-1, 1]), _d = _c.next(); !_d.done; _d = _c.next()) {
-        var su = _d.value;
+        var side = _d.value;
 
         try {
-          for (var _e = (e_11 = void 0, __values([-1, 1])), _f = _e.next(); !_f.done; _f = _e.next()) {
-            var sv = _f.value;
-            ramps.push(polygon_util_1["default"].bezier(at(su * 2.6 * L, 0), at(su * 1.6 * L, sv * 0.1 * L), at(su * 0.7 * L, sv * 0.75 * L), at(0, sv * 0.75 * L), 12));
+          for (var _e = (e_12 = void 0, __values([-1, 1])), _f = _e.next(); !_f.done; _f = _e.next()) {
+            var dir = _f.value;
+            var start = dir * gore;
+
+            if (this.frontageAt(at(dir * 2.2 * L, side * F))) {
+              // Merge into the frontage road
+              var end = dir * 2.2 * L;
+              var span = start - end;
+              ramps.push(HighwayGenerator.bezierUV(at, [start, side * edge], [start - 0.5 * span, side * edge], [end + 0.4 * span, side * F], [end, side * F]));
+            } else {
+              // Run alongside the highway to a junction with the crossroad
+              var offset = 1.3 * L;
+              var end = crossroadU(side * offset);
+              var span = start - end;
+              if (span * dir < L) continue; // Crossroad too oblique on this side
+
+              ramps.push(HighwayGenerator.bezierUV(at, [start, side * edge], [start - 0.45 * span, side * edge], [end + 0.45 * span, side * offset], [end, side * offset]));
+            }
           }
-        } catch (e_11_1) {
-          e_11 = {
-            error: e_11_1
+        } catch (e_12_1) {
+          e_12 = {
+            error: e_12_1
           };
         } finally {
           try {
             if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
           } finally {
-            if (e_11) throw e_11.error;
+            if (e_12) throw e_12.error;
           }
         }
       }
-    } catch (e_10_1) {
-      e_10 = {
-        error: e_10_1
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
       };
     } finally {
       try {
         if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
       } finally {
-        if (e_10) throw e_10.error;
+        if (e_11) throw e_11.error;
       }
     }
 
     return ramps;
+  };
+  /**
+   * Cubic bezier in (along, offset) coordinates, mapped to world space point by point
+   */
+
+
+  HighwayGenerator.bezierUV = function (at, p0, p1, p2, p3) {
+    var samples = 16;
+    var out = [];
+
+    for (var i = 0; i <= samples; i++) {
+      var t = i / samples;
+      var mt = 1 - t;
+      var a = mt * mt * mt,
+          b = 3 * mt * mt * t,
+          c = 3 * mt * t * t,
+          d = t * t * t;
+      out.push(at(a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0], a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]));
+    }
+
+    return out;
+  };
+  /**
+   * Returns a function giving the point and unit normal at a distance along a polyline
+   */
+
+
+  HighwayGenerator.alongPolyline = function (line) {
+    var cumulative = [0];
+
+    for (var i = 0; i < line.length - 1; i++) {
+      cumulative.push(cumulative[i] + line[i].distanceTo(line[i + 1]));
+    }
+
+    return function (distance) {
+      var i = 0;
+
+      while (i < line.length - 2 && cumulative[i + 1] < distance) {
+        i++;
+      }
+
+      var segment = line[i + 1].clone().sub(line[i]);
+      var length = segment.length();
+      var t = length === 0 ? 0 : (distance - cumulative[i]) / length;
+      var point = line[i].clone().add(segment.clone().multiplyScalar(t)); // Smooth the normal using neighbouring segments
+
+      var a = line[Math.max(0, i - 1)];
+      var b = line[Math.min(line.length - 1, i + 2)];
+      var tangent = b.clone().sub(a).normalize();
+      return {
+        point: point,
+        normal: new vector_1["default"](-tangent.y, tangent.x)
+      };
+    };
   };
   /**
    * Loops in each quadrant plus outer connecting ramps
@@ -132054,11 +132194,12 @@ function (_super) {
 
 
   HighwayGenerator.prototype.cloverleafRamps = function (centre, h, r, L) {
-    var e_12, _a, e_13, _b;
+    var e_13, _a, e_14, _b;
 
     var ramps = [];
     var sinTheta = Math.abs(h.x * r.y - h.y * r.x);
-    var loopRadius = 0.55 * L;
+    var loopRadius = 0.6 * L;
+    var edge = this.HIGHWAY_HALF_WIDTH / sinTheta;
 
     var at = function at(u, v) {
       return centre.clone().add(h.clone().multiplyScalar(u)).add(r.clone().multiplyScalar(v));
@@ -132069,37 +132210,37 @@ function (_super) {
         var su = _d.value;
 
         try {
-          for (var _e = (e_13 = void 0, __values([-1, 1])), _f = _e.next(); !_f.done; _f = _e.next()) {
-            var sv = _f.value; // Loop tangent to both highways
+          for (var _e = (e_14 = void 0, __values([-1, 1])), _f = _e.next(); !_f.done; _f = _e.next()) {
+            var sv = _f.value; // Loop just touching the edge of both highways
 
-            var d = loopRadius / sinTheta;
+            var d = (loopRadius + this.HIGHWAY_HALF_WIDTH) / sinTheta;
             var loop = polygon_util_1["default"].circle(at(su * d, sv * d), loopRadius, 28);
             loop.push(loop[0]);
-            ramps.push(loop); // Outer ramp for right turns, clear of the loop
+            ramps.push(loop); // Outer ramp for right turns, leaving each highway at a shallow angle and bulging round the loop
 
-            ramps.push(polygon_util_1["default"].bezier(at(su * 2.6 * L, 0), at(su * 1.6 * L, sv * 0.45 * L), at(su * 0.45 * L, sv * 1.6 * L), at(0, sv * 2.6 * L), 16));
+            ramps.push(polygon_util_1["default"].bezier(at(su * 4.2 * L, sv * edge), at(su * 2.4 * L, sv * (edge + 0.2 * L)), at(su * (edge + 0.2 * L), sv * 2.4 * L), at(su * edge, sv * 4.2 * L), 20));
           }
-        } catch (e_13_1) {
-          e_13 = {
-            error: e_13_1
+        } catch (e_14_1) {
+          e_14 = {
+            error: e_14_1
           };
         } finally {
           try {
             if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
           } finally {
-            if (e_13) throw e_13.error;
+            if (e_14) throw e_14.error;
           }
         }
       }
-    } catch (e_12_1) {
-      e_12 = {
-        error: e_12_1
+    } catch (e_13_1) {
+      e_13 = {
+        error: e_13_1
       };
     } finally {
       try {
         if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
       } finally {
-        if (e_12) throw e_12.error;
+        if (e_13) throw e_13.error;
       }
     }
 
@@ -132111,7 +132252,7 @@ function (_super) {
 
 
   HighwayGenerator.prototype.splitWhere = function (line, keep) {
-    var e_14, _a;
+    var e_15, _a;
 
     var out = [];
     var current = [];
@@ -132127,15 +132268,15 @@ function (_super) {
           current = [];
         }
       }
-    } catch (e_14_1) {
-      e_14 = {
-        error: e_14_1
+    } catch (e_15_1) {
+      e_15 = {
+        error: e_15_1
       };
     } finally {
       try {
         if (line_1_1 && !line_1_1.done && (_a = line_1["return"])) _a.call(line_1);
       } finally {
-        if (e_14) throw e_14.error;
+        if (e_15) throw e_15.error;
       }
     }
 
@@ -132158,7 +132299,7 @@ function (_super) {
 
 
   HighwayGenerator.prototype.endsAtBoundary = function (v) {
-    var e_15, _a;
+    var e_16, _a;
 
     var margin = 5 * this.params.dstep;
     var toOrigin = v.clone().sub(this.origin);
@@ -132171,15 +132312,15 @@ function (_super) {
         var dir = _c.value;
         if (!this.integrator.onLand(v.clone().add(dir.multiplyScalar(margin)))) return true;
       }
-    } catch (e_15_1) {
-      e_15 = {
-        error: e_15_1
+    } catch (e_16_1) {
+      e_16 = {
+        error: e_16_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_15) throw e_15.error;
+        if (e_16) throw e_16.error;
       }
     }
 
@@ -132213,7 +132354,7 @@ function (_super) {
 
 exports["default"] = HighwayGenerator;
 
-},{"../vector":130,"./polygon_util":111,"./streamlines":113,"loglevel":54}],107:[function(require,module,exports){
+},{"../vector":131,"./polygon_util":111,"./streamlines":113,"loglevel":54}],107:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132677,7 +132818,7 @@ function (_super) {
 
 exports.RK4Integrator = RK4Integrator;
 
-},{"../vector":130}],109:[function(require,module,exports){
+},{"../vector":131}],109:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132814,7 +132955,7 @@ function () {
 
 exports["default"] = LocalFrame;
 
-},{"../vector":130}],110:[function(require,module,exports){
+},{"../vector":131}],110:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -134144,7 +134285,7 @@ function () {
 
 exports["default"] = PolygonUtil;
 
-},{"../vector":130,"jsts":17,"loglevel":54,"polyk":71}],112:[function(require,module,exports){
+},{"../vector":131,"jsts":17,"loglevel":54,"polyk":71}],112:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -134450,7 +134591,7 @@ function () {
 
 exports["default"] = PortPlanner;
 
-},{"../vector":130,"./local_frame":109,"./polygon_util":111}],113:[function(require,module,exports){
+},{"../vector":131,"./local_frame":109,"./polygon_util":111}],113:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -135365,7 +135506,7 @@ function () {
 
 exports["default"] = StreamlineGenerator;
 
-},{"../vector":130,"./grid_storage":105,"loglevel":54,"simplify-js":91}],114:[function(require,module,exports){
+},{"../vector":131,"./grid_storage":105,"loglevel":54,"simplify-js":91}],114:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -135534,7 +135675,7 @@ function () {
 
 exports["default"] = Tensor;
 
-},{"../vector":130}],115:[function(require,module,exports){
+},{"../vector":131}],115:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136042,6 +136183,173 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
+var vector_1 = require("../vector");
+
+var polygon_util_1 = require("./polygon_util");
+
+var local_frame_1 = require("./local_frame");
+/**
+ * Small detached houses, each sitting a little crookedly in its own fenced yard
+ * Houses vary in size and position, some have a shed out back and a few lots stand empty
+ */
+
+
+var YardHouseLayout =
+/** @class */
+function () {
+  function YardHouseLayout() {}
+
+  YardHouseLayout.layout = function (lots) {
+    var e_1, _a, _b;
+
+    var out = {
+      houses: [],
+      fences: []
+    };
+
+    try {
+      for (var lots_1 = __values(lots), lots_1_1 = lots_1.next(); !lots_1_1.done; lots_1_1 = lots_1.next()) {
+        var lot = lots_1_1.value;
+        if (lot.length < 3) continue;
+        var fence = lot.slice();
+        fence.push(lot[0]);
+        out.fences.push(fence);
+        if (Math.random() < YardHouseLayout.VACANT_CHANCE) continue;
+
+        (_b = out.houses).push.apply(_b, __spread(YardHouseLayout.housesFor(lot)));
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (lots_1_1 && !lots_1_1.done && (_a = lots_1["return"])) _a.call(lots_1);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    }
+
+    return out;
+  };
+
+  YardHouseLayout.housesFor = function (lot) {
+    var bounds = local_frame_1["default"].orientedBounds(lot);
+    if (bounds === null) return [];
+    var umin = bounds.umin,
+        umax = bounds.umax,
+        vmin = bounds.vmin,
+        vmax = bounds.vmax;
+    var W = umax - umin;
+    var D = vmax - vmin;
+    if (W < 4 || D < 4) return [];
+
+    var inside = function inside(polygon) {
+      return polygon.every(function (p) {
+        return polygon_util_1["default"].insidePolygon(p, lot);
+      });
+    }; // Slightly crooked frame centred on the lot
+
+
+    var angle = (Math.random() - 0.5) * 0.25;
+    var t = bounds.frame.t;
+    var rt = new vector_1["default"](t.x * Math.cos(angle) - t.y * Math.sin(angle), t.x * Math.sin(angle) + t.y * Math.cos(angle));
+    var centre = bounds.frame.toWorld((umin + umax) / 2, (vmin + vmax) / 2);
+    var w = W * (0.45 + 0.2 * Math.random());
+    var d = D * (0.4 + 0.2 * Math.random());
+    var cu = (Math.random() - 0.5) * (W - w) * 0.6;
+    var cv = (Math.random() - 0.5) * (D - d) * 0.6;
+
+    for (var attempt = 0; attempt < 4; attempt++) {
+      var scale = 1 - 0.15 * attempt;
+      var frame = new local_frame_1["default"](centre, rt, new vector_1["default"](-rt.y, rt.x));
+      var hw = w * scale / 2;
+      var hd = d * scale / 2;
+      var house = frame.rect(cu * scale - hw, cu * scale + hw, cv * scale - hd, cv * scale + hd);
+      if (!inside(house)) continue;
+      var out = [house];
+
+      if (Math.random() < YardHouseLayout.SHED_CHANCE) {
+        // Shed in a back corner
+        var s = Math.min(W, D) * 0.12 + 1;
+        var su = Math.sign(-cu || 1) * (W / 2 - s - 1.5);
+        var sv = Math.sign(-cv || 1) * (D / 2 - s - 1.5);
+        var shed = frame.rect(su - s / 2, su + s / 2, sv - s / 2, sv + s / 2);
+        if (inside(shed) && !polygon_util_1["default"].insidePolygon(polygon_util_1["default"].averagePoint(shed), house)) out.push(shed);
+      }
+
+      return out;
+    }
+
+    return [];
+  };
+
+  YardHouseLayout.VACANT_CHANCE = 0.08;
+  YardHouseLayout.SHED_CHANCE = 0.3;
+  return YardHouseLayout;
+}();
+
+exports["default"] = YardHouseLayout;
+
+},{"../vector":131,"./local_frame":109,"./polygon_util":111}],118:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+var __read = void 0 && (void 0).__read || function (o, n) {
+  var m = typeof Symbol === "function" && o[Symbol.iterator];
+  if (!m) return o;
+  var i = m.call(o),
+      r,
+      ar = [],
+      e;
+
+  try {
+    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) {
+      ar.push(r.value);
+    }
+  } catch (error) {
+    e = {
+      error: error
+    };
+  } finally {
+    try {
+      if (r && !r.done && (m = i["return"])) m.call(i);
+    } finally {
+      if (e) throw e.error;
+    }
+  }
+
+  return ar;
+};
+
+var __spread = void 0 && (void 0).__spread || function () {
+  for (var ar = [], i = 0; i < arguments.length; i++) {
+    ar = ar.concat(__read(arguments[i]));
+  }
+
+  return ar;
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
 var log = require("loglevel");
 
 var SimplexNoise = require("simplex-noise");
@@ -136083,7 +136391,10 @@ function () {
     this.industrialDistrictBoxes = [];
     this.districtBoxes = [];
     this.districts = [];
-    this.industrialCentres = [];
+    this.industrialCentres = []; // Low income housing is kept to one side of this highway, the 'wrong side of the freeway'
+
+    this.divider = null;
+    this.dividerSide = 1;
   }
 
   Object.defineProperty(Zoning.prototype, "enabled", {
@@ -136104,6 +136415,7 @@ function () {
     this.districtBoxes = [];
     this.industrialDistricts = [];
     this.industrialDistrictBoxes = [];
+    this.divider = null;
   };
   /**
    * Called once highways and interchanges exist
@@ -136128,6 +136440,7 @@ function () {
     this.pickIndustrialCentres(origin, worldDimensions, interchanges.map(function (i) {
       return i.centre;
     }), waterfront, portCentre);
+    this.pickDivider();
     this.rasteriseZones([]);
   };
   /**
@@ -136440,12 +136753,94 @@ function () {
     }
   };
   /**
+   * The longest highway divides the city, low income housing goes on the side with more industry
+   */
+
+
+  Zoning.prototype.pickDivider = function () {
+    var e_6, _a, e_7, _b;
+
+    this.divider = null;
+    var longest = 0;
+
+    try {
+      for (var _c = __values(this.highways), _d = _c.next(); !_d.done; _d = _c.next()) {
+        var h = _d.value;
+        var length_1 = 0;
+
+        for (var i = 0; i < h.length - 1; i++) {
+          length_1 += h[i].distanceTo(h[i + 1]);
+        }
+
+        if (length_1 > longest) {
+          longest = length_1;
+          this.divider = h;
+        }
+      }
+    } catch (e_6_1) {
+      e_6 = {
+        error: e_6_1
+      };
+    } finally {
+      try {
+        if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+      } finally {
+        if (e_6) throw e_6.error;
+      }
+    }
+
+    if (this.divider === null) return;
+    var balance = 0;
+
+    try {
+      for (var _e = __values(this.industrialCentres), _f = _e.next(); !_f.done; _f = _e.next()) {
+        var c = _f.value;
+        balance += this.sideOfDivider(c);
+      }
+    } catch (e_7_1) {
+      e_7 = {
+        error: e_7_1
+      };
+    } finally {
+      try {
+        if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+      } finally {
+        if (e_7) throw e_7.error;
+      }
+    }
+
+    this.dividerSide = balance !== 0 ? Math.sign(balance) : Math.random() < 0.5 ? 1 : -1;
+  };
+  /**
+   * 1 or -1 depending on which side of the divider point is
+   */
+
+
+  Zoning.prototype.sideOfDivider = function (p) {
+    var line = this.divider;
+    var best = 0;
+    var bestDistance = Infinity;
+
+    for (var i = 0; i < line.length - 1; i++) {
+      var d = polygon_util_1["default"].distanceToSegment(p, line[i], line[i + 1]);
+
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = i;
+      }
+    }
+
+    var a = line[best];
+    var b = line[best + 1];
+    return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0 ? 1 : -1;
+  };
+  /**
    * Zone of a single point, before snapping to districts
    */
 
 
   Zoning.prototype.pointZone = function (p, highwayDistance) {
-    var e_6, _a;
+    var e_8, _a;
 
     var R = this.params.industrialSize;
     var amount = this.params.lowIncomeAmount;
@@ -136457,15 +136852,15 @@ function () {
         var c = _c.value;
         nearestIndustry = Math.min(nearestIndustry, c.distanceTo(p) / (R * wobble));
       }
-    } catch (e_6_1) {
-      e_6 = {
-        error: e_6_1
+    } catch (e_8_1) {
+      e_8 = {
+        error: e_8_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_6) throw e_6.error;
+        if (e_8) throw e_8.error;
       }
     }
 
@@ -136474,7 +136869,29 @@ function () {
     ;
     if (amount <= 0) return 0
     /* Residential */
-    ; // Patchy rather than a perfect ring
+    ;
+
+    if (this.divider !== null) {
+      // Only on one side of the freeway, where it forms a solid neighbourhood rather than patches
+      if (this.sideOfDivider(p) !== this.dividerSide) return 0
+      /* Residential */
+      ;
+      var patch_1 = this.noise.noise2D(p.x / 300 + 50, p.y / 300 - 50);
+      if (patch_1 < -0.7 + 0.4 * (1 - amount)) return 0
+      /* Residential */
+      ;
+      if (nearestIndustry < 1 + 2 * amount) return 1
+      /* LowIncome */
+      ;
+      var band_1 = 350 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
+      if (highwayDistance < band_1) return 1
+      /* LowIncome */
+      ;
+      return 0
+      /* Residential */
+      ;
+    } // Patchy rather than a perfect ring
+
 
     var patch = this.noise.noise2D(p.x / 260 + 50, p.y / 260 - 50);
     if (patch < -0.55 + 0.3 * (1 - amount)) return 0
@@ -136493,7 +136910,7 @@ function () {
   };
 
   Zoning.prototype.rasteriseZones = function (districts) {
-    var e_7, _a;
+    var e_9, _a;
 
     var _this = this;
 
@@ -136537,15 +136954,15 @@ function () {
 
         _loop_1(d);
       }
-    } catch (e_7_1) {
-      e_7 = {
-        error: e_7_1
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
       };
     } finally {
       try {
         if (districts_1_1 && !districts_1_1.done && (_a = districts_1["return"])) _a.call(districts_1);
       } finally {
-        if (e_7) throw e_7.error;
+        if (e_9) throw e_9.error;
       }
     }
 
@@ -136557,7 +136974,7 @@ function () {
 
 exports["default"] = Zoning;
 
-},{"../vector":130,"./polygon_util":111,"loglevel":54,"simplex-noise":90}],118:[function(require,module,exports){
+},{"../vector":131,"./polygon_util":111,"loglevel":54,"simplex-noise":90}],119:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -136988,7 +137405,7 @@ function () {
 
 exports["default"] = ModelGenerator;
 
-},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],119:[function(require,module,exports){
+},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],120:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -137201,6 +137618,8 @@ var polygon_finder_1 = require("../impl/polygon_finder");
 var polygon_util_1 = require("../impl/polygon_util");
 
 var industrial_layout_1 = require("../impl/industrial_layout");
+
+var yard_houses_1 = require("../impl/yard_houses");
 /**
  * Building height range for each zone
  */
@@ -137363,17 +137782,19 @@ function () {
     this.industrialRoads = []; // Service roads through industrial blocks
 
     this.portBuildings = [];
+    this.lowIncomeHouses = [];
+    this.lowIncomeFences = [];
     this.zoning = null;
     this.buildingParams = {
       maxLength: 20,
       minArea: 50,
       shrinkSpacing: 4,
       chanceNoDivide: 0.05
-    }; // Small, tightly packed houses
+    }; // Small houses, each in its own fenced yard
 
     this.lowIncomeParams = {
       maxLength: 20,
-      minArea: 28,
+      minArea: 60,
       shrinkSpacing: 3,
       chanceNoDivide: 0
     };
@@ -137391,7 +137812,7 @@ function () {
     folder.add(this.buildingParams, 'minArea');
     folder.add(this.buildingParams, 'shrinkSpacing');
     folder.add(this.buildingParams, 'chanceNoDivide');
-    folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeMinArea');
+    folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeLotArea');
     folder.add(this.industrialParams, 'parcelWidth').name('industrialParcelWidth');
     folder.add(this.industrialParams, 'setback').name('industrialSetback');
     this.polygonFinders = this.createPolygonFinders();
@@ -137420,9 +137841,18 @@ function () {
   });
   Object.defineProperty(Buildings.prototype, "lowIncomeLots", {
     get: function get() {
-      return this.toScreen(this.polygonFinders[1
+      // Until the yards are laid out, show the plain lots so animation still works
+      if (this.lowIncomeFences.length === 0) return this.toScreen(this.polygonFinders[1
       /* LowIncome */
       ].polygons);
+      return this.toScreen(this.lowIncomeHouses);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(Buildings.prototype, "lowIncomeFenceLines", {
+    get: function get() {
+      return this.toScreen(this.lowIncomeFences);
     },
     enumerable: true,
     configurable: true
@@ -137561,6 +137991,8 @@ function () {
     this.zoneBlocks = [[], [], []];
     this.industrialBuildings = [];
     this.industrialRoads = [];
+    this.lowIncomeHouses = [];
+    this.lowIncomeFences = [];
     this._models = new BuildingModels([], []);
   };
 
@@ -137595,7 +138027,7 @@ function () {
 
   Buildings.prototype.generate = function (animate) {
     return __awaiter(this, void 0, void 0, function () {
-      var g, blockParams, blockFinder, _a, _b, zone, lots, zones, addLots;
+      var g, blockParams, blockFinder, _a, _b, zone, yards, lots, zones, addLots;
 
       var e_4, _c;
 
@@ -137652,6 +138084,11 @@ function () {
             _d.sent();
 
             this.layoutIndustry();
+            yards = yard_houses_1["default"].layout(this.polygonFinders[1
+            /* LowIncome */
+            ].polygons);
+            this.lowIncomeHouses = yards.houses;
+            this.lowIncomeFences = yards.fences;
             this.redraw();
             lots = [];
             zones = [];
@@ -137669,9 +138106,7 @@ function () {
             ].polygons, 0
             /* Residential */
             );
-            addLots(this.polygonFinders[1
-            /* LowIncome */
-            ].polygons, 1
+            addLots(this.lowIncomeHouses, 1
             /* LowIncome */
             );
             addLots(this.industrialBuildings, 2
@@ -137813,7 +138248,7 @@ function () {
 
 exports["default"] = Buildings;
 
-},{"../impl/graph":104,"../impl/industrial_layout":107,"../impl/polygon_finder":110,"../impl/polygon_util":111,"./domain_controller":121}],120:[function(require,module,exports){
+},{"../impl/graph":104,"../impl/industrial_layout":107,"../impl/polygon_finder":110,"../impl/polygon_util":111,"../impl/yard_houses":117,"./domain_controller":122}],121:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -138229,7 +138664,7 @@ function (_super) {
 
 exports.RoughCanvasWrapper = RoughCanvasWrapper;
 
-},{"../util":129,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],121:[function(require,module,exports){
+},{"../util":130,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],122:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -138455,7 +138890,7 @@ function () {
 
 exports["default"] = DomainController;
 
-},{"../util":129,"../vector":130}],122:[function(require,module,exports){
+},{"../util":130,"../vector":131}],123:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -138593,7 +139028,7 @@ function () {
 
 exports["default"] = DragController;
 
-},{"../util":129,"../vector":130,"./domain_controller":121,"interactjs":14}],123:[function(require,module,exports){
+},{"../util":130,"../vector":131,"./domain_controller":122,"interactjs":14}],124:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -138990,7 +139425,7 @@ function (_super) {
 
 exports["default"] = HighwayGUI;
 
-},{"../impl/highway_generator":106,"../util":129,"./road_gui":125}],124:[function(require,module,exports){
+},{"../impl/highway_generator":106,"../util":130,"./road_gui":126}],125:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -139509,7 +139944,7 @@ function () {
     var trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3; // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
 
     this.minorRoads.trimEnds(function (p) {
-      return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p);
+      return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p) || _this.zoning.inInterchange(p);
     }, 1);
   };
   /**
@@ -139697,6 +140132,7 @@ function () {
     style.river = this.coastline.river;
     style.lots = this.buildings.lots;
     style.lowIncomeLots = this.buildings.lowIncomeLots;
+    style.fences = this.buildings.lowIncomeFenceLines;
     style.industrialLots = this.buildings.industrialLots;
     style.lowIncomeAreas = this.buildings.lowIncomeBlocks;
     style.industrialAreas = this.buildings.industrialBlocks;
@@ -139825,7 +140261,7 @@ function () {
 
 exports["default"] = MainGUI;
 
-},{"../impl/graph":104,"../impl/integrator":108,"../impl/polygon_finder":110,"../impl/polygon_util":111,"../impl/port":112,"../impl/zoning":117,"../util":129,"./buildings":119,"./domain_controller":121,"./highway_gui":123,"./road_gui":125,"./style":126,"./water_gui":128}],125:[function(require,module,exports){
+},{"../impl/graph":104,"../impl/integrator":108,"../impl/polygon_finder":110,"../impl/polygon_util":111,"../impl/port":112,"../impl/zoning":118,"../util":130,"./buildings":120,"./domain_controller":122,"./highway_gui":124,"./road_gui":126,"./style":127,"./water_gui":129}],126:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -140212,7 +140648,7 @@ function () {
 
 exports["default"] = RoadGUI;
 
-},{"../impl/streamlines":113,"../util":129,"./domain_controller":121}],126:[function(require,module,exports){
+},{"../impl/streamlines":113,"../util":130,"./domain_controller":122}],127:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -140287,6 +140723,8 @@ function () {
     this.buildingModels = [];
     this.parks = [];
     this.lowIncomeLots = [];
+    this.fences = []; // Thin lines around yards
+
     this.industrialLots = [];
     this.lowIncomeAreas = [];
     this.industrialAreas = [];
@@ -140430,7 +140868,7 @@ function (_super) {
   };
 
   DefaultStyle.prototype.draw = function (canvas) {
-    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4;
+    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4, e_30, _5;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -140461,8 +140899,8 @@ function (_super) {
     canvas.setLineWidth(1);
 
     try {
-      for (var _5 = __values(this.portLand), _6 = _5.next(); !_6.done; _6 = _5.next()) {
-        var p = _6.value;
+      for (var _6 = __values(this.portLand), _7 = _6.next(); !_7.done; _7 = _6.next()) {
+        var p = _7.value;
         canvas.drawPolygon(p);
       }
     } catch (e_1_1) {
@@ -140471,7 +140909,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_6 && !_6.done && (_a = _5["return"])) _a.call(_5);
+        if (_7 && !_7.done && (_a = _6["return"])) _a.call(_6);
       } finally {
         if (e_1) throw e_1.error;
       }
@@ -140481,8 +140919,8 @@ function (_super) {
     canvas.setStrokeStyle(this.colourScheme.seaColour);
 
     try {
-      for (var _7 = __values(this.portWater), _8 = _7.next(); !_8.done; _8 = _7.next()) {
-        var p = _8.value;
+      for (var _8 = __values(this.portWater), _9 = _8.next(); !_9.done; _9 = _8.next()) {
+        var p = _9.value;
         canvas.drawPolygon(p);
       }
     } catch (e_2_1) {
@@ -140491,7 +140929,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_8 && !_8.done && (_b = _7["return"])) _b.call(_7);
+        if (_9 && !_9.done && (_b = _8["return"])) _b.call(_8);
       } finally {
         if (e_2) throw e_2.error;
       }
@@ -140502,8 +140940,8 @@ function (_super) {
     canvas.setFillStyle(this.colourScheme.grassColour);
 
     try {
-      for (var _9 = __values(this.parks), _10 = _9.next(); !_10.done; _10 = _9.next()) {
-        var p = _10.value;
+      for (var _10 = __values(this.parks), _11 = _10.next(); !_11.done; _11 = _10.next()) {
+        var p = _11.value;
         canvas.drawPolygon(p);
       }
     } catch (e_3_1) {
@@ -140512,7 +140950,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_10 && !_10.done && (_c = _9["return"])) _c.call(_9);
+        if (_11 && !_11.done && (_c = _10["return"])) _c.call(_10);
       } finally {
         if (e_3) throw e_3.error;
       }
@@ -140529,8 +140967,8 @@ function (_super) {
       canvas.setStrokeStyle(this.colourScheme.lowIncomeColour);
 
       try {
-        for (var _11 = __values(this.lowIncomeAreas), _12 = _11.next(); !_12.done; _12 = _11.next()) {
-          var p = _12.value;
+        for (var _12 = __values(this.lowIncomeAreas), _13 = _12.next(); !_13.done; _13 = _12.next()) {
+          var p = _13.value;
           canvas.drawPolygon(p);
         }
       } catch (e_4_1) {
@@ -140539,7 +140977,7 @@ function (_super) {
         };
       } finally {
         try {
-          if (_12 && !_12.done && (_d = _11["return"])) _d.call(_11);
+          if (_13 && !_13.done && (_d = _12["return"])) _d.call(_12);
         } finally {
           if (e_4) throw e_4.error;
         }
@@ -140549,8 +140987,8 @@ function (_super) {
       canvas.setStrokeStyle(this.colourScheme.industrialColour);
 
       try {
-        for (var _13 = __values(this.industrialAreas), _14 = _13.next(); !_14.done; _14 = _13.next()) {
-          var p = _14.value;
+        for (var _14 = __values(this.industrialAreas), _15 = _14.next(); !_15.done; _15 = _14.next()) {
+          var p = _15.value;
           canvas.drawPolygon(p);
         }
       } catch (e_5_1) {
@@ -140559,7 +140997,7 @@ function (_super) {
         };
       } finally {
         try {
-          if (_14 && !_14.done && (_e = _13["return"])) _e.call(_13);
+          if (_15 && !_15.done && (_e = _14["return"])) _e.call(_14);
         } finally {
           if (e_5) throw e_5.error;
         }
@@ -140571,8 +141009,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.minorWidth * this.domainController.zoom);
 
     try {
-      for (var _15 = __values(this.minorRoads), _16 = _15.next(); !_16.done; _16 = _15.next()) {
-        var s = _16.value;
+      for (var _16 = __values(this.minorRoads), _17 = _16.next(); !_17.done; _17 = _16.next()) {
+        var s = _17.value;
         canvas.drawPolyline(s);
       }
     } catch (e_6_1) {
@@ -140581,15 +141019,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_16 && !_16.done && (_f = _15["return"])) _f.call(_15);
+        if (_17 && !_17.done && (_f = _16["return"])) _f.call(_16);
       } finally {
         if (e_6) throw e_6.error;
       }
     }
 
     try {
-      for (var _17 = __values(this.frontageRoads), _18 = _17.next(); !_18.done; _18 = _17.next()) {
-        var s = _18.value;
+      for (var _18 = __values(this.frontageRoads), _19 = _18.next(); !_19.done; _19 = _18.next()) {
+        var s = _19.value;
         canvas.drawPolyline(s);
       }
     } catch (e_7_1) {
@@ -140598,15 +141036,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_18 && !_18.done && (_g = _17["return"])) _g.call(_17);
+        if (_19 && !_19.done && (_g = _18["return"])) _g.call(_18);
       } finally {
         if (e_7) throw e_7.error;
       }
     }
 
     try {
-      for (var _19 = __values(this.industrialRoads), _20 = _19.next(); !_20.done; _20 = _19.next()) {
-        var s = _20.value;
+      for (var _20 = __values(this.industrialRoads), _21 = _20.next(); !_21.done; _21 = _20.next()) {
+        var s = _21.value;
         canvas.drawPolyline(s);
       }
     } catch (e_8_1) {
@@ -140615,7 +141053,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_20 && !_20.done && (_h = _19["return"])) _h.call(_19);
+        if (_21 && !_21.done && (_h = _20["return"])) _h.call(_20);
       } finally {
         if (e_8) throw e_8.error;
       }
@@ -140625,8 +141063,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
 
     try {
-      for (var _21 = __values(this.majorRoads), _22 = _21.next(); !_22.done; _22 = _21.next()) {
-        var s = _22.value;
+      for (var _22 = __values(this.majorRoads), _23 = _22.next(); !_23.done; _23 = _22.next()) {
+        var s = _23.value;
         canvas.drawPolyline(s);
       }
     } catch (e_9_1) {
@@ -140635,7 +141073,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_22 && !_22.done && (_j = _21["return"])) _j.call(_21);
+        if (_23 && !_23.done && (_j = _22["return"])) _j.call(_22);
       } finally {
         if (e_9) throw e_9.error;
       }
@@ -140646,8 +141084,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.mainWidth * this.domainController.zoom);
 
     try {
-      for (var _23 = __values(this.mainRoads), _24 = _23.next(); !_24.done; _24 = _23.next()) {
-        var s = _24.value;
+      for (var _24 = __values(this.mainRoads), _25 = _24.next(); !_25.done; _25 = _24.next()) {
+        var s = _25.value;
         canvas.drawPolyline(s);
       }
     } catch (e_10_1) {
@@ -140656,15 +141094,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_24 && !_24.done && (_k = _23["return"])) _k.call(_23);
+        if (_25 && !_25.done && (_k = _24["return"])) _k.call(_24);
       } finally {
         if (e_10) throw e_10.error;
       }
     }
 
     try {
-      for (var _25 = __values(this.coastlineRoads), _26 = _25.next(); !_26.done; _26 = _25.next()) {
-        var s = _26.value;
+      for (var _26 = __values(this.coastlineRoads), _27 = _26.next(); !_27.done; _27 = _26.next()) {
+        var s = _27.value;
         canvas.drawPolyline(s);
       }
     } catch (e_11_1) {
@@ -140673,7 +141111,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_26 && !_26.done && (_l = _25["return"])) _l.call(_25);
+        if (_27 && !_27.done && (_l = _26["return"])) _l.call(_26);
       } finally {
         if (e_11) throw e_11.error;
       }
@@ -140684,8 +141122,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
 
     try {
-      for (var _27 = __values(this.minorRoads), _28 = _27.next(); !_28.done; _28 = _27.next()) {
-        var s = _28.value;
+      for (var _28 = __values(this.minorRoads), _29 = _28.next(); !_29.done; _29 = _28.next()) {
+        var s = _29.value;
         canvas.drawPolyline(s);
       }
     } catch (e_12_1) {
@@ -140694,15 +141132,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_28 && !_28.done && (_m = _27["return"])) _m.call(_27);
+        if (_29 && !_29.done && (_m = _28["return"])) _m.call(_28);
       } finally {
         if (e_12) throw e_12.error;
       }
     }
 
     try {
-      for (var _29 = __values(this.frontageRoads), _30 = _29.next(); !_30.done; _30 = _29.next()) {
-        var s = _30.value;
+      for (var _30 = __values(this.frontageRoads), _31 = _30.next(); !_31.done; _31 = _30.next()) {
+        var s = _31.value;
         canvas.drawPolyline(s);
       }
     } catch (e_13_1) {
@@ -140711,15 +141149,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_30 && !_30.done && (_o = _29["return"])) _o.call(_29);
+        if (_31 && !_31.done && (_o = _30["return"])) _o.call(_30);
       } finally {
         if (e_13) throw e_13.error;
       }
     }
 
     try {
-      for (var _31 = __values(this.industrialRoads), _32 = _31.next(); !_32.done; _32 = _31.next()) {
-        var s = _32.value;
+      for (var _32 = __values(this.industrialRoads), _33 = _32.next(); !_33.done; _33 = _32.next()) {
+        var s = _33.value;
         canvas.drawPolyline(s);
       }
     } catch (e_14_1) {
@@ -140728,7 +141166,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_32 && !_32.done && (_p = _31["return"])) _p.call(_31);
+        if (_33 && !_33.done && (_p = _32["return"])) _p.call(_32);
       } finally {
         if (e_14) throw e_14.error;
       }
@@ -140738,8 +141176,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
 
     try {
-      for (var _33 = __values(this.majorRoads), _34 = _33.next(); !_34.done; _34 = _33.next()) {
-        var s = _34.value;
+      for (var _34 = __values(this.majorRoads), _35 = _34.next(); !_35.done; _35 = _34.next()) {
+        var s = _35.value;
         canvas.drawPolyline(s);
       }
     } catch (e_15_1) {
@@ -140748,7 +141186,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_34 && !_34.done && (_q = _33["return"])) _q.call(_33);
+        if (_35 && !_35.done && (_q = _34["return"])) _q.call(_34);
       } finally {
         if (e_15) throw e_15.error;
       }
@@ -140759,8 +141197,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
 
     try {
-      for (var _35 = __values(this.mainRoads), _36 = _35.next(); !_36.done; _36 = _35.next()) {
-        var s = _36.value;
+      for (var _36 = __values(this.mainRoads), _37 = _36.next(); !_37.done; _37 = _36.next()) {
+        var s = _37.value;
         canvas.drawPolyline(s);
       }
     } catch (e_16_1) {
@@ -140769,15 +141207,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_36 && !_36.done && (_r = _35["return"])) _r.call(_35);
+        if (_37 && !_37.done && (_r = _36["return"])) _r.call(_36);
       } finally {
         if (e_16) throw e_16.error;
       }
     }
 
     try {
-      for (var _37 = __values(this.coastlineRoads), _38 = _37.next(); !_38.done; _38 = _37.next()) {
-        var s = _38.value;
+      for (var _38 = __values(this.coastlineRoads), _39 = _38.next(); !_39.done; _39 = _38.next()) {
+        var s = _39.value;
         canvas.drawPolyline(s);
       }
     } catch (e_17_1) {
@@ -140786,7 +141224,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_38 && !_38.done && (_s = _37["return"])) _s.call(_37);
+        if (_39 && !_39.done && (_s = _38["return"])) _s.call(_38);
       } finally {
         if (e_17) throw e_17.error;
       }
@@ -140798,8 +141236,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.rampWidth * zoom);
 
     try {
-      for (var _39 = __values(this.ramps), _40 = _39.next(); !_40.done; _40 = _39.next()) {
-        var s = _40.value;
+      for (var _40 = __values(this.ramps), _41 = _40.next(); !_41.done; _41 = _40.next()) {
+        var s = _41.value;
         canvas.drawPolyline(s);
       }
     } catch (e_18_1) {
@@ -140808,7 +141246,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_40 && !_40.done && (_t = _39["return"])) _t.call(_39);
+        if (_41 && !_41.done && (_t = _40["return"])) _t.call(_40);
       } finally {
         if (e_18) throw e_18.error;
       }
@@ -140818,8 +141256,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
 
     try {
-      for (var _41 = __values(this.ramps), _42 = _41.next(); !_42.done; _42 = _41.next()) {
-        var s = _42.value;
+      for (var _42 = __values(this.ramps), _43 = _42.next(); !_43.done; _43 = _42.next()) {
+        var s = _43.value;
         canvas.drawPolyline(s);
       }
     } catch (e_19_1) {
@@ -140828,7 +141266,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_42 && !_42.done && (_u = _41["return"])) _u.call(_41);
+        if (_43 && !_43.done && (_u = _42["return"])) _u.call(_42);
       } finally {
         if (e_19) throw e_19.error;
       }
@@ -140838,8 +141276,8 @@ function (_super) {
     canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
 
     try {
-      for (var _43 = __values(this.highways), _44 = _43.next(); !_44.done; _44 = _43.next()) {
-        var s = _44.value;
+      for (var _44 = __values(this.highways), _45 = _44.next(); !_45.done; _45 = _44.next()) {
+        var s = _45.value;
         canvas.drawPolyline(s);
       }
     } catch (e_20_1) {
@@ -140848,7 +141286,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_44 && !_44.done && (_v = _43["return"])) _v.call(_43);
+        if (_45 && !_45.done && (_v = _44["return"])) _v.call(_44);
       } finally {
         if (e_20) throw e_20.error;
       }
@@ -140858,8 +141296,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
 
     try {
-      for (var _45 = __values(this.highways), _46 = _45.next(); !_46.done; _46 = _45.next()) {
-        var s = _46.value;
+      for (var _46 = __values(this.highways), _47 = _46.next(); !_47.done; _47 = _46.next()) {
+        var s = _47.value;
         canvas.drawPolyline(s);
       }
     } catch (e_21_1) {
@@ -140868,7 +141306,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_46 && !_46.done && (_w = _45["return"])) _w.call(_45);
+        if (_47 && !_47.done && (_w = _46["return"])) _w.call(_46);
       } finally {
         if (e_21) throw e_21.error;
       }
@@ -140879,8 +141317,8 @@ function (_super) {
     canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
 
     try {
-      for (var _47 = __values(this.highways), _48 = _47.next(); !_48.done; _48 = _47.next()) {
-        var s = _48.value;
+      for (var _48 = __values(this.highways), _49 = _48.next(); !_49.done; _49 = _48.next()) {
+        var s = _49.value;
         canvas.drawPolyline(s);
       }
     } catch (e_22_1) {
@@ -140889,7 +141327,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_48 && !_48.done && (_x = _47["return"])) _x.call(_47);
+        if (_49 && !_49.done && (_x = _48["return"])) _x.call(_48);
       } finally {
         if (e_22) throw e_22.error;
       }
@@ -140911,8 +141349,8 @@ function (_super) {
       var this_1 = this;
 
       try {
-        for (var _49 = __values(this.buildingModels), _50 = _49.next(); !_50.done; _50 = _49.next()) {
-          var b = _50.value;
+        for (var _50 = __values(this.buildingModels), _51 = _50.next(); !_51.done; _51 = _50.next()) {
+          var b = _51.value;
 
           _loop_1(b);
         }
@@ -140922,7 +141360,7 @@ function (_super) {
         };
       } finally {
         try {
-          if (_50 && !_50.done && (_y = _49["return"])) _y.call(_49);
+          if (_51 && !_51.done && (_y = _50["return"])) _y.call(_50);
         } finally {
           if (e_23) throw e_23.error;
         }
@@ -140934,8 +141372,8 @@ function (_super) {
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _51 = __values(this.lots), _52 = _51.next(); !_52.done; _52 = _51.next()) {
-            var b = _52.value;
+          for (var _52 = __values(this.lots), _53 = _52.next(); !_53.done; _53 = _52.next()) {
+            var b = _53.value;
             canvas.drawPolygon(b);
           }
         } catch (e_24_1) {
@@ -140944,18 +141382,18 @@ function (_super) {
           };
         } finally {
           try {
-            if (_52 && !_52.done && (_z = _51["return"])) _z.call(_51);
+            if (_53 && !_53.done && (_z = _52["return"])) _z.call(_52);
           } finally {
             if (e_24) throw e_24.error;
           }
         }
 
-        canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
+        canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
 
         try {
-          for (var _53 = __values(this.lowIncomeLots), _54 = _53.next(); !_54.done; _54 = _53.next()) {
-            var b = _54.value;
-            canvas.drawPolygon(b);
+          for (var _54 = __values(this.fences), _55 = _54.next(); !_55.done; _55 = _54.next()) {
+            var f = _55.value;
+            canvas.drawPolyline(f);
           }
         } catch (e_25_1) {
           e_25 = {
@@ -140963,17 +141401,18 @@ function (_super) {
           };
         } finally {
           try {
-            if (_54 && !_54.done && (_0 = _53["return"])) _0.call(_53);
+            if (_55 && !_55.done && (_0 = _54["return"])) _0.call(_54);
           } finally {
             if (e_25) throw e_25.error;
           }
         }
 
-        canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
+        canvas.setLineWidth(1);
+        canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
 
         try {
-          for (var _55 = __values(this.industrialLots), _56 = _55.next(); !_56.done; _56 = _55.next()) {
-            var b = _56.value;
+          for (var _56 = __values(this.lowIncomeLots), _57 = _56.next(); !_57.done; _57 = _56.next()) {
+            var b = _57.value;
             canvas.drawPolygon(b);
           }
         } catch (e_26_1) {
@@ -140982,9 +141421,28 @@ function (_super) {
           };
         } finally {
           try {
-            if (_56 && !_56.done && (_1 = _55["return"])) _1.call(_55);
+            if (_57 && !_57.done && (_1 = _56["return"])) _1.call(_56);
           } finally {
             if (e_26) throw e_26.error;
+          }
+        }
+
+        canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
+
+        try {
+          for (var _58 = __values(this.industrialLots), _59 = _58.next(); !_59.done; _59 = _58.next()) {
+            var b = _59.value;
+            canvas.drawPolygon(b);
+          }
+        } catch (e_27_1) {
+          e_27 = {
+            error: e_27_1
+          };
+        } finally {
+          try {
+            if (_59 && !_59.done && (_2 = _58["return"])) _2.call(_58);
+          } finally {
+            if (e_27) throw e_27.error;
           }
         }
       } // Pseudo-3D
@@ -140997,55 +141455,55 @@ function (_super) {
         try {
           // This is a cheap approximation that often creates visual artefacts
           // Draws building sides, then rooves instead of properly clipping polygons etc.
-          for (var _57 = __values(this.buildingModels), _58 = _57.next(); !_58.done; _58 = _57.next()) {
-            var b = _58.value;
+          for (var _60 = __values(this.buildingModels), _61 = _60.next(); !_61.done; _61 = _60.next()) {
+            var b = _61.value;
 
             try {
-              for (var _59 = (e_28 = void 0, __values(b.sides)), _60 = _59.next(); !_60.done; _60 = _59.next()) {
-                var s = _60.value;
+              for (var _62 = (e_29 = void 0, __values(b.sides)), _63 = _62.next(); !_63.done; _63 = _62.next()) {
+                var s = _63.value;
                 canvas.drawPolygon(s);
               }
-            } catch (e_28_1) {
-              e_28 = {
-                error: e_28_1
+            } catch (e_29_1) {
+              e_29 = {
+                error: e_29_1
               };
             } finally {
               try {
-                if (_60 && !_60.done && (_3 = _59["return"])) _3.call(_59);
+                if (_63 && !_63.done && (_4 = _62["return"])) _4.call(_62);
               } finally {
-                if (e_28) throw e_28.error;
+                if (e_29) throw e_29.error;
               }
             }
           }
-        } catch (e_27_1) {
-          e_27 = {
-            error: e_27_1
+        } catch (e_28_1) {
+          e_28 = {
+            error: e_28_1
           };
         } finally {
           try {
-            if (_58 && !_58.done && (_2 = _57["return"])) _2.call(_57);
+            if (_61 && !_61.done && (_3 = _60["return"])) _3.call(_60);
           } finally {
-            if (e_27) throw e_27.error;
+            if (e_28) throw e_28.error;
           }
         }
 
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _61 = __values(this.buildingModels), _62 = _61.next(); !_62.done; _62 = _61.next()) {
-            var b = _62.value;
+          for (var _64 = __values(this.buildingModels), _65 = _64.next(); !_65.done; _65 = _64.next()) {
+            var b = _65.value;
             canvas.setFillStyle(this.roofColour(b.zone));
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_29_1) {
-          e_29 = {
-            error: e_29_1
+        } catch (e_30_1) {
+          e_30 = {
+            error: e_30_1
           };
         } finally {
           try {
-            if (_62 && !_62.done && (_4 = _61["return"])) _4.call(_61);
+            if (_65 && !_65.done && (_5 = _64["return"])) _5.call(_64);
           } finally {
-            if (e_29) throw e_29.error;
+            if (e_30) throw e_30.error;
           }
         }
       }
@@ -141096,7 +141554,7 @@ function (_super) {
   };
 
   RoughStyle.prototype.draw = function (canvas) {
-    var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g;
+    var e_31, _a, e_32, _b, e_33, _c, e_34, _d, e_35, _e, e_36, _f, e_37, _g, e_38, _h;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -141230,25 +141688,8 @@ function (_super) {
         });
 
         try {
-          for (var _h = __values(this.lots), _j = _h.next(); !_j.done; _j = _h.next()) {
-            var b = _j.value;
-            canvas.drawPolygon(b);
-          }
-        } catch (e_30_1) {
-          e_30 = {
-            error: e_30_1
-          };
-        } finally {
-          try {
-            if (_j && !_j.done && (_a = _h["return"])) _a.call(_h);
-          } finally {
-            if (e_30) throw e_30.error;
-          }
-        }
-
-        try {
-          for (var _k = __values(this.lowIncomeLots), _l = _k.next(); !_l.done; _l = _k.next()) {
-            var b = _l.value;
+          for (var _j = __values(this.lots), _k = _j.next(); !_k.done; _k = _j.next()) {
+            var b = _k.value;
             canvas.drawPolygon(b);
           }
         } catch (e_31_1) {
@@ -141257,15 +141698,15 @@ function (_super) {
           };
         } finally {
           try {
-            if (_l && !_l.done && (_b = _k["return"])) _b.call(_k);
+            if (_k && !_k.done && (_a = _j["return"])) _a.call(_j);
           } finally {
             if (e_31) throw e_31.error;
           }
         }
 
         try {
-          for (var _m = __values(this.industrialLots), _o = _m.next(); !_o.done; _o = _m.next()) {
-            var b = _o.value;
+          for (var _l = __values(this.lowIncomeLots), _m = _l.next(); !_m.done; _m = _l.next()) {
+            var b = _m.value;
             canvas.drawPolygon(b);
           }
         } catch (e_32_1) {
@@ -141274,9 +141715,47 @@ function (_super) {
           };
         } finally {
           try {
-            if (_o && !_o.done && (_c = _m["return"])) _c.call(_m);
+            if (_m && !_m.done && (_b = _l["return"])) _b.call(_l);
           } finally {
             if (e_32) throw e_32.error;
+          }
+        }
+
+        try {
+          for (var _o = __values(this.industrialLots), _p = _o.next(); !_p.done; _p = _o.next()) {
+            var b = _p.value;
+            canvas.drawPolygon(b);
+          }
+        } catch (e_33_1) {
+          e_33 = {
+            error: e_33_1
+          };
+        } finally {
+          try {
+            if (_p && !_p.done && (_c = _o["return"])) _c.call(_o);
+          } finally {
+            if (e_33) throw e_33.error;
+          }
+        }
+
+        canvas.setOptions({
+          strokeWidth: 0.4
+        });
+
+        try {
+          for (var _q = __values(this.fences), _r = _q.next(); !_r.done; _r = _q.next()) {
+            var f = _r.value;
+            canvas.drawPolyline(f);
+          }
+        } catch (e_34_1) {
+          e_34 = {
+            error: e_34_1
+          };
+        } finally {
+          try {
+            if (_r && !_r.done && (_d = _q["return"])) _d.call(_q);
+          } finally {
+            if (e_34) throw e_34.error;
           }
         }
       } // Pseudo-3D
@@ -141295,36 +141774,36 @@ function (_super) {
         var camera = this.domainController.getCameraPosition();
 
         try {
-          for (var _p = __values(this.buildingModels), _q = _p.next(); !_q.done; _q = _p.next()) {
-            var b = _q.value;
+          for (var _s = __values(this.buildingModels), _t = _s.next(); !_t.done; _t = _s.next()) {
+            var b = _t.value;
 
             try {
-              for (var _r = (e_34 = void 0, __values(b.sides)), _s = _r.next(); !_s.done; _s = _r.next()) {
-                var s = _s.value;
+              for (var _u = (e_36 = void 0, __values(b.sides)), _v = _u.next(); !_v.done; _v = _u.next()) {
+                var s = _v.value;
                 var averagePoint = s[0].clone().add(s[1]).divideScalar(2);
                 allSidesDistances.push([averagePoint.distanceToSquared(camera), s]);
               }
-            } catch (e_34_1) {
-              e_34 = {
-                error: e_34_1
+            } catch (e_36_1) {
+              e_36 = {
+                error: e_36_1
               };
             } finally {
               try {
-                if (_s && !_s.done && (_e = _r["return"])) _e.call(_r);
+                if (_v && !_v.done && (_f = _u["return"])) _f.call(_u);
               } finally {
-                if (e_34) throw e_34.error;
+                if (e_36) throw e_36.error;
               }
             }
           }
-        } catch (e_33_1) {
-          e_33 = {
-            error: e_33_1
+        } catch (e_35_1) {
+          e_35 = {
+            error: e_35_1
           };
         } finally {
           try {
-            if (_q && !_q.done && (_d = _p["return"])) _d.call(_p);
+            if (_t && !_t.done && (_e = _s["return"])) _e.call(_s);
           } finally {
-            if (e_33) throw e_33.error;
+            if (e_35) throw e_35.error;
           }
         }
 
@@ -141337,15 +141816,15 @@ function (_super) {
             var p = allSidesDistances_1_1.value;
             canvas.drawPolygon(p[1]);
           }
-        } catch (e_35_1) {
-          e_35 = {
-            error: e_35_1
+        } catch (e_37_1) {
+          e_37 = {
+            error: e_37_1
           };
         } finally {
           try {
-            if (allSidesDistances_1_1 && !allSidesDistances_1_1.done && (_f = allSidesDistances_1["return"])) _f.call(allSidesDistances_1);
+            if (allSidesDistances_1_1 && !allSidesDistances_1_1.done && (_g = allSidesDistances_1["return"])) _g.call(allSidesDistances_1);
           } finally {
-            if (e_35) throw e_35.error;
+            if (e_37) throw e_37.error;
           }
         }
 
@@ -141357,19 +141836,19 @@ function (_super) {
         });
 
         try {
-          for (var _t = __values(this.buildingModels), _u = _t.next(); !_u.done; _u = _t.next()) {
-            var b = _u.value;
+          for (var _w = __values(this.buildingModels), _x = _w.next(); !_x.done; _x = _w.next()) {
+            var b = _x.value;
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_36_1) {
-          e_36 = {
-            error: e_36_1
+        } catch (e_38_1) {
+          e_38 = {
+            error: e_38_1
           };
         } finally {
           try {
-            if (_u && !_u.done && (_g = _t["return"])) _g.call(_t);
+            if (_x && !_x.done && (_h = _w["return"])) _h.call(_w);
           } finally {
-            if (e_36) throw e_36.error;
+            if (e_38) throw e_38.error;
           }
         }
       }
@@ -141381,7 +141860,7 @@ function (_super) {
 
 exports.RoughStyle = RoughStyle;
 
-},{"../util":129,"./canvas_wrapper":120,"./domain_controller":121,"loglevel":54}],127:[function(require,module,exports){
+},{"../util":130,"./canvas_wrapper":121,"./domain_controller":122,"loglevel":54}],128:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -141614,7 +142093,7 @@ function (_super) {
 
 exports["default"] = TensorFieldGUI;
 
-},{"../impl/tensor_field":115,"../util":129,"../vector":130,"./domain_controller":121}],128:[function(require,module,exports){
+},{"../impl/tensor_field":115,"../util":130,"../vector":131,"./domain_controller":122}],129:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -141798,7 +142277,7 @@ function (_super) {
 
 exports["default"] = WaterGUI;
 
-},{"../impl/water_generator":116,"../util":129,"./road_gui":125}],129:[function(require,module,exports){
+},{"../impl/water_generator":116,"../util":130,"./road_gui":126}],130:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -142137,7 +142616,7 @@ function () {
 
 exports["default"] = Util;
 
-},{}],130:[function(require,module,exports){
+},{}],131:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -142338,4 +142817,4 @@ function () {
 
 exports["default"] = Vector;
 
-},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,115,114,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130]);
+},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,115,114,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131]);

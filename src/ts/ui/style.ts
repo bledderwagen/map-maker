@@ -61,6 +61,7 @@ export default abstract class Style {
     public buildingModels: BuildingModel[] = [];
     public parks: Vector[][] = [];
     public lowIncomeLots: Vector[][] = [];
+    public fences: Vector[][] = [];  // Thin lines around yards
     public industrialLots: Vector[][] = [];
     public lowIncomeAreas: Vector[][] = [];
     public industrialAreas: Vector[][] = [];
@@ -292,6 +293,9 @@ export class DefaultStyle extends Style {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.lots) canvas.drawPolygon(b);
+                canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
+                for (const f of this.fences) canvas.drawPolyline(f);
+                canvas.setLineWidth(1);
                 canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
                 for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
                 canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
@@ -466,6 +470,10 @@ export class RoughStyle extends Style {
                 for (const b of this.lots) canvas.drawPolygon(b);
                 for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
                 for (const b of this.industrialLots) canvas.drawPolygon(b);
+                canvas.setOptions({
+                    strokeWidth: 0.4,
+                });
+                for (const f of this.fences) canvas.drawPolyline(f);
             }
 
             // Pseudo-3D
