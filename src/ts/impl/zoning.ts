@@ -341,7 +341,7 @@ export default class Zoning {
             const patch = this.noise.noise2D(p.x / 300 + 50, p.y / 300 - 50);
             if (patch < -0.7 + 0.4 * (1 - amount)) return Zone.Residential;
             if (nearestIndustry < 1 + 2 * amount) return Zone.LowIncome;
-            const band = 350 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
+            const band = 500 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
             if (highwayDistance < band) return Zone.LowIncome;
             return Zone.Residential;
         }

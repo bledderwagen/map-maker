@@ -23,16 +23,18 @@ export interface BuildingModel {
 /**
  * Building height range for each zone
  */
-const HEIGHTS: {[zone: number]: {min: number, max: number}} = {
-    [Zone.Residential]: {min: 20, max: 40},
-    [Zone.LowIncome]: {min: 8, max: 18},
-    [Zone.Industrial]: {min: 7, max: 13},
+const HEIGHTS: {[zone: number]: {min: number; max: number}} = {
+    // World units, 1 unit = 2 m
+    [Zone.Residential]: {min: 3.5, max: 6},
+    [Zone.LowIncome]: {min: 3, max: 4.5},
+    [Zone.Industrial]: {min: 4.5, max: 7},
 };
 
 /**
  * Pseudo 3D buildings
  */
 class BuildingModels {
+    private static readonly HEIGHT_EXAGGERATION = 5;
     private domainController = DomainController.getInstance();
     private _buildingModels: BuildingModel[] = [];
 
@@ -63,7 +65,8 @@ class BuildingModels {
         const cameraPos = this.domainController.getCameraPosition();
         for (const b of this._buildingModels) {
             b.lotScreen = b.lotWorld.map(v => this.domainController.worldToScreen(v.clone()));
-            b.roof = b.lotScreen.map(v => this.heightVectorToScreen(v, b.height, d, cameraPos));
+            // Real heights look flat from this far up, exaggerate them for the pseudo 3D view
+            b.roof = b.lotScreen.map(v => this.heightVectorToScreen(v, b.height * BuildingModels.HEIGHT_EXAGGERATION, d, cameraPos));
             b.sides = this.getBuildingSides(b);
         }
     }
@@ -110,13 +113,14 @@ export default class Buildings {
     private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
+    private residentialHouses: Vector[][] = [];
     private lowIncomeHouses: Vector[][] = [];
     private lowIncomeFences: Vector[][] = [];
     private zoning: Zoning = null;
 
     private buildingParams: PolygonParams = {
         maxLength: 20,
-        minArea: 50,
+        minArea: 105,  // Lots of roughly 400-800 m2, 1 unit = 2 m
         shrinkSpacing: 4,
         chanceNoDivide: 0.05,
     };
@@ -124,7 +128,7 @@ export default class Buildings {
     // Small houses, each in its own fenced yard
     private lowIncomeParams: PolygonParams = {
         maxLength: 20,
-        minArea: 60,
+        minArea: 100,
         shrinkSpacing: 3,
         chanceNoDivide: 0,
     };
@@ -160,7 +164,9 @@ export default class Buildings {
     }
 
     get lots(): Vector[][] {
-        return this.toScreen(this.polygonFinders[Zone.Residential].polygons);
+        // Until houses are placed, show the plain lots so animation still works
+        if (this.residentialHouses.length === 0) return this.toScreen(this.polygonFinders[Zone.Residential].polygons);
+        return this.toScreen(this.residentialHouses);
     }
 
     get lowIncomeLots(): Vector[][] {
@@ -242,6 +248,7 @@ export default class Buildings {
         this.zoneBlocks = [[], [], []];
         this.industrialBuildings = [];
         this.industrialRoads = [];
+        this.residentialHouses = [];
         this.lowIncomeHouses = [];
         this.lowIncomeFences = [];
         this._models = new BuildingModels([], []);
@@ -277,7 +284,9 @@ export default class Buildings {
         await Promise.all(this.polygonFinders.map(f => f.shrink(animate)));
         await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
         this.layoutIndustry();
-        const yards = YardHouseLayout.layout(this.polygonFinders[Zone.LowIncome].polygons);
+        // Houses sit in rows of lots along each block, like a real street grid
+        this.residentialHouses = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.Residential), YardHouseLayout.TIDY).houses;
+        const yards = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.LowIncome), YardHouseLayout.RUN_DOWN);
         this.lowIncomeHouses = yards.houses;
         this.lowIncomeFences = yards.fences;
         this.redraw();
@@ -288,7 +297,7 @@ export default class Buildings {
             lots.push(...polygons);
             for (let i = 0; i < polygons.length; i++) zones.push(zone);
         };
-        addLots(this.polygonFinders[Zone.Residential].polygons, Zone.Residential);
+        addLots(this.residentialHouses, Zone.Residential);
         addLots(this.lowIncomeHouses, Zone.LowIncome);
         addLots(this.industrialBuildings, Zone.Industrial);
         this._models = new BuildingModels(lots, zones);
@@ -301,12 +310,11 @@ export default class Buildings {
      */
     private zoneAndClipBlocks(blocks: Vector[][]): Vector[][][] {
         const out: Vector[][][] = [[], [], []];
-        if (this.zoning === null || !this.zoning.enabled) {
-            out[Zone.Residential] = blocks;
-            return out;
-        }
+        const zoned = this.zoning !== null && this.zoning.enabled;
 
-        const exclusions = this.zoning.exclusionAreas;
+        // Blocks are only tested for water at their centre, so cut away any water they overlap
+        const exclusions = [this.tensorField.sea, this.tensorField.river].filter(w => w.length >= 3);
+        if (zoned) exclusions.push(...this.zoning.exclusionAreas);
         const exclusionBoxes = exclusions.map(e => PolygonUtil.boundingBox(e));
 
         for (const block of blocks) {
@@ -314,8 +322,19 @@ export default class Buildings {
             const holes = exclusions.filter((e, i) => PolygonUtil.boundingBoxesOverlap(box, exclusionBoxes[i]));
             const pieces = holes.length === 0 ? [block] : PolygonUtil.subtractPolygons(block, holes, this.lowIncomeParams.minArea);
             for (const piece of pieces) {
-                out[this.zoning.zoneAt(PolygonUtil.averagePoint(piece))].push(piece);
+                const zone = zoned ? this.zoning.zoneAt(PolygonUtil.averagePoint(piece)) : Zone.Residential;
+                out[zone].push(piece);
             }
+        }
+        return out;
+    }
+
+    private shrunkBlocks(zone: Zone): Vector[][] {
+        const out: Vector[][] = [];
+        for (const block of this.zoneBlocks[zone]) {
+            const shrunk = PolygonUtil.resizeGeometry(block, -this.buildingParams.shrinkSpacing);
+            if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
+            if (shrunk.length >= 3) out.push(shrunk);
         }
         return out;
     }

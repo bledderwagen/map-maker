@@ -101,16 +101,15 @@ export default abstract class Style {
         if (!colourScheme.outlineSize) colourScheme.outlineSize = 1;
         if (!colourScheme.zoomBuildings) colourScheme.zoomBuildings = false;
         if (!colourScheme.buildingModels) colourScheme.buildingModels = false;
-        if (!colourScheme.minorWidth) colourScheme.minorWidth = 2;
-        if (!colourScheme.majorWidth) colourScheme.majorWidth = 4;
-        if (!colourScheme.mainWidth) colourScheme.mainWidth = 5;
-        if (!colourScheme.mainWidth) colourScheme.mainWidth = 5;
+        if (!colourScheme.minorWidth) colourScheme.minorWidth = 4.5;
+        if (!colourScheme.majorWidth) colourScheme.majorWidth = 6.5;
+        if (!colourScheme.mainWidth) colourScheme.mainWidth = 8;
         if (!colourScheme.frameColour) colourScheme.frameColour = colourScheme.bgColour;
         if (!colourScheme.frameTextColour) colourScheme.frameTextColour = colourScheme.minorRoadOutline;
 
         if (!colourScheme.highwayColour) colourScheme.highwayColour = colourScheme.mainRoadColour;
         if (!colourScheme.highwayOutline) colourScheme.highwayOutline = colourScheme.mainRoadOutline;
-        if (!colourScheme.highwayWidth) colourScheme.highwayWidth = colourScheme.mainWidth * 1.6;
+        if (!colourScheme.highwayWidth) colourScheme.highwayWidth = colourScheme.mainWidth * 2;
         if (!colourScheme.rampWidth) colourScheme.rampWidth = colourScheme.majorWidth * 0.7;
         if (!colourScheme.industrialColour) colourScheme.industrialColour = Util.mixColours(colourScheme.bgColour, 'rgb(150,110,180)', 0.18);
         if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = Util.mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
@@ -282,7 +281,7 @@ export class DefaultStyle extends Style {
             for (const b of this.buildingModels) {
                 // Colour based on height
 
-                const parsedRgb = Util.parseCSSColor(this.colourScheme.bgColour).map(v => Math.min(255, v + (b.height * 3.5)));
+                const parsedRgb = Util.parseCSSColor(this.colourScheme.bgColour).map(v => Math.min(255, v + (b.height * 18)));
                 canvas.setFillStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
                 canvas.setStrokeStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
                 canvas.drawPolygon(b.lotScreen);

@@ -54,17 +54,19 @@ export default class MainGUI {
     private highwayParams: HighwayParams;
     private zoningParams: ZoningParams = {
         numIndustrialZones: 2,
-        industrialSize: 160,
+        industrialSize: 220,
         lowIncomeAmount: 0.5,
-        highwayBuffer: 8,
+        highwayBuffer: 12,
     };
     private mainParams: StreamlineParams;
     private majorParams: StreamlineParams;
+    // Distances are in world units, 1 unit = 2 m, measured against OpenStreetMap
+    // Typical US blocks are about 100 x 200 m, major roads about 500 m apart
     private minorParams: StreamlineParams = {
-        dsep: 20,
-        dtest: 15,
+        dsep: 30,
+        dtest: 22,
         dstep: 1,
-        dlookahead: 40,
+        dlookahead: 90,
         dcirclejoin: 5,
         joinangle: 0.1,  // approx 30deg
         pathIterations: 1000,
@@ -99,16 +101,16 @@ export default class MainGUI {
         this.coastlineParams.simplifyTolerance = 10;
 
         this.majorParams = Object.assign({}, this.minorParams);
-        this.majorParams.dsep = 100;
-        this.majorParams.dtest = 30;
-        this.majorParams.dlookahead = 200;
+        this.majorParams.dsep = 200;
+        this.majorParams.dtest = 60;
+        this.majorParams.dlookahead = 300;
         this.majorParams.collideEarly = 0;
 
         this.highwayParams = Object.assign({
             numHighways: 2,
             frontageRoads: true,
-            frontageDistance: 13,
-            interchangeSize: 22,
+            frontageDistance: 25,
+            interchangeSize: 36,
         }, this.minorParams);
         this.highwayParams.dsep = 350;
         this.highwayParams.dtest = 150;
@@ -116,10 +118,13 @@ export default class MainGUI {
         this.highwayParams.seedTries = 100;
 
         this.mainParams = Object.assign({}, this.minorParams);
-        this.mainParams.dsep = 400;
-        this.mainParams.dtest = 200;
-        this.mainParams.dlookahead = 500;
+        this.mainParams.dsep = 600;
+        this.mainParams.dtest = 300;
+        this.mainParams.dlookahead = 700;
         this.mainParams.collideEarly = 0;
+
+        // Side streets one way are twice as far apart as the other, giving oblong blocks
+        this.minorParams.minorSpacingRatio = 2.3;
 
         const integrator = new RK4Integrator(tensorField, this.minorParams);
         const redraw = () => this.redraw = true;
@@ -264,7 +269,7 @@ export default class MainGUI {
         this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
 
         // No building lots between a highway and its frontage roads
-        this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 8;
+        this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 12;
         this.port = null;
         if (this.zoningParams.numIndustrialZones > 0 && Math.random() < this.portChance) {
             const inner = (v: Vector): boolean => {
@@ -275,9 +280,9 @@ export default class MainGUI {
             this.port = PortPlanner.plan(this.coastline.coastRoadWorld, this.coastline.seaPolygonWorld,
                 this.tensorField.river, {
                     halfSpan: (0.6 + 0.4 * Math.random()) * this.zoningParams.industrialSize,
-                    pierLength: 55 + Math.random() * 30,  // All piers in a port share one length
-                    pierWidth: 34,
-                    slipWidth: 28,
+                    pierLength: 100 + Math.random() * 50,  // All piers in a port share one length
+                    pierWidth: 30,
+                    slipWidth: 40,
                 }, inner);
         }
         this.buildings.setPortBuildings(this.port ? this.port.buildings : []);

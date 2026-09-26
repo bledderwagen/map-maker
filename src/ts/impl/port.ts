@@ -26,7 +26,7 @@ export interface PortParams {
  */
 export default class PortPlanner {
     private static readonly MAX_SHORE_SPREAD = 45;  // Coast must be this straight
-    private static readonly QUAY_DEPTH = 80;  // From the most seaward point of the shore to the quay wall
+    private static readonly QUAY_DEPTH = 100;  // From the most seaward point of the shore to the quay wall
     private static readonly SLIP_DEPTH = 40;  // How far slips cut back into the quay
 
     /**

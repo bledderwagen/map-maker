@@ -25,6 +25,7 @@ export interface StreamlineParams {
     seedTries: number;  // Max failed seeds
     simplifyTolerance: number;
     collideEarly: number;  // Chance of early collision 0-1
+    minorSpacingRatio?: number;  // Minor direction streamlines are spaced this much further apart, giving oblong blocks
 }
 
 /**
@@ -80,7 +81,7 @@ export default class StreamlineGenerator {
         this.nStreamlineLookBack = 2 * this.nStreamlineStep;
 
         this.majorGrid = new GridStorage(this.worldDimensions, this.origin, params.dsep);
-        this.minorGrid = new GridStorage(this.worldDimensions, this.origin, params.dsep);
+        this.minorGrid = new GridStorage(this.worldDimensions, this.origin, params.dsep * this.spacingRatio(false));
 
         this.setParamsSq();
     }
@@ -381,7 +382,7 @@ export default class StreamlineGenerator {
         if (this.SEED_AT_ENDPOINTS && this.candidateSeeds(major).length > 0) {
             while (this.candidateSeeds(major).length > 0) {
                 const seed = this.candidateSeeds(major).pop();
-                if (this.isValidSample(major, seed, this.paramsSq.dsep)) {
+                if (this.isValidSample(major, seed, this.seedSeparationSq(major))) {
                     return seed;
                 }
             }
@@ -389,7 +390,7 @@ export default class StreamlineGenerator {
 
         let seed = this.samplePoint();
         let i = 0;
-        while (!this.isValidSample(major, seed, this.paramsSq.dsep)) {
+        while (!this.isValidSample(major, seed, this.seedSeparationSq(major))) {
             if (i >= this.params.seedTries) {
                 return null;
             }
@@ -398,6 +399,18 @@ export default class StreamlineGenerator {
         }
 
         return seed;
+    }
+
+    private spacingRatio(major: boolean): number {
+        if (major || !this.params.minorSpacingRatio) return 1;
+        return this.params.minorSpacingRatio;
+    }
+
+    /**
+     * Squared distance new seeds must keep from existing streamlines in the same direction
+     */
+    protected seedSeparationSq(major: boolean): number {
+        return this.paramsSq.dsep * this.spacingRatio(major) ** 2;
     }
 
     protected isValidSample(major: boolean, point: Vector, dSq: number, bothGrids=false): boolean {

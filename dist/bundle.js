@@ -131660,7 +131660,7 @@ function (_super) {
     _this.tensorField = tensorField;
     _this.TRIES = 40;
     _this.SMOOTHING_ITERATIONS = 3;
-    _this.HIGHWAY_HALF_WIDTH = 5; // Ramps leave from the edge of the carriageway
+    _this.HIGHWAY_HALF_WIDTH = 9; // Ramps leave from the edge of the carriageway
 
     _this.highways = []; // Simplified and smoothed
 
@@ -132548,7 +132548,7 @@ function () {
     return out;
   };
   /**
-   * Mostly standard width parcels, with some wider ones, scaled to fill the row exactly
+   * Mostly standard width parcels, with some narrower and wider ones, scaled to fill the row exactly
    */
 
 
@@ -134595,7 +134595,7 @@ function () {
 
   PortPlanner.MAX_SHORE_SPREAD = 45; // Coast must be this straight
 
-  PortPlanner.QUAY_DEPTH = 80; // From the most seaward point of the shore to the quay wall
+  PortPlanner.QUAY_DEPTH = 100; // From the most seaward point of the shore to the quay wall
 
   PortPlanner.SLIP_DEPTH = 40; // How far slips cut back into the quay
 
@@ -134856,7 +134856,7 @@ function () {
     this.nStreamlineStep = Math.floor(params.dcirclejoin / params.dstep);
     this.nStreamlineLookBack = 2 * this.nStreamlineStep;
     this.majorGrid = new grid_storage_1["default"](this.worldDimensions, this.origin, params.dsep);
-    this.minorGrid = new grid_storage_1["default"](this.worldDimensions, this.origin, params.dsep);
+    this.minorGrid = new grid_storage_1["default"](this.worldDimensions, this.origin, params.dsep * this.spacingRatio(false));
     this.setParamsSq();
   }
 
@@ -135319,7 +135319,7 @@ function () {
       while (this.candidateSeeds(major).length > 0) {
         var seed_1 = this.candidateSeeds(major).pop();
 
-        if (this.isValidSample(major, seed_1, this.paramsSq.dsep)) {
+        if (this.isValidSample(major, seed_1, this.seedSeparationSq(major))) {
           return seed_1;
         }
       }
@@ -135328,7 +135328,7 @@ function () {
     var seed = this.samplePoint();
     var i = 0;
 
-    while (!this.isValidSample(major, seed, this.paramsSq.dsep)) {
+    while (!this.isValidSample(major, seed, this.seedSeparationSq(major))) {
       if (i >= this.params.seedTries) {
         return null;
       }
@@ -135338,6 +135338,19 @@ function () {
     }
 
     return seed;
+  };
+
+  StreamlineGenerator.prototype.spacingRatio = function (major) {
+    if (major || !this.params.minorSpacingRatio) return 1;
+    return this.params.minorSpacingRatio;
+  };
+  /**
+   * Squared distance new seeds must keep from existing streamlines in the same direction
+   */
+
+
+  StreamlineGenerator.prototype.seedSeparationSq = function (major) {
+    return this.paramsSq.dsep * Math.pow(this.spacingRatio(major), 2);
   };
 
   StreamlineGenerator.prototype.isValidSample = function (major, point, dSq, bothGrids) {
@@ -136201,9 +136214,10 @@ var vector_1 = require("../vector");
 var polygon_util_1 = require("./polygon_util");
 
 var local_frame_1 = require("./local_frame");
+
+var simplify = require("simplify-js");
 /**
- * Small detached houses, each sitting a little crookedly in its own fenced yard
- * Houses vary in size and position, some have a shed out back and a few lots stand empty
+ * Detached houses, each in its own yard
  */
 
 
@@ -136211,9 +136225,236 @@ var YardHouseLayout =
 /** @class */
 function () {
   function YardHouseLayout() {}
+  /**
+   * Lines each side of every block with lots facing the street, like a real street grid,
+   * with back yards meeting in the middle, and puts a house near the front of each lot
+   */
 
-  YardHouseLayout.layout = function (lots) {
-    var e_1, _a, _b;
+
+  YardHouseLayout.layoutBlocks = function (blocks, style) {
+    var e_1, _a;
+
+    var out = {
+      houses: [],
+      fences: []
+    };
+
+    var _loop_1 = function _loop_1(raw) {
+      var e_2, _a, e_3, _b;
+
+      if (raw.length < 3) return "continue"; // Straighten out small wiggles so curved blocks still get long edges
+
+      var block = simplify(raw.map(function (v) {
+        return {
+          x: v.x,
+          y: v.y
+        };
+      }), 1.5, true).map(function (p) {
+        return new vector_1["default"](p.x, p.y);
+      });
+      if (block.length > 3 && block[0].equals(block[block.length - 1])) block.pop();
+      if (block.length < 3) block = raw;
+      var clockwise = polygon_util_1["default"].signedArea(block) < 0; // Longest edges first, they get the full depth and the corners
+
+      var edges = block.map(function (_, i) {
+        return i;
+      });
+      edges.sort(function (i, j) {
+        return block[(j + 1) % block.length].distanceTo(block[j]) - block[(i + 1) % block.length].distanceTo(block[i]);
+      });
+      var lots = [];
+
+      try {
+        for (var edges_1 = (e_2 = void 0, __values(edges)), edges_1_1 = edges_1.next(); !edges_1_1.done; edges_1_1 = edges_1.next()) {
+          var i = edges_1_1.value;
+          var a = block[i];
+          var b = block[(i + 1) % block.length];
+          var length_1 = a.distanceTo(b);
+          if (length_1 < 0.8 * style.frontage) continue;
+          var t = b.clone().sub(a).divideScalar(length_1);
+          var n = clockwise ? new vector_1["default"](t.y, -t.x) : new vector_1["default"](-t.y, t.x); // Inwards
+
+          var frame = new local_frame_1["default"](a, t, n);
+          var across = YardHouseLayout.distanceAcross(block, frame.toWorld(length_1 / 2, 0.1), n);
+          var depth = Math.min(style.maxDepth, across / 2);
+          if (depth < 5) continue; // Lots of slightly varied width filling the edge exactly
+
+          var widths = [];
+          var total = 0;
+
+          while (total < length_1 - 0.5 * style.frontage) {
+            var w = style.frontage * (0.8 + 0.5 * Math.random());
+            widths.push(w);
+            total += w;
+          }
+
+          var scale = length_1 / Math.max(total, 1e-6);
+          var u = 0;
+
+          var _loop_2 = function _loop_2(w0) {
+            var w = w0 * scale;
+            var front = frame.toWorld(u + w / 2, 2);
+            var back = frame.toWorld(u + w / 2, depth * 0.6); // Corners are already taken by the lots of a longer edge
+
+            if (!lots.some(function (l) {
+              return polygon_util_1["default"].insidePolygon(front, l) || polygon_util_1["default"].insidePolygon(back, l);
+            })) {
+              var lot = YardHouseLayout.addLot(out, block, frame, u, u + w, depth, style);
+              if (lot !== null) lots.push(lot);
+            }
+
+            u += w;
+          };
+
+          try {
+            for (var widths_1 = (e_3 = void 0, __values(widths)), widths_1_1 = widths_1.next(); !widths_1_1.done; widths_1_1 = widths_1.next()) {
+              var w0 = widths_1_1.value;
+
+              _loop_2(w0);
+            }
+          } catch (e_3_1) {
+            e_3 = {
+              error: e_3_1
+            };
+          } finally {
+            try {
+              if (widths_1_1 && !widths_1_1.done && (_b = widths_1["return"])) _b.call(widths_1);
+            } finally {
+              if (e_3) throw e_3.error;
+            }
+          }
+        }
+      } catch (e_2_1) {
+        e_2 = {
+          error: e_2_1
+        };
+      } finally {
+        try {
+          if (edges_1_1 && !edges_1_1.done && (_a = edges_1["return"])) _a.call(edges_1);
+        } finally {
+          if (e_2) throw e_2.error;
+        }
+      }
+    };
+
+    try {
+      for (var blocks_1 = __values(blocks), blocks_1_1 = blocks_1.next(); !blocks_1_1.done; blocks_1_1 = blocks_1.next()) {
+        var raw = blocks_1_1.value;
+
+        _loop_1(raw);
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (blocks_1_1 && !blocks_1_1.done && (_a = blocks_1["return"])) _a.call(blocks_1);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    }
+
+    return out;
+  };
+  /**
+   * Distance from point, travelling in direction dir, to the far side of polygon
+   */
+
+
+  YardHouseLayout.distanceAcross = function (polygon, point, dir) {
+    var far = point.clone().add(dir.clone().multiplyScalar(1e4));
+    var best = Infinity;
+
+    for (var i = 0; i < polygon.length; i++) {
+      var hit = polygon_util_1["default"].segmentIntersection(point, far, polygon[i], polygon[(i + 1) % polygon.length]);
+      if (hit !== null && hit.t * 1e4 > 0.5) best = Math.min(best, hit.t * 1e4);
+    }
+
+    return best === Infinity ? 0 : best;
+  };
+  /**
+   * Returns the lot polygon, or null if the lot didn't fit
+   */
+
+
+  YardHouseLayout.addLot = function (out, block, frame, u0, u1, D, style) {
+    var W = u1 - u0;
+    if (W < 3) return null;
+    var lot = polygon_util_1["default"].intersectPolygons(frame.rect(u0, u1, 0, D), block);
+    if (lot.length < 3 || polygon_util_1["default"].calcPolygonArea(lot) < 0.5 * W * D) return null;
+    YardHouseLayout.addRowLot(out, lot, frame, u0, u1, 0, D, true, style);
+    return lot;
+  };
+
+  YardHouseLayout.addRowLot = function (out, lot, frame, u0, u1, v0, v1, frontLow, style) {
+    var W = u1 - u0;
+    var D = v1 - v0;
+    if (W < 3 || D < 5) return;
+
+    if (style.fences) {
+      var fence = lot.slice();
+      fence.push(lot[0]);
+      out.fences.push(fence);
+    }
+
+    if (Math.random() < style.vacantChance) return; // Lot coordinates: a along the street, d back from the street
+
+    var angle = (Math.random() - 0.5) * 2 * style.crookedness;
+    var cos = Math.cos(angle),
+        sin = Math.sin(angle);
+
+    var toWorld = function toWorld(a, d) {
+      return frame.toWorld(u0 + a, frontLow ? v0 + d : v1 - d);
+    };
+
+    var rect = function rect(a0, a1, d0, d1) {
+      // Rotate slightly about the rectangle's centre
+      var ca = (a0 + a1) / 2,
+          cd = (d0 + d1) / 2;
+      return [[a0, d0], [a1, d0], [a1, d1], [a0, d1]].map(function (_a) {
+        var _b = __read(_a, 2),
+            a = _b[0],
+            d = _b[1];
+
+        return toWorld(ca + (a - ca) * cos - (d - cd) * sin, cd + (a - ca) * sin + (d - cd) * cos);
+      });
+    };
+
+    var inside = function inside(polygon) {
+      return polygon.every(function (p) {
+        return polygon_util_1["default"].insidePolygon(p, lot);
+      });
+    };
+
+    var houseWidth = W * (0.55 + 0.2 * Math.random()); // Houses on narrow lots are deep rather than wide, as in the measured neighbourhoods
+
+    var houseDepth = Math.min(D * 0.6, houseWidth * (1.3 + 0.7 * Math.random()));
+    var setback = Math.min(D * 0.25, 2.5 + 2 * Math.random() + style.wander * 3 * Math.random());
+    var offset = (W - houseWidth) / 2 + (Math.random() - 0.5) * (W - houseWidth) * style.wander;
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      var scale = 1 - 0.15 * attempt;
+      var a0 = offset + houseWidth * (1 - scale) / 2;
+      var house = rect(a0, a0 + houseWidth * scale, setback, setback + houseDepth * scale);
+      if (!inside(house)) continue;
+      out.houses.push(house);
+
+      if (Math.random() < style.shedChance) {
+        // Garage or shed at the back of the lot
+        var s = Math.min(W * 0.45, 3 + Math.random() * 1.5);
+        var onLeft = Math.random() < 0.5;
+        var sa0 = onLeft ? 1 : W - 1 - s;
+        var shed = rect(sa0, sa0 + s, D - 1.5 - s, D - 1.5);
+        if (inside(shed)) out.houses.push(shed);
+      }
+
+      return;
+    }
+  };
+
+  YardHouseLayout.layout = function (lots, style) {
+    var e_4, _a, _b;
 
     var out = {
       houses: [],
@@ -136224,29 +136465,33 @@ function () {
       for (var lots_1 = __values(lots), lots_1_1 = lots_1.next(); !lots_1_1.done; lots_1_1 = lots_1.next()) {
         var lot = lots_1_1.value;
         if (lot.length < 3) continue;
-        var fence = lot.slice();
-        fence.push(lot[0]);
-        out.fences.push(fence);
-        if (Math.random() < YardHouseLayout.VACANT_CHANCE) continue;
 
-        (_b = out.houses).push.apply(_b, __spread(YardHouseLayout.housesFor(lot)));
+        if (style.fences) {
+          var fence = lot.slice();
+          fence.push(lot[0]);
+          out.fences.push(fence);
+        }
+
+        if (Math.random() < style.vacantChance) continue;
+
+        (_b = out.houses).push.apply(_b, __spread(YardHouseLayout.housesFor(lot, style)));
       }
-    } catch (e_1_1) {
-      e_1 = {
-        error: e_1_1
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
       };
     } finally {
       try {
         if (lots_1_1 && !lots_1_1.done && (_a = lots_1["return"])) _a.call(lots_1);
       } finally {
-        if (e_1) throw e_1.error;
+        if (e_4) throw e_4.error;
       }
     }
 
     return out;
   };
 
-  YardHouseLayout.housesFor = function (lot) {
+  YardHouseLayout.housesFor = function (lot, style) {
     var bounds = local_frame_1["default"].orientedBounds(lot);
     if (bounds === null) return [];
     var umin = bounds.umin,
@@ -136261,17 +136506,17 @@ function () {
       return polygon.every(function (p) {
         return polygon_util_1["default"].insidePolygon(p, lot);
       });
-    }; // Slightly crooked frame centred on the lot
+    };
 
-
-    var angle = (Math.random() - 0.5) * 0.25;
+    var angle = (Math.random() - 0.5) * 2 * style.crookedness;
     var t = bounds.frame.t;
     var rt = new vector_1["default"](t.x * Math.cos(angle) - t.y * Math.sin(angle), t.x * Math.sin(angle) + t.y * Math.cos(angle));
-    var centre = bounds.frame.toWorld((umin + umax) / 2, (vmin + vmax) / 2);
+    var centre = bounds.frame.toWorld((umin + umax) / 2, (vmin + vmax) / 2); // Houses take up roughly a quarter of the lot
+
     var w = W * (0.45 + 0.2 * Math.random());
     var d = D * (0.4 + 0.2 * Math.random());
-    var cu = (Math.random() - 0.5) * (W - w) * 0.6;
-    var cv = (Math.random() - 0.5) * (D - d) * 0.6;
+    var cu = (Math.random() - 0.5) * (W - w) * style.wander;
+    var cv = (Math.random() - 0.5) * (D - d) * style.wander;
 
     for (var attempt = 0; attempt < 4; attempt++) {
       var scale = 1 - 0.15 * attempt;
@@ -136282,9 +136527,9 @@ function () {
       if (!inside(house)) continue;
       var out = [house];
 
-      if (Math.random() < YardHouseLayout.SHED_CHANCE) {
-        // Shed in a back corner
-        var s = Math.min(W, D) * 0.12 + 1;
+      if (Math.random() < style.shedChance) {
+        // Shed or garage in a corner away from the house
+        var s = Math.min(W, D) * 0.14 + 1;
         var su = Math.sign(-cu || 1) * (W / 2 - s - 1.5);
         var sv = Math.sign(-cv || 1) * (D / 2 - s - 1.5);
         var shed = frame.rect(su - s / 2, su + s / 2, sv - s / 2, sv + s / 2);
@@ -136295,16 +136540,34 @@ function () {
     }
 
     return [];
-  };
+  }; // Neat houses square to the street
 
-  YardHouseLayout.VACANT_CHANCE = 0.08;
-  YardHouseLayout.SHED_CHANCE = 0.3;
+
+  YardHouseLayout.TIDY = {
+    crookedness: 0.03,
+    wander: 0.3,
+    vacantChance: 0.01,
+    shedChance: 0.5,
+    fences: false,
+    frontage: 7,
+    maxDepth: 25
+  }; // Houses sitting a little crookedly behind chain link fences, some lots empty
+
+  YardHouseLayout.RUN_DOWN = {
+    crookedness: 0.25,
+    wander: 0.6,
+    vacantChance: 0.18,
+    shedChance: 0.3,
+    fences: true,
+    frontage: 7.5,
+    maxDepth: 25
+  };
   return YardHouseLayout;
 }();
 
 exports["default"] = YardHouseLayout;
 
-},{"../vector":131,"./local_frame":109,"./polygon_util":111}],118:[function(require,module,exports){
+},{"../vector":131,"./local_frame":109,"./polygon_util":111,"simplify-js":91}],118:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136896,7 +137159,7 @@ function () {
       if (nearestIndustry < 1 + 2 * amount) return 1
       /* LowIncome */
       ;
-      var band_1 = 350 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
+      var band_1 = 500 * amount * (1 + 0.3 * this.noise.noise2D(p.x / 150 - 20, p.y / 150 + 20));
       if (highwayDistance < band_1) return 1
       /* LowIncome */
       ;
@@ -137638,21 +137901,22 @@ var yard_houses_1 = require("../impl/yard_houses");
  */
 
 
-var HEIGHTS = (_a = {}, _a[0
+var HEIGHTS = (_a = {}, // World units, 1 unit = 2 m
+_a[0
 /* Residential */
 ] = {
-  min: 20,
-  max: 40
+  min: 3.5,
+  max: 6
 }, _a[1
 /* LowIncome */
 ] = {
-  min: 8,
-  max: 18
+  min: 3,
+  max: 4.5
 }, _a[2
 /* Industrial */
 ] = {
-  min: 7,
-  max: 13
+  min: 4.5,
+  max: 7
 }, _a);
 /**
  * Pseudo 3D buildings
@@ -137705,9 +137969,10 @@ function () {
     var _loop_1 = function _loop_1(b) {
       b.lotScreen = b.lotWorld.map(function (v) {
         return _this.domainController.worldToScreen(v.clone());
-      });
+      }); // Real heights look flat from this far up, exaggerate them for the pseudo 3D view
+
       b.roof = b.lotScreen.map(function (v) {
-        return _this.heightVectorToScreen(v, b.height, d, cameraPos);
+        return _this.heightVectorToScreen(v, b.height * BuildingModels.HEIGHT_EXAGGERATION, d, cameraPos);
       });
       b.sides = this_1.getBuildingSides(b);
     };
@@ -137759,6 +138024,7 @@ function () {
     return polygons;
   };
 
+  BuildingModels.HEIGHT_EXAGGERATION = 5;
   return BuildingModels;
 }();
 /**
@@ -137795,19 +138061,20 @@ function () {
     this.industrialRoads = []; // Service roads through industrial blocks
 
     this.portBuildings = [];
+    this.residentialHouses = [];
     this.lowIncomeHouses = [];
     this.lowIncomeFences = [];
     this.zoning = null;
     this.buildingParams = {
       maxLength: 20,
-      minArea: 50,
+      minArea: 105,
       shrinkSpacing: 4,
       chanceNoDivide: 0.05
     }; // Small houses, each in its own fenced yard
 
     this.lowIncomeParams = {
       maxLength: 20,
-      minArea: 60,
+      minArea: 100,
       shrinkSpacing: 3,
       chanceNoDivide: 0
     };
@@ -137845,9 +138112,11 @@ function () {
 
   Object.defineProperty(Buildings.prototype, "lots", {
     get: function get() {
-      return this.toScreen(this.polygonFinders[0
+      // Until houses are placed, show the plain lots so animation still works
+      if (this.residentialHouses.length === 0) return this.toScreen(this.polygonFinders[0
       /* Residential */
       ].polygons);
+      return this.toScreen(this.residentialHouses);
     },
     enumerable: true,
     configurable: true
@@ -138004,6 +138273,7 @@ function () {
     this.zoneBlocks = [[], [], []];
     this.industrialBuildings = [];
     this.industrialRoads = [];
+    this.residentialHouses = [];
     this.lowIncomeHouses = [];
     this.lowIncomeFences = [];
     this._models = new BuildingModels([], []);
@@ -138096,10 +138366,14 @@ function () {
           case 2:
             _d.sent();
 
-            this.layoutIndustry();
-            yards = yard_houses_1["default"].layout(this.polygonFinders[1
+            this.layoutIndustry(); // Houses sit in rows of lots along each block, like a real street grid
+
+            this.residentialHouses = yard_houses_1["default"].layoutBlocks(this.shrunkBlocks(0
+            /* Residential */
+            ), yard_houses_1["default"].TIDY).houses;
+            yards = yard_houses_1["default"].layoutBlocks(this.shrunkBlocks(1
             /* LowIncome */
-            ].polygons);
+            ), yard_houses_1["default"].RUN_DOWN);
             this.lowIncomeHouses = yards.houses;
             this.lowIncomeFences = yards.fences;
             this.redraw();
@@ -138114,9 +138388,7 @@ function () {
               }
             };
 
-            addLots(this.polygonFinders[0
-            /* Residential */
-            ].polygons, 0
+            addLots(this.residentialHouses, 0
             /* Residential */
             );
             addLots(this.lowIncomeHouses, 1
@@ -138143,15 +138415,12 @@ function () {
     var e_5, _a;
 
     var out = [[], [], []];
+    var zoned = this.zoning !== null && this.zoning.enabled; // Blocks are only tested for water at their centre, so cut away any water they overlap
 
-    if (this.zoning === null || !this.zoning.enabled) {
-      out[0
-      /* Residential */
-      ] = blocks;
-      return out;
-    }
-
-    var exclusions = this.zoning.exclusionAreas;
+    var exclusions = [this.tensorField.sea, this.tensorField.river].filter(function (w) {
+      return w.length >= 3;
+    });
+    if (zoned) exclusions.push.apply(exclusions, __spread(this.zoning.exclusionAreas));
     var exclusionBoxes = exclusions.map(function (e) {
       return polygon_util_1["default"].boundingBox(e);
     });
@@ -138168,7 +138437,10 @@ function () {
       try {
         for (var pieces_1 = (e_6 = void 0, __values(pieces)), pieces_1_1 = pieces_1.next(); !pieces_1_1.done; pieces_1_1 = pieces_1.next()) {
           var piece = pieces_1_1.value;
-          out[this_2.zoning.zoneAt(polygon_util_1["default"].averagePoint(piece))].push(piece);
+          var zone = zoned ? this_2.zoning.zoneAt(polygon_util_1["default"].averagePoint(piece)) : 0
+          /* Residential */
+          ;
+          out[zone].push(piece);
         }
       } catch (e_6_1) {
         e_6 = {
@@ -138205,13 +138477,40 @@ function () {
 
     return out;
   };
+
+  Buildings.prototype.shrunkBlocks = function (zone) {
+    var e_7, _a;
+
+    var out = [];
+
+    try {
+      for (var _b = __values(this.zoneBlocks[zone]), _c = _b.next(); !_c.done; _c = _b.next()) {
+        var block = _c.value;
+        var shrunk = polygon_util_1["default"].resizeGeometry(block, -this.buildingParams.shrinkSpacing);
+        if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
+        if (shrunk.length >= 3) out.push(shrunk);
+      }
+    } catch (e_7_1) {
+      e_7 = {
+        error: e_7_1
+      };
+    } finally {
+      try {
+        if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+      } finally {
+        if (e_7) throw e_7.error;
+      }
+    }
+
+    return out;
+  };
   /**
    * Regular fenced parcels with service roads, plus the port if there is one
    */
 
 
   Buildings.prototype.layoutIndustry = function () {
-    var e_7, _a, _b, _c;
+    var e_8, _a, _b, _c;
 
     this.industrialBuildings = this.portBuildings.slice();
     this.industrialRoads = [];
@@ -138235,15 +138534,15 @@ function () {
 
         (_c = this.industrialRoads).push.apply(_c, __spread(layout.roads));
       }
-    } catch (e_7_1) {
-      e_7 = {
-        error: e_7_1
+    } catch (e_8_1) {
+      e_8 = {
+        error: e_8_1
       };
     } finally {
       try {
         if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
       } finally {
-        if (e_7) throw e_7.error;
+        if (e_8) throw e_8.error;
       }
     }
   };
@@ -139693,15 +139992,17 @@ function () {
 
     this.zoningParams = {
       numIndustrialZones: 2,
-      industrialSize: 160,
+      industrialSize: 220,
       lowIncomeAmount: 0.5,
-      highwayBuffer: 8
-    };
+      highwayBuffer: 12
+    }; // Distances are in world units, 1 unit = 2 m, measured against OpenStreetMap
+    // Typical US blocks are about 100 x 200 m, major roads about 500 m apart
+
     this.minorParams = {
-      dsep: 20,
-      dtest: 15,
+      dsep: 30,
+      dtest: 22,
       dstep: 1,
-      dlookahead: 40,
+      dlookahead: 90,
       dcirclejoin: 5,
       joinangle: 0.1,
       pathIterations: 1000,
@@ -139731,25 +140032,27 @@ function () {
     this.coastlineParams.pathIterations = 10000;
     this.coastlineParams.simplifyTolerance = 10;
     this.majorParams = Object.assign({}, this.minorParams);
-    this.majorParams.dsep = 100;
-    this.majorParams.dtest = 30;
-    this.majorParams.dlookahead = 200;
+    this.majorParams.dsep = 200;
+    this.majorParams.dtest = 60;
+    this.majorParams.dlookahead = 300;
     this.majorParams.collideEarly = 0;
     this.highwayParams = Object.assign({
       numHighways: 2,
       frontageRoads: true,
-      frontageDistance: 13,
-      interchangeSize: 22
+      frontageDistance: 25,
+      interchangeSize: 36
     }, this.minorParams);
     this.highwayParams.dsep = 350;
     this.highwayParams.dtest = 150;
     this.highwayParams.simplifyTolerance = 4;
     this.highwayParams.seedTries = 100;
     this.mainParams = Object.assign({}, this.minorParams);
-    this.mainParams.dsep = 400;
-    this.mainParams.dtest = 200;
-    this.mainParams.dlookahead = 500;
-    this.mainParams.collideEarly = 0;
+    this.mainParams.dsep = 600;
+    this.mainParams.dtest = 300;
+    this.mainParams.dlookahead = 700;
+    this.mainParams.collideEarly = 0; // Side streets one way are twice as far apart as the other, giving oblong blocks
+
+    this.minorParams.minorSpacingRatio = 2.3;
     var integrator = new integrator_1.RK4Integrator(tensorField, this.minorParams);
 
     var redraw = function redraw() {
@@ -139916,7 +140219,7 @@ function () {
     var worldDimensions = this.domainController.worldDimensions;
     this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT; // No building lots between a highway and its frontage roads
 
-    this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 8;
+    this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 12;
     this.port = null;
 
     if (this.zoningParams.numIndustrialZones > 0 && Math.random() < this.portChance) {
@@ -139927,9 +140230,9 @@ function () {
 
       this.port = port_1["default"].plan(this.coastline.coastRoadWorld, this.coastline.seaPolygonWorld, this.tensorField.river, {
         halfSpan: (0.6 + 0.4 * Math.random()) * this.zoningParams.industrialSize,
-        pierLength: 55 + Math.random() * 30,
-        pierWidth: 34,
-        slipWidth: 28
+        pierLength: 100 + Math.random() * 50,
+        pierWidth: 30,
+        slipWidth: 40
       }, inner);
     }
 
@@ -140941,15 +141244,14 @@ function () {
     if (!colourScheme.outlineSize) colourScheme.outlineSize = 1;
     if (!colourScheme.zoomBuildings) colourScheme.zoomBuildings = false;
     if (!colourScheme.buildingModels) colourScheme.buildingModels = false;
-    if (!colourScheme.minorWidth) colourScheme.minorWidth = 2;
-    if (!colourScheme.majorWidth) colourScheme.majorWidth = 4;
-    if (!colourScheme.mainWidth) colourScheme.mainWidth = 5;
-    if (!colourScheme.mainWidth) colourScheme.mainWidth = 5;
+    if (!colourScheme.minorWidth) colourScheme.minorWidth = 4.5;
+    if (!colourScheme.majorWidth) colourScheme.majorWidth = 6.5;
+    if (!colourScheme.mainWidth) colourScheme.mainWidth = 8;
     if (!colourScheme.frameColour) colourScheme.frameColour = colourScheme.bgColour;
     if (!colourScheme.frameTextColour) colourScheme.frameTextColour = colourScheme.minorRoadOutline;
     if (!colourScheme.highwayColour) colourScheme.highwayColour = colourScheme.mainRoadColour;
     if (!colourScheme.highwayOutline) colourScheme.highwayOutline = colourScheme.mainRoadOutline;
-    if (!colourScheme.highwayWidth) colourScheme.highwayWidth = colourScheme.mainWidth * 1.6;
+    if (!colourScheme.highwayWidth) colourScheme.highwayWidth = colourScheme.mainWidth * 2;
     if (!colourScheme.rampWidth) colourScheme.rampWidth = colourScheme.majorWidth * 0.7;
     if (!colourScheme.industrialColour) colourScheme.industrialColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(150,110,180)', 0.18);
     if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
@@ -141521,7 +141823,7 @@ function (_super) {
       var _loop_1 = function _loop_1(b) {
         // Colour based on height
         var parsedRgb = util_1["default"].parseCSSColor(this_1.colourScheme.bgColour).map(function (v) {
-          return Math.min(255, v + b.height * 3.5);
+          return Math.min(255, v + b.height * 18);
         });
         canvas.setFillStyle("rgb(" + parsedRgb[0] + "," + parsedRgb[1] + "," + parsedRgb[2] + ")");
         canvas.setStrokeStyle("rgb(" + parsedRgb[0] + "," + parsedRgb[1] + "," + parsedRgb[2] + ")");

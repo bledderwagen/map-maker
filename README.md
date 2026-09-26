@@ -68,6 +68,20 @@ Highways, industry and low income neighbourhoods are generated together, because
 
 * **Zoning controls**: `numIndustrialZones`, `industrialSize`, `lowIncomeAmount` and `portChance`; Buildings has `lowIncomeLotArea`, `industrialParcelWidth` and `industrialSetback`. `Regenerate` picks new industrial sites and rebuilds side streets and buildings without touching the main road network.
 * **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour` and `lowIncomeBuildingColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Real-world scale**: 1 world unit = 2 m. Street spacing, block size, lot size and building footprints were measured from OpenStreetMap (Houston Heights, Fifth Ward and Brittmoore in Houston; Logan Square and Back of the Yards in Chicago) and the generator tuned to match:
+
+  | | Real (OSM) | Before | Now |
+  |---|---|---|---|
+  | Typical block | 85-105 x 110-205 m | 46 x 66 m | 106-139 x 200-250 m |
+  | House footprint (median) | 85-150 m² | 265 m², all alike | 110-160 m², varied |
+  | Houses per hectare of block | 9-18 | about 30 | 7-12 |
+  | Building coverage of blocks | 15-32% | 25% | 13-20% |
+  | Industrial building (median) | 1,750 m² | 466 m² | 1,200 m² |
+
+  Houses now sit in rows of lots facing the street, back yards meeting in the middle of the block, with garages and sheds out back. Building heights are realistic (about 7-12 m for houses) and exaggerated only in the pseudo-3D view.
+
+![Fifth Ward, Houston from OpenStreetMap next to a generated low income neighbourhood, both at 2 m per pixel](docs/images/scale-comparison.png)
+
 * **Bug fixes** in the original lot generation: many blocks were left empty or turned into one giant building because block subdivision cut in the wrong place, dead ends broke block detection, and the build failed on case-sensitive file systems.
 
 ![The optional land use tint in the Apple colour scheme](docs/images/land-use-apple.png)

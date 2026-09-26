@@ -37,7 +37,7 @@ export interface Interchange {
 export default class HighwayGenerator extends StreamlineGenerator {
     private readonly TRIES = 40;
     private readonly SMOOTHING_ITERATIONS = 3;
-    private readonly HIGHWAY_HALF_WIDTH = 5;  // Ramps leave from the edge of the carriageway
+    private readonly HIGHWAY_HALF_WIDTH = 9;  // Ramps leave from the edge of the carriageway
 
     public highways: Vector[][] = [];  // Simplified and smoothed
     public frontageRoads: Vector[][] = [];
