@@ -23,6 +23,7 @@ import HighwayGUI from './highway_gui';
 import {HighwayParams} from '../impl/highway_generator';
 import Zoning, {Zone, ZoningParams} from '../impl/zoning';
 import PortPlanner, {Port} from '../impl/port';
+import ParkPaths from '../impl/park_paths';
 
 /**
  * Handles Map folder, glues together impl
@@ -35,6 +36,9 @@ export default class MainGUI {
     private domainController = DomainController.getInstance();
     private intersections: Vector[] = [];
     private bigParks: Vector[][] = [];
+    private parkPaths: Vector[][] = [];  // World space
+    private waterfrontPaths: Vector[][] = [];
+    private ponds: Vector[][] = [];
     private smallParks: Vector[][] = [];
     private animate: boolean = true;
     private animationSpeed: number = 30;
@@ -165,8 +169,12 @@ export default class MainGUI {
             allStreamlines.push(...this.majorRoads.allStreamlines);
             allStreamlines.push(...this.minorRoads.allStreamlines);
             allStreamlines.push(...this.coastline.streamlinesWithSecondaryRoad);
+            // The water's edge closes off the blocks between the coast road and the sea
+            allStreamlines.push(...this.coastline.waterEdges);
             this.buildings.setAllStreamlines(allStreamlines);
+            this.buildings.setWaterfront(this.coastline.shoreDetailedWorld, this.coastline.shoreBeachWidths, this.coastline.beachesWorld);
         });
+        this.buildings.setPostGenerateCallback(() => this.layoutWaterfrontParks());
 
         animateController.onChange((b: boolean) => {
             this.majorRoads.animate = b;
@@ -189,6 +197,8 @@ export default class MainGUI {
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
             this.smallParks = [];
+            this.parkPaths = [];
+            this.ponds = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.sea = [];
@@ -202,6 +212,8 @@ export default class MainGUI {
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
             this.smallParks = [];
+            this.parkPaths = [];
+            this.ponds = [];
             this.buildings.reset();
             tensorField.parks = [];
         });
@@ -212,6 +224,8 @@ export default class MainGUI {
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
             this.smallParks = [];
+            this.parkPaths = [];
+            this.ponds = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.ignoreRiver = true;
@@ -226,6 +240,8 @@ export default class MainGUI {
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
             this.smallParks = [];
+            this.parkPaths = [];
+            this.ponds = [];
             this.buildings.reset();
             tensorField.parks = [];
             tensorField.ignoreRiver = true;
@@ -312,6 +328,8 @@ export default class MainGUI {
     }
 
     private blockedForMinorRoads(p: Vector): boolean {
+        // Parks have footpaths, not streets
+        if (this.bigParks.length > 0 && this.inBigPark(p)) return true;
         if (!this.zoning.enabled) return false;
         const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
         return this.zoning.approxHighwayDistance(p) < trimDistance - 6
@@ -323,13 +341,21 @@ export default class MainGUI {
      * Minor roads stop a little way past zone edges, cut them back so they end exactly on the
      * frontage road or on the road bounding an industrial district
      */
+    private inBigPark(p: Vector): boolean {
+        return this.bigParks.some(park => PolygonUtil.insidePolygon(p, park));
+    }
+
     private trimMinorRoads(): void {
-        if (!this.zoning.enabled) return;
+        if (!this.zoning.enabled) {
+            if (this.bigParks.length > 0) this.minorRoads.trimEnds(p => this.inBigPark(p), 1);
+            return;
+        }
         const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
         // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
         this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
             || this.zoning.inIndustrialDistrict(p)
-            || this.zoning.inInterchange(p), 1);
+            || this.zoning.inInterchange(p)
+            || this.inBigPark(p), 1);
         this.addUnderpasses(trimDistance);
     }
 
@@ -423,6 +449,8 @@ export default class MainGUI {
             // Big parks
             this.bigParks = [];
             this.smallParks = [];
+            this.parkPaths = [];
+            this.ponds = [];
             if (polygons.length > this.numBigParks) {
                 if (this.clusterBigParks) {
                     // Group in adjacent polygons 
@@ -451,6 +479,42 @@ export default class MainGUI {
         this.tensorField.parks = [];
         this.tensorField.parks.push(...this.bigParks);
         this.tensorField.parks.push(...this.smallParks);
+        this.layoutParks();
+    }
+
+    private layoutParks(): void {
+        this.parkPaths = [];
+        this.ponds = [];
+        for (const park of this.bigParks.concat(this.smallParks)) {
+            const layout = ParkPaths.layout(park);
+            this.parkPaths.push(...layout.paths);
+            this.ponds.push(...layout.ponds);
+        }
+    }
+
+    /**
+     * Waterfront parks get a promenade along the top of the beach, and paths like other parks
+     */
+    private layoutWaterfrontParks(): void {
+        this.waterfrontPaths = [];
+        const shore = this.coastline.shoreDetailedWorld;
+        const beach = this.coastline.shoreBeachWidths;
+        const sea = this.coastline.seaPolygonWorld;
+        const landward = (i: number): Vector => {
+            const a = shore[Math.max(0, i - 1)];
+            const b = shore[Math.min(shore.length - 1, i + 1)];
+            const t = b.clone().sub(a).normalize();
+            const n = new Vector(-t.y, t.x);
+            // Point the normal away from the sea
+            return PolygonUtil.insidePolygon(shore[i].clone().add(n.clone().multiplyScalar(4)), sea) ? n.multiplyScalar(-1) : n;
+        };
+        for (const park of this.buildings.waterfrontParks) {
+            this.waterfrontPaths.push(...ParkPaths.promenade(park, shore, beach, landward));
+            if (PolygonUtil.calcPolygonArea(park) > 6000) {
+                const layout = ParkPaths.layout(park);
+                this.waterfrontPaths.push(...layout.paths);
+            }
+        }
     }
 
     async generateEverything() {
@@ -489,6 +553,11 @@ export default class MainGUI {
         style.seaPolygon = this.coastline.seaPolygon;
         style.coastline = this.coastline.coastline;
         style.river = this.coastline.river;
+        style.beaches = this.coastline.beaches;
+        style.floodplain = this.coastline.floodplain || [];
+        style.lakes = this.coastline.lakes.concat(this.toScreen(this.ponds));
+        style.sandBars = this.coastline.sandBars;
+        style.paths = this.coastline.riversidePaths.concat(this.toScreen(this.parkPaths)).concat(this.toScreen(this.waterfrontPaths));
         style.lots = this.buildings.lots;
         style.lowIncomeLots = this.buildings.lowIncomeLots;
         style.fences = this.buildings.lowIncomeFenceLines;
@@ -503,6 +572,7 @@ export default class MainGUI {
         style.parks = [];
         style.parks.push(...this.bigParks.map(p => p.map(v => this.domainController.worldToScreen(v.clone()))));
         style.parks.push(...this.smallParks.map(p => p.map(v => this.domainController.worldToScreen(v.clone()))));
+        style.parks.push(...this.toScreen(this.buildings.waterfrontParks));
         style.minorRoads = this.minorRoads.roads;
         style.majorRoads = this.majorRoads.roads;
         style.mainRoads = this.mainRoads.roads;

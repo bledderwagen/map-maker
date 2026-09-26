@@ -70,6 +70,28 @@ export default class PolygonUtil {
         return total / 2;
     }
 
+    /**
+     * All pieces the rectangle is cut into by the line
+     */
+    public static lineRectanglePolygons(origin: Vector, worldDimensions: Vector, line: Vector[]): Vector[][] {
+        const jstsLine = PolygonUtil.lineToJts(line);
+        const bounds = [
+            origin,
+            new Vector(origin.x + worldDimensions.x, origin.y),
+            new Vector(origin.x + worldDimensions.x, origin.y + worldDimensions.y),
+            new Vector(origin.x, origin.y + worldDimensions.y),
+        ];
+        const boundingPoly = PolygonUtil.polygonToJts(bounds);
+        const union = boundingPoly.getExteriorRing().union(jstsLine);
+        const polygonizer = new (jsts.operation as any).polygonize.Polygonizer();
+        polygonizer.add(union);
+        const out: Vector[][] = [];
+        for (let i = polygonizer.getPolygons().iterator(); i.hasNext();) {
+            out.push(i.next().getCoordinates().map((c: any) => new Vector(c.x, c.y)));
+        }
+        return out;
+    }
+
     public static calcPolygonArea(polygon: Vector[]): number {
         let total = 0;
 
@@ -366,6 +388,28 @@ export default class PolygonUtil {
 
     public static boundingBoxesOverlap(a: number[], b: number[]): boolean {
         return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+    }
+
+    /**
+     * Fixes self intersections, returning the largest resulting piece
+     */
+    public static cleanPolygon(polygon: Vector[]): Vector[] {
+        if (polygon.length < 3) return [];
+        try {
+            const geometry: any = (PolygonUtil.polygonToJts(polygon) as any).buffer(0);
+            let best: any = null;
+            for (let i = 0; i < geometry.getNumGeometries(); i++) {
+                const piece = geometry.getGeometryN(i);
+                if (piece.getArea() > 0 && (best === null || piece.getArea() > best.getArea())) best = piece;
+            }
+            if (best === null) return [];
+            const out = best.getExteriorRing().getCoordinates().map((c: any) => new Vector(c.x, c.y));
+            out.pop();
+            return out;
+        } catch (error) {
+            log.warn(error);
+            return polygon;
+        }
     }
 
     /**

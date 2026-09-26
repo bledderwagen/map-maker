@@ -67,7 +67,15 @@ Highways, industry and low income neighbourhoods are generated together, because
 ![Low income houses in fenced yards](docs/images/low-income-yards.png)
 
 * **Zoning controls**: `numIndustrialZones`, `industrialSize`, `lowIncomeAmount` and `portChance`; Buildings has `lowIncomeLotArea`, `industrialParcelWidth` and `industrialSetback`. `Regenerate` picks new industrial sites and rebuilds side streets and buildings without touching the main road network.
-* **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour` and `lowIncomeBuildingColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour`, `lowIncomeBuildingColour`, `sandColour` and `pathColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Rivers shaped by erosion**: rivers are grown with the Howard & Knutson meander model. Outer banks erode fastest a little past each bend's apex, so bends grow and drift downstream, and when a loop's neck narrows to the channel width the river cuts through and leaves an oxbow lake. Rivers widen towards the mouth, flow into the sea where they reach it, and have sand bars on the inside of tight bends. The meander belt is a riverside park with paths along both banks; the bank roads run outside it, sometimes right by the water, sometimes well back.
+* **Coasts shaped by waves**: the shoreline is evolved with the one-line (CERC) model used in coastal engineering. Waves arriving at an angle carry sand along the shore, and soft rock is cut back while hard rock survives, giving rocky headlands with smooth curved bays and beaches between them.
+* **Waterfronts**: the coast road runs behind the waterfront instead of on the water's edge. In places it's a promenade just behind the beach, elsewhere a row of waterfront houses or a park sits between the road and the water. Waterfront blocks with a beach are usually parks with a promenade.
+* **Parks**: streets stop at the park edge. Parks get a loop walk, paths curving in from entrances at the corners and along the sides, and in large parks a pond with a path around it.
+
+![Waterfront parks and beaches with the coast road set back, and a river with its floodplain park](docs/images/waterfront.png)
+![A park with a loop walk, entrance paths and a pond](docs/images/park.png)
+
 * **Real-world scale**: 1 world unit = 2 m. Street spacing, block size, lot size and building footprints were measured from OpenStreetMap (Houston Heights, Fifth Ward and Brittmoore in Houston; Logan Square and Back of the Yards in Chicago) and the generator tuned to match:
 
   | | Real (OSM) | Before | Now |

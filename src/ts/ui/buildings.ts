@@ -114,6 +114,10 @@ export default class Buildings {
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
     private residentialHouses: Vector[][] = [];
+    private shore: Vector[] = [];
+    private shoreBeach: number[] = [];
+    private beaches: Vector[][] = [];
+    private _waterfrontParks: Vector[][] = [];
     private lowIncomeHouses: Vector[][] = [];
     private lowIncomeFences: Vector[][] = [];
     private zoning: Zoning = null;
@@ -157,6 +161,19 @@ export default class Buildings {
 
     set animate(v: boolean) {
         this._animate = v;
+    }
+
+    setWaterfront(shore: Vector[], beachWidths: number[], beaches: Vector[][]): void {
+        this.shore = shore;
+        this.shoreBeach = beachWidths;
+        this.beaches = beaches;
+    }
+
+    /**
+     * Blocks by the sea kept as parks, world space
+     */
+    get waterfrontParks(): Vector[][] {
+        return this._waterfrontParks;
     }
 
     setZoning(zoning: Zoning): void {
@@ -249,6 +266,7 @@ export default class Buildings {
         this.industrialBuildings = [];
         this.industrialRoads = [];
         this.residentialHouses = [];
+        this._waterfrontParks = [];
         this.lowIncomeHouses = [];
         this.lowIncomeFences = [];
         this._models = new BuildingModels([], []);
@@ -313,7 +331,7 @@ export default class Buildings {
         const zoned = this.zoning !== null && this.zoning.enabled;
 
         // Blocks are only tested for water at their centre, so cut away any water they overlap
-        const exclusions = [this.tensorField.sea, this.tensorField.river].filter(w => w.length >= 3);
+        const exclusions = [this.tensorField.sea, this.tensorField.river].concat(this.beaches).filter(w => w.length >= 3);
         if (zoned) exclusions.push(...this.zoning.exclusionAreas);
         const exclusionBoxes = exclusions.map(e => PolygonUtil.boundingBox(e));
 
@@ -323,10 +341,37 @@ export default class Buildings {
             const pieces = holes.length === 0 ? [block] : PolygonUtil.subtractPolygons(block, holes, this.lowIncomeParams.minArea);
             for (const piece of pieces) {
                 const zone = zoned ? this.zoning.zoneAt(PolygonUtil.averagePoint(piece)) : Zone.Residential;
+                if (zone !== Zone.Industrial && this.becomesWaterfrontPark(piece)) {
+                    this._waterfrontParks.push(piece);
+                    continue;
+                }
                 out[zone].push(piece);
             }
         }
         return out;
+    }
+
+    /**
+     * Blocks on the water's edge are often kept as parks, nearly always when they have a beach
+     */
+    private becomesWaterfrontPark(block: Vector[]): boolean {
+        if (this.shore.length < 2) return false;
+        const box = PolygonUtil.boundingBox(block);
+        let touching = false;
+        let beach = 0;
+        for (let i = 0; i < this.shore.length; i++) {
+            const p = this.shore[i];
+            if (p.x < box[0] - 4 || p.x > box[2] + 4 || p.y < box[1] - 4 || p.y > box[3] + 4) continue;
+            for (const v of block) {
+                if (v.distanceToSquared(p) < 36) {
+                    touching = true;
+                    beach = Math.max(beach, this.shoreBeach[i] || 0);
+                    break;
+                }
+            }
+        }
+        if (!touching) return false;
+        return Math.random() < (beach > 6 ? 0.8 : 0.3);
     }
 
     private shrunkBlocks(zone: Zone): Vector[][] {

@@ -98,6 +98,57 @@ export default class WaterGUI extends RoadGUI {
         return this.streamlines.seaPolygon.map(v => this.domainController.worldToScreen(v.clone()));
     }
 
+    private toScreen(polygons: Vector[][]): Vector[][] {
+        return polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
+    }
+
+    get beaches(): Vector[][] {
+        return this.toScreen(this.streamlines.beaches);
+    }
+
+    get floodplain(): Vector[] {
+        return this.toScreen([this.streamlines.floodplain])[0];
+    }
+
+    get lakes(): Vector[][] {
+        return this.toScreen(this.streamlines.lakes);
+    }
+
+    get sandBars(): Vector[][] {
+        return this.toScreen(this.streamlines.sandBars);
+    }
+
+    get riversidePaths(): Vector[][] {
+        return this.toScreen(this.streamlines.riversidePaths);
+    }
+
+    get shoreWorld(): Vector[] {
+        return this.streamlines.shore;
+    }
+
+    get shoreDetailedWorld(): Vector[] {
+        return this.streamlines.shoreDetailed;
+    }
+
+    get shoreBeachWidths(): number[] {
+        return this.streamlines.shoreBeachWidths;
+    }
+
+    get beachesWorld(): Vector[][] {
+        return this.streamlines.beaches;
+    }
+
+    get floodplainWorld(): Vector[] {
+        return this.streamlines.floodplain;
+    }
+
+    /**
+     * Water's edge, for closing off waterfront blocks. Not a road
+     */
+    get waterEdges(): Vector[][] {
+        return this.streamlines.shore.length >= 2 ? [this.streamlines.shore] : [];
+    }
+
     get seaPolygonWorld(): Vector[] {
         return this.streamlines.seaPolygon;
     }

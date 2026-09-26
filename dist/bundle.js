@@ -130547,7 +130547,7 @@ window.addEventListener('load', function () {
   window.mapGenerator = new Main();
 });
 
-},{"./colour_schemes.json":101,"./ts/model_generator":119,"./ts/ui/canvas_wrapper":121,"./ts/ui/domain_controller":122,"./ts/ui/drag_controller":123,"./ts/ui/main_gui":125,"./ts/ui/style":127,"./ts/ui/tensor_field_gui":128,"./ts/util":130,"./ts/vector":131,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
+},{"./colour_schemes.json":101,"./ts/model_generator":121,"./ts/ui/canvas_wrapper":123,"./ts/ui/domain_controller":124,"./ts/ui/drag_controller":125,"./ts/ui/main_gui":127,"./ts/ui/style":129,"./ts/ui/tensor_field_gui":130,"./ts/util":132,"./ts/vector":133,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -130765,7 +130765,7 @@ function (_super) {
 
 exports.Radial = Radial;
 
-},{"./tensor":114}],104:[function(require,module,exports){
+},{"./tensor":116}],104:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131261,7 +131261,7 @@ function () {
 
 exports["default"] = Graph;
 
-},{"../vector":131,"d3-quadtree":6,"isect":16,"loglevel":54}],105:[function(require,module,exports){
+},{"../vector":133,"d3-quadtree":6,"isect":16,"loglevel":54}],105:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131549,7 +131549,7 @@ function () {
 
 exports["default"] = GridStorage;
 
-},{"../vector":131}],106:[function(require,module,exports){
+},{"../vector":133}],106:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -132354,7 +132354,654 @@ function (_super) {
 
 exports["default"] = HighwayGenerator;
 
-},{"../vector":131,"./polygon_util":111,"./streamlines":113,"loglevel":54}],107:[function(require,module,exports){
+},{"../vector":133,"./polygon_util":113,"./streamlines":115,"loglevel":54}],107:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+var __read = void 0 && (void 0).__read || function (o, n) {
+  var m = typeof Symbol === "function" && o[Symbol.iterator];
+  if (!m) return o;
+  var i = m.call(o),
+      r,
+      ar = [],
+      e;
+
+  try {
+    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) {
+      ar.push(r.value);
+    }
+  } catch (error) {
+    e = {
+      error: error
+    };
+  } finally {
+    try {
+      if (r && !r.done && (m = i["return"])) m.call(i);
+    } finally {
+      if (e) throw e.error;
+    }
+  }
+
+  return ar;
+};
+
+var __spread = void 0 && (void 0).__spread || function () {
+  for (var ar = [], i = 0; i < arguments.length; i++) {
+    ar = ar.concat(__read(arguments[i]));
+  }
+
+  return ar;
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var SimplexNoise = require("simplex-noise");
+
+var vector_1 = require("../vector");
+
+var polygon_util_1 = require("./polygon_util");
+/**
+ * Resamples a polyline so consecutive points are exactly spacing apart (the last segment may be shorter)
+ */
+
+
+function resampleEqual(line, spacing) {
+  if (line.length < 2) return line.slice();
+  var out = [line[0].clone()];
+  var carry = 0;
+
+  for (var i = 0; i < line.length - 1; i++) {
+    var a = line[i];
+    var b = line[i + 1];
+    var length_1 = a.distanceTo(b);
+    var d = spacing - carry;
+
+    while (d <= length_1) {
+      out.push(a.clone().add(b.clone().sub(a).multiplyScalar(d / length_1)));
+      d += spacing;
+    }
+
+    carry = length_1 - (d - spacing);
+  } // Always keep the end point, otherwise repeated resampling slowly eats the line
+
+
+  var last = line[line.length - 1];
+  if (out.length > 1 && out[out.length - 1].distanceTo(last) < 0.25 * spacing) out.pop();
+  out.push(last.clone());
+  return out;
+}
+
+exports.resampleEqual = resampleEqual;
+
+function polylineLength(line) {
+  var length = 0;
+
+  for (var i = 0; i < line.length - 1; i++) {
+    length += line[i].distanceTo(line[i + 1]);
+  }
+
+  return length;
+}
+
+exports.polylineLength = polylineLength;
+/**
+ * Unit normals (left of the direction of travel), smoothed over neighbouring points
+ */
+
+function normals(line) {
+  return line.map(function (_, i) {
+    var a = line[Math.max(0, i - 1)];
+    var b = line[Math.min(line.length - 1, i + 1)];
+    var t = b.clone().sub(a);
+    if (t.lengthSq() === 0) return new vector_1["default"](0, 1);
+    t.normalize();
+    return new vector_1["default"](-t.y, t.x);
+  });
+}
+
+exports.normals = normals;
+/**
+ * Moving average of a polyline, end points fixed
+ */
+
+function smoothLine(line, radius) {
+  var out = [];
+
+  for (var i = 0; i < line.length; i++) {
+    var r = Math.min(radius, i, line.length - 1 - i);
+    var sum = vector_1["default"].zeroVector();
+
+    for (var k = -r; k <= r; k++) {
+      sum.add(line[i + k]);
+    }
+
+    out.push(sum.divideScalar(2 * r + 1));
+  }
+
+  return out;
+}
+
+exports.smoothLine = smoothLine;
+
+function smoothValues(values, radius) {
+  return values.map(function (_, i) {
+    var sum = 0;
+    var n = 0;
+
+    for (var k = -radius; k <= radius; k++) {
+      var j = i + k;
+      if (j < 0 || j >= values.length) continue;
+      sum += values[j];
+      n++;
+    }
+
+    return sum / n;
+  });
+}
+
+exports.smoothValues = smoothValues;
+/**
+ * Removes loops from a polyline: where two points far apart along the line are closer than
+ * distance, the part in between is cut out. Returns the removed loops
+ */
+
+function removeLoops(points, distance, minGap) {
+  var e_1, _a;
+
+  var loops = [];
+  var line = points;
+
+  for (var pass = 0; pass < 50; pass++) {
+    var cell = distance;
+    var grid = new Map();
+
+    var key = function key(x, y) {
+      return x + "," + y;
+    };
+
+    for (var i = 0; i < line.length; i++) {
+      var k = key(Math.floor(line[i].x / cell), Math.floor(line[i].y / cell));
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(i);
+    }
+
+    var cut = false;
+
+    for (var i = 0; i < line.length && !cut; i++) {
+      var cx = Math.floor(line[i].x / cell);
+      var cy = Math.floor(line[i].y / cell);
+      var best = -1;
+
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          try {
+            for (var _b = (e_1 = void 0, __values(grid.get(key(cx + dx, cy + dy)) || [])), _c = _b.next(); !_c.done; _c = _b.next()) {
+              var j = _c.value;
+              if (j - i > minGap && j > best && line[i].distanceTo(line[j]) < distance) best = j;
+            }
+          } catch (e_1_1) {
+            e_1 = {
+              error: e_1_1
+            };
+          } finally {
+            try {
+              if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+            } finally {
+              if (e_1) throw e_1.error;
+            }
+          }
+        }
+      }
+
+      if (best > 0) {
+        loops.push(line.slice(i, best + 1));
+        line = line.slice(0, i + 1).concat(line.slice(best));
+        cut = true;
+      }
+    }
+
+    if (!cut) break;
+  }
+
+  return {
+    line: line,
+    loops: loops
+  };
+}
+
+exports.removeLoops = removeLoops;
+/**
+ * Relaxes corners sharper than maxAngle (radians) towards their neighbours, end points fixed
+ */
+
+function despike(line, maxAngle, passes) {
+  var out = line.map(function (p) {
+    return p.clone();
+  });
+
+  for (var pass = 0; pass < passes; pass++) {
+    var changed = false;
+    var next = out.map(function (p) {
+      return p.clone();
+    });
+
+    for (var i = 1; i < out.length - 1; i++) {
+      var a = out[i].clone().sub(out[i - 1]);
+      var b = out[i + 1].clone().sub(out[i]);
+      var la = a.length();
+      var lb = b.length();
+      if (la === 0 || lb === 0) continue;
+      var turn = Math.acos(Math.max(-1, Math.min(1, a.dot(b) / (la * lb))));
+
+      if (turn > maxAngle) {
+        // Pull this point and its neighbours in a little
+        next[i] = out[i - 1].clone().add(out[i + 1]).divideScalar(2);
+        if (i > 1) next[i - 1] = out[i - 2].clone().add(out[i - 1]).add(out[i]).divideScalar(3);
+        if (i < out.length - 2) next[i + 1] = out[i].clone().add(out[i + 1]).add(out[i + 2]).divideScalar(3);
+        changed = true;
+      }
+    }
+
+    out = next;
+    if (!changed) break;
+  }
+
+  return out;
+}
+
+exports.despike = despike;
+/**
+ * Meandering river, after the Howard & Knutson (1984) bend migration model
+ *
+ * Each step, every point on the centreline moves sideways at a rate set by the local curvature
+ * plus a weighted sum of the curvature upstream. The upstream term makes the outer bank of a
+ * bend erode fastest a little way past the apex, so bends grow and drift downstream. When a
+ * loop's neck gets narrower than the channel the loop is cut off and left as an oxbow lake.
+ */
+
+var MeanderSimulator =
+/** @class */
+function () {
+  function MeanderSimulator() {}
+
+  MeanderSimulator.simulate = function (line, params) {
+    var w = params.width;
+    var ds = w / 2; // Distance over which upstream curvature still matters. Bends grow when their wavelength is longer
+    // than about 5 times this, so it sets the meander wavelength
+
+    var decay = 1.0 * w;
+    var kernel = [];
+
+    for (var k = 1; k * ds < 4 * decay; k++) {
+      kernel.push(Math.exp(-k * ds / decay));
+    }
+
+    var kernelSum = kernel.reduce(function (a, b) {
+      return a + b;
+    }, 0); // Wiggles much shorter than a meander would just be smoothed away by the model, drop them now
+
+    var points = resampleEqual(smoothLine(resampleEqual(line, ds), 3), ds); // Small bends at about the natural meander wavelength, 10 to 14 channel widths, for the model to grow
+
+    {
+      var seed_1 = new SimplexNoise();
+      var norms_1 = normals(points);
+      points = points.map(function (p, i) {
+        return i < MeanderSimulator.PINNED || i >= points.length - MeanderSimulator.PINNED ? p : p.clone().add(norms_1[i].clone().multiplyScalar(0.8 * w * seed_1.noise2D(i * ds / (2.2 * w), 0.5)));
+      });
+    }
+    var startLength = polylineLength(points);
+    var oxbows = [];
+    var noise = new SimplexNoise();
+
+    var _loop_1 = function _loop_1(iteration) {
+      if (polylineLength(points) > params.sinuosity * startLength) return "break";
+      var n = points.length;
+      if (n < 2 * MeanderSimulator.PINNED + 3) return "break"; // Signed curvature, positive turning left
+
+      var curvature = new Array(n).fill(0);
+
+      for (var i = 1; i < n - 1; i++) {
+        var a = points[i].clone().sub(points[i - 1]);
+        var b = points[i + 1].clone().sub(points[i]);
+        curvature[i] = Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y) / ds;
+      } // Migration rate
+
+
+      var rate = new Array(n).fill(0);
+
+      for (var i = 1; i < n - 1; i++) {
+        var upstream = 0;
+
+        for (var k = 0; k < kernel.length && i - k - 1 >= 0; k++) {
+          upstream += curvature[i - k - 1] * kernel[k];
+        }
+
+        rate[i] = MeanderSimulator.OMEGA * curvature[i] + MeanderSimulator.GAMMA * upstream / kernelSum;
+      } // Scale steps by a high percentile rather than the maximum, which is often a kink by the pinned ends
+
+
+      var sorted = rate.slice(MeanderSimulator.PINNED + 2, n - MeanderSimulator.PINNED - 2).map(Math.abs).sort(function (a, b) {
+        return a - b;
+      });
+      var maxRate = Math.max(1e-9, sorted[Math.floor(0.95 * (sorted.length - 1))] || 0); // A positive rate moves the bank outwards, away from the centre of the bend.
+      // Steps are normalised so the fastest bank moves a small fraction of the width
+
+      var step = 0.03 * w / maxRate;
+      var norms = normals(points);
+      var moved = points.map(function (p, i) {
+        if (i < MeanderSimulator.PINNED || i >= n - MeanderSimulator.PINNED) return p.clone();
+        if (params.fixed && params.fixed(p)) return p.clone(); // Ease in next to the pinned ends
+
+        var ease = Math.min(1, Math.min(i - MeanderSimulator.PINNED, n - 1 - MeanderSimulator.PINNED - i) / 6); // A little noise keeps straight reaches from staying perfectly straight
+
+        var jitter = 0.004 * w * noise.noise2D(i * 0.15, iteration * 0.01);
+        var move = Math.max(-0.05 * w, Math.min(0.05 * w, -rate[i] * step));
+        return p.clone().add(norms[i].clone().multiplyScalar(ease * (move + jitter)));
+      }); // No smoothing here: at this spacing even light smoothing straightens the river faster than it meanders
+
+      points = resampleEqual(moved, ds); // Neck cutoff: the river breaks through where a loop's neck is narrower than the channel
+
+      var cut = removeLoops(points, 1.1 * w, Math.ceil(6 * Math.PI));
+      points = cut.line;
+      oxbows.push.apply(oxbows, __spread(cut.loops));
+    };
+
+    for (var iteration = 0; iteration < params.maxIterations; iteration++) {
+      var state_1 = _loop_1(iteration);
+
+      if (state_1 === "break") break;
+    }
+
+    var widths = MeanderSimulator.widths(points, params);
+    return {
+      centreline: points,
+      widths: widths,
+      oxbows: oxbows,
+      pointBars: MeanderSimulator.pointBars(points, widths),
+      channel: MeanderSimulator.channelPolygon(points, widths)
+    };
+  };
+
+  MeanderSimulator.widths = function (points, params) {
+    var total = polylineLength(points);
+    var along = 0;
+    return points.map(function (p, i) {
+      if (i > 0) along += p.distanceTo(points[i - 1]);
+      var t = total > 0 ? along / total : 0;
+      return params.width + (params.widthDownstream - params.width) * t * t;
+    });
+  };
+
+  MeanderSimulator.channelPolygon = function (points, widths) {
+    var norms = normals(points);
+    var left = points.map(function (p, i) {
+      return p.clone().add(norms[i].clone().multiplyScalar(widths[i] / 2));
+    });
+    var right = points.map(function (p, i) {
+      return p.clone().sub(norms[i].clone().multiplyScalar(widths[i] / 2));
+    });
+    return polygon_util_1["default"].cleanPolygon(left.concat(right.reverse()));
+  };
+  /**
+   * Sand deposited on the inside of bends tighter than a few channel widths
+   */
+
+
+  MeanderSimulator.pointBars = function (points, widths) {
+    var n = points.length;
+    var curvature = new Array(n).fill(0);
+
+    for (var i_1 = 1; i_1 < n - 1; i_1++) {
+      var a = points[i_1].clone().sub(points[i_1 - 1]);
+      var b = points[i_1 + 1].clone().sub(points[i_1]);
+      curvature[i_1] = Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y) / a.length();
+    }
+
+    var smooth = smoothValues(curvature, 3);
+    var norms = normals(points);
+    var bars = [];
+    var i = 0;
+
+    while (i < n) {
+      var tight = function tight(j) {
+        return Math.abs(smooth[j]) * widths[j] > 0.3;
+      };
+
+      if (!tight(i)) {
+        i++;
+        continue;
+      }
+
+      var sign = Math.sign(smooth[i]);
+      var j = i;
+
+      while (j < n && tight(j) && Math.sign(smooth[j]) === sign) {
+        j++;
+      }
+
+      if (j - i >= 4) {
+        // Crescent against the inner bank, thickest at the apex
+        var inner = [];
+        var outer = [];
+
+        for (var k = i; k < j; k++) {
+          var t = (k - i) / (j - i - 1);
+          var thickness = 0.4 * widths[k] * Math.sin(Math.PI * t);
+          var bank = points[k].clone().add(norms[k].clone().multiplyScalar(sign * widths[k] / 2));
+          inner.push(bank);
+          outer.push(bank.clone().sub(norms[k].clone().multiplyScalar(sign * thickness)));
+        }
+
+        bars.push(inner.concat(outer.reverse()));
+      }
+
+      i = j;
+    }
+
+    return bars;
+  };
+
+  MeanderSimulator.OMEGA = -1; // Local curvature coefficient
+
+  MeanderSimulator.GAMMA = 2.5; // Upstream curvature coefficient
+
+  MeanderSimulator.PINNED = 4; // Points at each end that stay put so the river still leaves the map
+
+  return MeanderSimulator;
+}();
+
+exports.MeanderSimulator = MeanderSimulator;
+/**
+ * Coastline shaped by waves, after the one-line (CERC) shoreline model
+ *
+ * Waves arriving at an angle to the shore move sand along it at a rate proportional to
+ * sin(2 * angle). Where that rate changes along the coast the shore builds out or erodes.
+ * Soft stretches erode into smooth curved bays facing the waves, hard rock survives as
+ * headlands, and sand collects as beaches in the bays.
+ */
+
+var ShorelineSimulator =
+/** @class */
+function () {
+  function ShorelineSimulator() {}
+  /**
+   * @param seaward 1 if the sea is to the left of the direction of travel, -1 if right
+   */
+
+
+  ShorelineSimulator.evolve = function (line, seaward, params) {
+    var noise = new SimplexNoise();
+    var ds = params.spacing; // Carry on well past the map edges, so the ends can stay put while the rest moves
+
+    var extension = 400;
+    var startDir = line[0].clone().sub(line[Math.min(5, line.length - 1)]).normalize();
+    var endDir = line[line.length - 1].clone().sub(line[Math.max(0, line.length - 6)]).normalize();
+    var shore = resampleEqual([line[0].clone().add(startDir.multiplyScalar(extension))].concat(line).concat([line[line.length - 1].clone().add(endDir.multiplyScalar(extension))]), ds);
+    var total = polylineLength(shore); // 0 at the far ends, 1 once inside the map
+
+    var fixedness = function fixedness(s) {
+      return Math.max(0, Math.min(1, (Math.min(s, total - s) - 0.5 * extension) / (0.5 * extension)));
+    }; // Headlands and bays, and bands of harder rock
+
+
+    var n0 = normals(shore);
+    var along = 0;
+    shore = shore.map(function (p, i) {
+      if (i > 0) along += p.distanceTo(shore[i - 1]);
+      var bump = params.headlandAmplitude * (0.7 * noise.noise2D(along / 900, 3.1) + 0.3 * noise.noise2D(along / 300, 7.7));
+      return p.clone().add(n0[i].clone().multiplyScalar(seaward * bump * fixedness(along)));
+    });
+    var endStart = shore[0].clone();
+    var endEnd = shore[shore.length - 1].clone();
+    var alongPos = [];
+
+    var measure = function measure() {
+      alongPos = [];
+      var a = 0;
+
+      for (var i = 0; i < shore.length; i++) {
+        if (i > 0) a += shore[i].distanceTo(shore[i - 1]);
+        alongPos.push(a);
+      }
+    };
+
+    measure(); // Hardness belongs to the rock, so it depends on position, not distance along the shore
+
+    var hardnessAt = function hardnessAt(p) {
+      var v = noise.noise2D(p.x / 500, p.y / 500);
+      return Math.max(0, Math.min(1, (v - 0.1) * 1.4));
+    }; // Waves come from the open sea, somewhat off the general direction of the coast
+
+
+    var chord = shore[shore.length - 1].clone().sub(shore[0]).normalize();
+    var seaNormal = new vector_1["default"](-chord.y * seaward, chord.x * seaward);
+    var angle = (Math.random() - 0.5) * 1.0;
+    var towardsLand = seaNormal.clone().multiplyScalar(-1);
+    var waves = new vector_1["default"](towardsLand.x * Math.cos(angle) - towardsLand.y * Math.sin(angle), towardsLand.x * Math.sin(angle) + towardsLand.y * Math.cos(angle));
+    var K = 0.2 * ds * ds; // Transport coefficient times time step, stable for the explicit scheme
+
+    var accretion = new Array(shore.length).fill(0);
+
+    var _loop_2 = function _loop_2(it) {
+      var n = shore.length; // Transport on each segment
+
+      var Q = new Array(n - 1).fill(0);
+      var exposure = new Array(n - 1).fill(0);
+
+      for (var i = 0; i < n - 1; i++) {
+        var t = shore[i + 1].clone().sub(shore[i]);
+        var length_2 = t.length();
+        if (length_2 === 0) continue;
+        t.divideScalar(length_2);
+        var normalOut = new vector_1["default"](-t.y * seaward, t.x * seaward);
+        var cosA = -waves.dot(normalOut);
+        if (cosA <= 0) continue; // Shore faces away from the waves
+
+        var sinA = waves.dot(t); // Above 45 degrees sin(2a) falls with angle and the model becomes unstable (the high angle
+        // wave instability behind cuspate capes), which at this resolution only makes sawteeth
+
+        var a = Math.max(-0.7, Math.min(0.7, Math.atan2(sinA, cosA)));
+        Q[i] = Math.sin(2 * a) * Math.min(1, cosA / 0.3);
+        exposure[i] = cosA;
+      }
+
+      var norms = normals(shore);
+      var next = shore.map(function (p, i) {
+        if (i === 0 || i === n - 1) return p;
+        var h = hardnessAt(p); // Longshore drift moves sand from where transport speeds up to where it slows down
+
+        var drift = -(Q[i] - Q[i - 1]) * K / ds / ds;
+        if (drift < 0) drift *= 1 - 0.85 * h; // Rock resists erosion, but not completely
+
+        accretion[i] += drift; // Waves attack soft rock directly, cutting bays between the hard headlands
+
+        var attack = params.erosionRate * (1 - 0.9 * h) * 0.5 * (exposure[i] + exposure[i - 1]);
+        var dy = fixedness(alongPos[i] * total / alongPos[n - 1]) * Math.max(-0.3 * ds, Math.min(0.3 * ds, drift - attack));
+        return p.clone().add(norms[i].clone().multiplyScalar(seaward * dy));
+      });
+      shore = next;
+
+      if (it % 25 === 24) {
+        // Keep points evenly spaced, carrying accretion along
+        var resampled = despike(removeLoops(resampleEqual(shore, ds), 0.8 * ds, 4).line, Math.PI / 3, 20);
+        accretion = resampled.map(function (p) {
+          return accretion[ShorelineSimulator.nearest(shore, p)];
+        });
+        shore = resampled;
+        shore[0] = endStart.clone();
+        shore[shore.length - 1] = endEnd.clone();
+        measure();
+      }
+    };
+
+    for (var it = 0; it < params.iterations; it++) {
+      _loop_2(it);
+    }
+
+    shore = despike(removeLoops(resampleEqual(smoothLine(shore, 2), ds), 0.8 * ds, 4).line, Math.PI / 3, 50);
+    shore[0] = endStart.clone();
+    shore[shore.length - 1] = endEnd.clone();
+    accretion = shore.map(function (p, i) {
+      return accretion[Math.min(i, accretion.length - 1)];
+    });
+    var hardness = shore.map(hardnessAt); // Rocky coast gets a rougher edge
+
+    var nf = normals(shore);
+    shore = shore.map(function (p, i) {
+      return i === 0 || i === shore.length - 1 ? p : p.clone().add(nf[i].clone().multiplyScalar(seaward * 2.5 * hardness[i] * noise.noise2D(i * 0.25, 2.3)));
+    });
+    var beach = shore.map(function (_, i) {
+      if (hardness[i] > 0.55) return 0;
+      var sheltered = Math.max(0, accretion[i]);
+      return Math.min(params.maxBeachWidth, (1 - hardness[i]) * (8 + 0.8 * sheltered));
+    });
+    return {
+      shore: shore,
+      beachWidths: smoothValues(beach, 4),
+      hardness: hardness
+    };
+  };
+
+  ShorelineSimulator.nearest = function (line, p) {
+    var best = 0;
+    var bestDistance = Infinity;
+
+    for (var i = 0; i < line.length; i++) {
+      var d = line[i].distanceToSquared(p);
+
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = i;
+      }
+    }
+
+    return best;
+  };
+
+  return ShorelineSimulator;
+}();
+
+exports.ShorelineSimulator = ShorelineSimulator;
+
+},{"../vector":133,"./polygon_util":113,"simplex-noise":90}],108:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132729,7 +133376,7 @@ function () {
 
 exports["default"] = IndustrialLayout;
 
-},{"./local_frame":109,"./polygon_util":111}],108:[function(require,module,exports){
+},{"./local_frame":110,"./polygon_util":113}],109:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -132831,7 +133478,7 @@ function (_super) {
 
 exports.RK4Integrator = RK4Integrator;
 
-},{"../vector":131}],109:[function(require,module,exports){
+},{"../vector":133}],110:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132968,7 +133615,351 @@ function () {
 
 exports["default"] = LocalFrame;
 
-},{"../vector":131}],110:[function(require,module,exports){
+},{"../vector":133}],111:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var SimplexNoise = require("simplex-noise");
+
+var vector_1 = require("../vector");
+
+var polygon_util_1 = require("./polygon_util");
+
+var hydrology_1 = require("./hydrology");
+/**
+ * Footpaths laid out the way park designers do: a loop walk around the park, paths in from
+ * entrances on the surrounding streets curving gently towards the middle, and in big parks a pond
+ * with the paths going round it
+ */
+
+
+var ParkPaths =
+/** @class */
+function () {
+  function ParkPaths() {}
+
+  ParkPaths.layout = function (park) {
+    var e_1, _a, e_2, _b, e_3, _c;
+
+    var out = {
+      paths: [],
+      ponds: []
+    };
+    if (park.length < 3) return out;
+    var area = polygon_util_1["default"].calcPolygonArea(park);
+    var centroid = polygon_util_1["default"].averagePoint(park);
+
+    var inside = function inside(p, margin) {
+      return polygon_util_1["default"].insidePolygon(p, park) && polygon_util_1["default"].distanceToPolyline(p, park.concat([park[0]])) > margin;
+    }; // Small parks just get a couple of paths crossing them
+
+
+    if (area < 4000) {
+      var entrances_2 = ParkPaths.entrances(park, 2);
+
+      for (var i = 0; i + 1 < entrances_2.length; i += 2) {
+        out.paths.push(ParkPaths.curve(entrances_2[i], centroid.clone().add(entrances_2[i + 1]).divideScalar(2), entrances_2[i + 1]));
+      }
+
+      return out;
+    } // Loop walk set in from the edge
+
+
+    var inset = Math.min(30, 0.12 * Math.sqrt(area));
+    var loop = polygon_util_1["default"].resizeGeometry(park, -inset);
+    if (loop.length > 3 && loop[0].equals(loop[loop.length - 1])) loop.pop();
+
+    if (loop.length >= 3) {
+      // Round off the corners, park loops never have sharp turns
+      loop = hydrology_1.resampleEqual(loop.concat([loop[0]]), 8);
+
+      for (var k = 0; k < 4; k++) {
+        loop = ParkPaths.smoothClosed(loop, 3);
+      }
+
+      out.paths.push(loop.concat([loop[0]]));
+    } // A pond, off centre, with an irregular smooth edge
+
+
+    var pond = [];
+
+    if (area > ParkPaths.POND_MIN_AREA && loop.length >= 3) {
+      var noise = new SimplexNoise();
+      var radius = 0.16 * Math.sqrt(area);
+      var offset = new vector_1["default"](Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.3 * radius);
+      var centre = centroid.clone().add(offset);
+      pond = [];
+
+      for (var i = 0; i < 40; i++) {
+        var a = 2 * Math.PI * i / 40;
+        var r = radius * (1 + 0.35 * noise.noise2D(Math.cos(a), Math.sin(a)));
+        pond.push(new vector_1["default"](centre.x + Math.cos(a) * r, centre.y + Math.sin(a) * r));
+      }
+
+      pond = ParkPaths.smoothClosed(pond, 2);
+
+      if (pond.every(function (p) {
+        return polygon_util_1["default"].insidePolygon(p, loop);
+      })) {
+        out.ponds.push(pond); // Path around the pond
+
+        var around = polygon_util_1["default"].resizeGeometry(pond, 10);
+        if (around.length > 3) out.paths.push(ParkPaths.smoothClosed(around, 2).concat([around[0]]));
+      } else {
+        pond = [];
+      }
+    } // Entrances on the edge, each joined to the nearest part of the loop
+
+
+    var entrances = ParkPaths.entrances(park, Math.max(3, Math.round(polygon_util_1["default"].calcPolygonArea(park) / 12000)));
+
+    try {
+      for (var entrances_1 = __values(entrances), entrances_1_1 = entrances_1.next(); !entrances_1_1.done; entrances_1_1 = entrances_1.next()) {
+        var e = entrances_1_1.value;
+        if (loop.length < 3) break;
+        var nearest = loop[0];
+
+        try {
+          for (var loop_1 = (e_2 = void 0, __values(loop)), loop_1_1 = loop_1.next(); !loop_1_1.done; loop_1_1 = loop_1.next()) {
+            var p = loop_1_1.value;
+            if (p.distanceToSquared(e) < nearest.distanceToSquared(e)) nearest = p;
+          }
+        } catch (e_2_1) {
+          e_2 = {
+            error: e_2_1
+          };
+        } finally {
+          try {
+            if (loop_1_1 && !loop_1_1.done && (_b = loop_1["return"])) _b.call(loop_1);
+          } finally {
+            if (e_2) throw e_2.error;
+          }
+        } // Bend towards the middle of the park
+
+
+        var control = e.clone().add(nearest).divideScalar(2).add(centroid.clone().sub(e).multiplyScalar(0.12));
+        out.paths.push(ParkPaths.curve(e, control, nearest));
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (entrances_1_1 && !entrances_1_1.done && (_a = entrances_1["return"])) _a.call(entrances_1);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    } // One or two cross paths over the lawn, avoiding the pond
+
+
+    if (loop.length >= 3) {
+      var crossings = area > 15000 ? 2 : 1;
+
+      for (var c = 0; c < crossings; c++) {
+        var a = loop[Math.floor(Math.random() * loop.length)]; // Roughly opposite point on the loop
+
+        var b = loop[0];
+
+        try {
+          for (var loop_2 = (e_3 = void 0, __values(loop)), loop_2_1 = loop_2.next(); !loop_2_1.done; loop_2_1 = loop_2.next()) {
+            var p = loop_2_1.value;
+            if (p.distanceToSquared(a) > b.distanceToSquared(a)) b = p;
+          }
+        } catch (e_3_1) {
+          e_3 = {
+            error: e_3_1
+          };
+        } finally {
+          try {
+            if (loop_2_1 && !loop_2_1.done && (_c = loop_2["return"])) _c.call(loop_2);
+          } finally {
+            if (e_3) throw e_3.error;
+          }
+        }
+
+        var control = centroid.clone().add(new vector_1["default"](Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.3 * Math.sqrt(area)));
+        var path = ParkPaths.curve(a, control, b);
+
+        if (pond.length === 0 || !path.some(function (p) {
+          return polygon_util_1["default"].insidePolygon(p, polygon_util_1["default"].resizeGeometry(pond, 6));
+        })) {
+          out.paths.push(path);
+        }
+      }
+    } // Keep everything inside the park
+
+
+    out.paths = out.paths.map(function (p) {
+      return p.filter(function (v) {
+        return inside(v, 1);
+      });
+    }).filter(function (p) {
+      return p.length >= 2;
+    });
+    return out;
+  };
+  /**
+   * Points spread around the park edge: corners first, then along long sides
+   */
+
+
+  ParkPaths.entrances = function (park, count) {
+    var e_4, _a;
+
+    var edge = hydrology_1.resampleEqual(park.concat([park[0]]), 4);
+    var out = []; // Corners, where people arrive from two streets
+
+    for (var i = 0; i < park.length; i++) {
+      var a = park[(i + park.length - 1) % park.length];
+      var b = park[i];
+      var c = park[(i + 1) % park.length];
+      var u = b.clone().sub(a);
+      var v = c.clone().sub(b);
+      if (u.length() === 0 || v.length() === 0) continue;
+      if (Math.abs(vector_1["default"].angleBetween(u, v)) > 0.6) out.push(b.clone());
+    } // Along the sides
+
+
+    var along = 0;
+
+    for (var i = 1; i < edge.length; i++) {
+      along += edge[i].distanceTo(edge[i - 1]);
+
+      if (along > ParkPaths.ENTRANCE_SPACING) {
+        out.push(edge[i].clone());
+        along = 0;
+      }
+    } // Spread out, not too many
+
+
+    var chosen = [];
+    var minGap = 0.6 * ParkPaths.ENTRANCE_SPACING;
+
+    var _loop_1 = function _loop_1(p) {
+      if (chosen.every(function (c) {
+        return c.distanceTo(p) > minGap;
+      })) chosen.push(p);
+    };
+
+    try {
+      for (var out_1 = __values(out), out_1_1 = out_1.next(); !out_1_1.done; out_1_1 = out_1.next()) {
+        var p = out_1_1.value;
+
+        _loop_1(p);
+      }
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
+      };
+    } finally {
+      try {
+        if (out_1_1 && !out_1_1.done && (_a = out_1["return"])) _a.call(out_1);
+      } finally {
+        if (e_4) throw e_4.error;
+      }
+    }
+
+    return chosen.slice(0, Math.max(count, 2) * 2);
+  };
+
+  ParkPaths.curve = function (a, control, b) {
+    var out = [];
+
+    for (var i = 0; i <= 16; i++) {
+      var t = i / 16;
+      var mt = 1 - t;
+      out.push(new vector_1["default"](mt * mt * a.x + 2 * mt * t * control.x + t * t * b.x, mt * mt * a.y + 2 * mt * t * control.y + t * t * b.y));
+    }
+
+    return out;
+  };
+
+  ParkPaths.smoothClosed = function (polygon, radius) {
+    var n = polygon.length;
+    return polygon.map(function (_, i) {
+      var sum = vector_1["default"].zeroVector();
+
+      for (var k = -radius; k <= radius; k++) {
+        sum.add(polygon[(i + k + n) % n]);
+      }
+
+      return sum.divideScalar(2 * radius + 1);
+    });
+  };
+  /**
+   * Promenade along the landward edge of a beach, clipped to the park
+   */
+
+
+  ParkPaths.promenade = function (park, shore, beachWidths, landward) {
+    var e_5, _a;
+
+    var line = shore.map(function (p, i) {
+      return p.clone().add(landward(i).multiplyScalar((beachWidths[i] || 0) + 4));
+    });
+    var runs = [];
+    var current = [];
+
+    try {
+      for (var _b = __values(hydrology_1.smoothLine(line, 2)), _c = _b.next(); !_c.done; _c = _b.next()) {
+        var p = _c.value;
+
+        if (polygon_util_1["default"].insidePolygon(p, park)) {
+          current.push(p);
+        } else if (current.length > 0) {
+          runs.push(current);
+          current = [];
+        }
+      }
+    } catch (e_5_1) {
+      e_5 = {
+        error: e_5_1
+      };
+    } finally {
+      try {
+        if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+      } finally {
+        if (e_5) throw e_5.error;
+      }
+    }
+
+    if (current.length > 0) runs.push(current);
+    return runs.filter(function (r) {
+      return r.length >= 4;
+    });
+  };
+
+  ParkPaths.ENTRANCE_SPACING = 110; // Along the park edge, world units (1 unit = 2 m)
+
+  ParkPaths.POND_MIN_AREA = 25000; // 10 hectares
+
+  return ParkPaths;
+}();
+
+exports["default"] = ParkPaths;
+
+},{"../vector":133,"./hydrology":107,"./polygon_util":113,"simplex-noise":90}],112:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -133589,7 +134580,7 @@ function () {
 
 exports["default"] = PolygonFinder;
 
-},{"./polygon_util":111,"loglevel":54}],111:[function(require,module,exports){
+},{"./polygon_util":113,"loglevel":54}],113:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -133723,6 +134714,28 @@ function () {
     }
 
     return total / 2;
+  };
+  /**
+   * All pieces the rectangle is cut into by the line
+   */
+
+
+  PolygonUtil.lineRectanglePolygons = function (origin, worldDimensions, line) {
+    var jstsLine = PolygonUtil.lineToJts(line);
+    var bounds = [origin, new vector_1["default"](origin.x + worldDimensions.x, origin.y), new vector_1["default"](origin.x + worldDimensions.x, origin.y + worldDimensions.y), new vector_1["default"](origin.x, origin.y + worldDimensions.y)];
+    var boundingPoly = PolygonUtil.polygonToJts(bounds);
+    var union = boundingPoly.getExteriorRing().union(jstsLine);
+    var polygonizer = new jsts.operation.polygonize.Polygonizer();
+    polygonizer.add(union);
+    var out = [];
+
+    for (var i = polygonizer.getPolygons().iterator(); i.hasNext();) {
+      out.push(i.next().getCoordinates().map(function (c) {
+        return new vector_1["default"](c.x, c.y);
+      }));
+    }
+
+    return out;
   };
 
   PolygonUtil.calcPolygonArea = function (polygon) {
@@ -134147,6 +135160,34 @@ function () {
     return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
   };
   /**
+   * Fixes self intersections, returning the largest resulting piece
+   */
+
+
+  PolygonUtil.cleanPolygon = function (polygon) {
+    if (polygon.length < 3) return [];
+
+    try {
+      var geometry = PolygonUtil.polygonToJts(polygon).buffer(0);
+      var best = null;
+
+      for (var i = 0; i < geometry.getNumGeometries(); i++) {
+        var piece = geometry.getGeometryN(i);
+        if (piece.getArea() > 0 && (best === null || piece.getArea() > best.getArea())) best = piece;
+      }
+
+      if (best === null) return [];
+      var out = best.getExteriorRing().getCoordinates().map(function (c) {
+        return new vector_1["default"](c.x, c.y);
+      });
+      out.pop();
+      return out;
+    } catch (error) {
+      log.warn(error);
+      return polygon;
+    }
+  };
+  /**
    * Largest piece of the intersection of two polygons, or [] if they don't overlap
    */
 
@@ -134298,7 +135339,7 @@ function () {
 
 exports["default"] = PolygonUtil;
 
-},{"../vector":131,"jsts":17,"loglevel":54,"polyk":71}],112:[function(require,module,exports){
+},{"../vector":133,"jsts":17,"loglevel":54,"polyk":71}],114:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -134604,7 +135645,7 @@ function () {
 
 exports["default"] = PortPlanner;
 
-},{"../vector":131,"./local_frame":109,"./polygon_util":111}],113:[function(require,module,exports){
+},{"../vector":133,"./local_frame":110,"./polygon_util":113}],115:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -135532,7 +136573,7 @@ function () {
 
 exports["default"] = StreamlineGenerator;
 
-},{"../vector":131,"./grid_storage":105,"loglevel":54,"simplify-js":91}],114:[function(require,module,exports){
+},{"../vector":133,"./grid_storage":105,"loglevel":54,"simplify-js":91}],116:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -135701,7 +136742,7 @@ function () {
 
 exports["default"] = Tensor;
 
-},{"../vector":131}],115:[function(require,module,exports){
+},{"../vector":133}],117:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -135883,7 +136924,7 @@ function () {
 
 exports["default"] = TensorField;
 
-},{"./basis_field":103,"./polygon_util":111,"./tensor":114,"simplex-noise":90}],116:[function(require,module,exports){
+},{"./basis_field":103,"./polygon_util":113,"./tensor":116,"simplex-noise":90}],118:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -135912,6 +136953,23 @@ var __extends = void 0 && (void 0).__extends || function () {
   };
 }();
 
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
@@ -135921,6 +136979,10 @@ var log = require("loglevel");
 var streamlines_1 = require("./streamlines");
 
 var polygon_util_1 = require("./polygon_util");
+
+var SimplexNoise = require("simplex-noise");
+
+var hydrology_1 = require("./hydrology");
 /**
  * Integrates polylines to create coastline and river, with controllable noise
  */
@@ -135947,6 +137009,19 @@ function (_super) {
     _this._riverPolygon = []; // Simplified
 
     _this._riverSecondaryRoad = [];
+    _this._shore = []; // Simplified water's edge along the coast
+
+    _this._shoreBeach = []; // Beach width at each point of the unsimplified shore
+
+    _this._shoreDetailed = [];
+    _this._beaches = [];
+    _this._floodplain = []; // Riverside park between the bank roads
+
+    _this._lakes = []; // Oxbow lakes
+
+    _this._sandBars = [];
+    _this._riversidePaths = [];
+    _this.noise = new SimplexNoise();
     return _this;
   }
 
@@ -135985,6 +137060,62 @@ function (_super) {
     enumerable: true,
     configurable: true
   });
+  Object.defineProperty(WaterGenerator.prototype, "shore", {
+    get: function get() {
+      return this._shore;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "shoreDetailed", {
+    get: function get() {
+      return this._shoreDetailed;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "shoreBeachWidths", {
+    get: function get() {
+      return this._shoreBeach;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "beaches", {
+    get: function get() {
+      return this._beaches;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "floodplain", {
+    get: function get() {
+      return this._floodplain;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "lakes", {
+    get: function get() {
+      return this._lakes;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "sandBars", {
+    get: function get() {
+      return this._sandBars;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGenerator.prototype, "riversidePaths", {
+    get: function get() {
+      return this._riversidePaths;
+    },
+    enumerable: true,
+    configurable: true
+  });
 
   WaterGenerator.prototype.createCoast = function () {
     var coastStreamline;
@@ -136006,18 +137137,209 @@ function (_super) {
     }
 
     this.tensorField.disableGlobalNoise();
-    this._coastline = coastStreamline;
-    this.coastlineMajor = major;
-    var road = this.simplifyStreamline(coastStreamline);
-    this._seaPolygon = this.getSeaPolygon(road);
+    this.coastlineMajor = major; // Which side is the sea? The sea polygon is the smaller side of the line
+
+    var initialSea = this.getSeaPolygon(this.simplifyStreamline(coastStreamline));
+    var seaward = this.seaSide(coastStreamline, initialSea); // Let the waves shape it
+
+    var shaped = hydrology_1.ShorelineSimulator.evolve(coastStreamline, seaward, {
+      spacing: 5,
+      iterations: 700,
+      headlandAmplitude: 180,
+      erosionRate: 0.15,
+      maxBeachWidth: 30
+    });
+    var shore = shaped.shore;
+    this._coastline = shore;
+    this._shoreDetailed = shore;
+    this._shoreBeach = shaped.beachWidths;
+    this._shore = this.simplifyShore(shore);
+    this._seaPolygon = this.seaPolygonOnSide(this._shore, seaward);
+    this.tensorField.sea = this._seaPolygon; // The sea is the smaller side of the final shore, check which side that is now
+
+    var landward = -this.seaSide(shore, this._seaPolygon);
+
+    if (landward !== -seaward) {
+      // Sea swapped sides, so beach widths measured towards the old land now point the wrong way
+      this._shoreBeach = shaped.beachWidths.map(function () {
+        return 0;
+      });
+    }
+
+    this._beaches = this.beachPolygons(shore, this._shoreBeach, landward);
+    var road = this.simplifyStreamline(this.coastRoadLine(shore, this._shoreBeach, landward));
     this._coastRoad = road;
-    this.allStreamlinesSimple.push(road);
-    this.tensorField.sea = this._seaPolygon; // Create intermediate samples
+    this.allStreamlinesSimple.push(road); // Create intermediate samples
 
     var complex = this.complexifyStreamline(road);
     this.grid(major).addPolyline(complex);
     this.streamlines(major).push(complex);
-    this.allStreamlines.push(complex);
+    this.allStreamlines.push(complex); // Keep streets running along the shore off the waterfront, they can still run down to it
+
+    this.grid(major).addPolyline(this.complexifyStreamline(this._shore));
+  };
+  /**
+   * 1 if the sea is to the left of the line's direction, -1 if right, by majority vote along the line
+   */
+
+
+  WaterGenerator.prototype.seaSide = function (line, sea) {
+    var norms = hydrology_1.normals(line);
+    var vote = 0;
+    var step = Math.max(1, Math.floor(line.length / 40));
+
+    for (var i = step; i < line.length - step; i += step) {
+      if (!this.pointInBounds(line[i])) continue;
+      var left = polygon_util_1["default"].insidePolygon(line[i].clone().add(norms[i].clone().multiplyScalar(8)), sea);
+      var right = polygon_util_1["default"].insidePolygon(line[i].clone().sub(norms[i].clone().multiplyScalar(8)), sea);
+      if (left && !right) vote++;
+      if (right && !left) vote--;
+    }
+
+    return vote >= 0 ? 1 : -1;
+  };
+  /**
+   * The piece of the map on the given side of the line (1 left, -1 right)
+   */
+
+
+  WaterGenerator.prototype.seaPolygonOnSide = function (line, side) {
+    var pieces = polygon_util_1["default"].lineRectanglePolygons(this.origin, this.worldDimensions, line);
+    if (pieces.length === 0) return [];
+    var norms = hydrology_1.normals(line);
+    var votes = pieces.map(function () {
+      return 0;
+    });
+    var step = Math.max(1, Math.floor(line.length / 60));
+
+    var _loop_1 = function _loop_1(i) {
+      if (!this_1.pointInBounds(line[i])) return "continue";
+      var probe = line[i].clone().add(norms[i].clone().multiplyScalar(side * 6));
+      pieces.forEach(function (p, k) {
+        if (polygon_util_1["default"].insidePolygon(probe, p)) votes[k]++;
+      });
+    };
+
+    var this_1 = this;
+
+    for (var i = step; i < line.length - step; i += step) {
+      _loop_1(i);
+    }
+
+    var best = 0;
+    pieces.forEach(function (_, k) {
+      if (votes[k] > votes[best]) best = k;
+    });
+    return pieces[best];
+  };
+
+  WaterGenerator.prototype.simplifyShore = function (shore) {
+    var saved = this.params.simplifyTolerance;
+    this.params.simplifyTolerance = 0.8;
+    var out = this.simplifyStreamline(shore);
+    this.params.simplifyTolerance = saved;
+    return out;
+  };
+
+  WaterGenerator.prototype.beachPolygons = function (shore, widths, landward) {
+    var norms = hydrology_1.normals(shore);
+    var out = [];
+    var i = 0;
+
+    while (i < shore.length) {
+      if (widths[i] < 2) {
+        i++;
+        continue;
+      }
+
+      var j = i;
+
+      while (j < shore.length && widths[j] >= 2) {
+        j++;
+      }
+
+      if (j - i >= 3) {
+        var outer = shore.slice(i, j).map(function (p) {
+          return p.clone();
+        });
+        var inner = shore.slice(i, j).map(function (p, k) {
+          return p.clone().add(norms[i + k].clone().multiplyScalar(landward * widths[i + k]));
+        }); // Taper the ends into the shore, so sand doesn't sit on the water
+
+        var polygon = polygon_util_1["default"].cleanPolygon(outer.concat(inner.reverse()));
+        if (polygon.length >= 3) out.push(polygon);
+      }
+
+      i = j;
+    }
+
+    return out;
+  };
+  /**
+   * The coast road runs behind the waterfront, not on it. In places it's a promenade just behind
+   * the beach, elsewhere a row of waterfront lots or a park sits between the road and the water
+   */
+
+
+  WaterGenerator.prototype.coastRoadLine = function (shore, beachWidths, landward) {
+    var _this = this;
+
+    var base = hydrology_1.smoothLine(hydrology_1.resampleEqual(shore, 5), 5);
+    var norms = hydrology_1.normals(base);
+    var nearestBeach = base.map(function (p) {
+      var best = 0;
+      var bestDistance = Infinity;
+
+      for (var i = 0; i < shore.length; i += 2) {
+        var d = shore[i].distanceToSquared(p);
+
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = i;
+        }
+      }
+
+      return beachWidths[best];
+    });
+    var along = 0;
+    var setback = base.map(function (p, i) {
+      if (i > 0) along += p.distanceTo(base[i - 1]);
+      var promenade = _this.noise.noise2D(along / 450, 17.1) > 0.25;
+
+      var waterfront = 32 + 14 * _this.noise.noise2D(along / 200, 3.3); // Room for a row of lots or a park
+
+
+      return nearestBeach[i] + (promenade ? 6 : waterfront);
+    });
+    var smoothSetback = hydrology_1.smoothValues(setback, 12); // Walk inland from the smoothed shore until far enough from the water, never into the sea
+
+    var walked = base.map(function (p, i) {
+      var needed = Math.max(nearestBeach[i] + 5, smoothSetback[i]);
+      var q = p.clone();
+      var t = 0;
+
+      for (; t < 150; t++) {
+        var inSea = polygon_util_1["default"].insidePolygon(q, _this._seaPolygon);
+        if (!inSea && polygon_util_1["default"].distanceToPolyline(q, shore) >= needed) break;
+        q.add(norms[i].clone().multiplyScalar(landward * 2));
+      }
+
+      return 2 * t;
+    }); // A walk much longer than its neighbours' went off at a bad angle, use theirs instead
+
+    var median = walked.map(function (_, i) {
+      var window = walked.slice(Math.max(0, i - 10), i + 11).sort(function (a, b) {
+        return a - b;
+      });
+      return window[window.length >> 1];
+    });
+    var distances = hydrology_1.smoothValues(walked.map(function (t, i) {
+      return t > 1.3 * median[i] + 6 ? median[i] : t;
+    }), 2);
+    var road = base.map(function (p, i) {
+      return p.clone().add(norms[i].clone().multiplyScalar(landward * distances[i]));
+    });
+    return hydrology_1.despike(hydrology_1.removeLoops(hydrology_1.smoothLine(road, 3), 15, 3).line, Math.PI / 3, 30);
   };
 
   WaterGenerator.prototype.createRiver = function () {
@@ -136045,27 +137367,82 @@ function (_super) {
     }
 
     this.tensorField.sea = oldSea;
-    this.tensorField.disableGlobalNoise(); // Create river roads
+    this.tensorField.disableGlobalNoise(); // Flow towards the sea. Pick the direction giving the longest stretch on land before
+    // the river reaches the sea, and end it there rather than letting it run along the coast
 
-    var expandedNoisy = this.complexifyStreamline(polygon_util_1["default"].resizeGeometry(riverStreamline, this.params.riverSize, false));
-    this._riverPolygon = polygon_util_1["default"].resizeGeometry(riverStreamline, this.params.riverSize - this.params.riverBankSize, false); // Make sure riverPolygon[0] is off screen
+    riverStreamline = riverStreamline.slice();
 
-    var firstOffScreen = expandedNoisy.findIndex(function (v) {
-      return _this.vectorOffScreen(v);
+    if (this._seaPolygon.length > 0) {
+      var reach_1 = 3 * (this.params.riverSize - this.params.riverBankSize);
+      var contact = riverStreamline.map(function (v) {
+        return _this.pointInBounds(v) && (polygon_util_1["default"].insidePolygon(v, _this._seaPolygon) || polygon_util_1["default"].distanceToPolyline(v, _this._shore) < reach_1);
+      });
+      var first = contact.indexOf(true);
+
+      if (first >= 0) {
+        var last = contact.lastIndexOf(true);
+        if (riverStreamline.length - 1 - last > first) riverStreamline.reverse();
+        var mouth = riverStreamline.length - 1 - last > first ? riverStreamline.length - 1 - last : first;
+        var end = riverStreamline[mouth]; // Head straight out to sea from there
+
+        var towards = null;
+        var best = Infinity;
+
+        for (var i = 0; i < this._shore.length - 1; i++) {
+          var d = polygon_util_1["default"].distanceToSegment(end, this._shore[i], this._shore[i + 1]);
+
+          if (d < best) {
+            best = d;
+            towards = this._shore[i].clone().add(this._shore[i + 1]).divideScalar(2);
+          }
+        }
+
+        riverStreamline = riverStreamline.slice(0, mouth + 1);
+        var dir = towards.clone().sub(end);
+
+        if (dir.lengthSq() > 0) {
+          dir.normalize();
+
+          for (var k = 1; k <= 12; k++) {
+            riverStreamline.push(end.clone().add(dir.clone().multiplyScalar(10 * k + best)));
+          }
+        }
+      }
+    } // Grow meanders
+
+
+    var width = 2 * (this.params.riverSize - this.params.riverBankSize);
+    var meander = hydrology_1.MeanderSimulator.simulate(riverStreamline, {
+      width: width,
+      widthDownstream: 1.4 * width,
+      sinuosity: 1.25 + 0.3 * Math.random(),
+      maxIterations: 2500,
+      fixed: function fixed(v) {
+        return polygon_util_1["default"].insidePolygon(v, _this._seaPolygon);
+      }
     });
+    this._riverPolygon = meander.channel;
 
-    for (var i = 0; i < firstOffScreen; i++) {
-      expandedNoisy.push(expandedNoisy.shift());
-    } // Create river roads
+    var onLand = function onLand(polygon) {
+      return !polygon_util_1["default"].insidePolygon(polygon_util_1["default"].averagePoint(polygon), _this._seaPolygon);
+    };
 
+    this._sandBars = meander.pointBars.filter(onLand);
+    this._lakes = meander.oxbows.map(function (o) {
+      return polygon_util_1["default"].resizeGeometry(o, 0.35 * width, false);
+    }).filter(function (l) {
+      return l.length >= 3 && onLand(l);
+    }); // Bank roads run outside the meander belt, the floodplain between them is parkland
 
-    var riverSplitPoly = this.getSeaPolygon(riverStreamline);
-    var road1 = expandedNoisy.filter(function (v) {
-      return !polygon_util_1["default"].insidePolygon(v, _this._seaPolygon) && !_this.vectorOffScreen(v) && polygon_util_1["default"].insidePolygon(v, riverSplitPoly);
+    var banks = this.bankLines(riverStreamline, meander.centreline, meander.widths, meander.oxbows, width);
+    this._riversidePaths = this.bankPaths(meander.centreline, meander.widths); // Create river roads
+
+    var road1 = banks.left.filter(function (v) {
+      return !polygon_util_1["default"].insidePolygon(v, _this._seaPolygon) && !_this.vectorOffScreen(v);
     });
     var road1Simple = this.simplifyStreamline(road1);
-    var road2 = expandedNoisy.filter(function (v) {
-      return !polygon_util_1["default"].insidePolygon(v, _this._seaPolygon) && !_this.vectorOffScreen(v) && !polygon_util_1["default"].insidePolygon(v, riverSplitPoly);
+    var road2 = banks.right.filter(function (v) {
+      return !polygon_util_1["default"].insidePolygon(v, _this._seaPolygon) && !_this.vectorOffScreen(v);
     });
     var road2Simple = this.simplifyStreamline(road2);
     if (road1.length === 0 || road2.length === 0) return;
@@ -136074,7 +137451,20 @@ function (_super) {
       road2Simple.reverse();
     }
 
-    this.tensorField.river = road1Simple.concat(road2Simple); // Road 1
+    this.tensorField.river = road1Simple.concat(road2Simple); // Only the land part is parkland
+
+    var floodplainPieces = this._seaPolygon.length > 2 ? polygon_util_1["default"].subtractPolygons(this.tensorField.river, [this._seaPolygon], 100) : [this.tensorField.river];
+    this._floodplain = floodplainPieces.length > 0 ? floodplainPieces[0] : []; // Riverside paths only where there is room between the water and the road
+
+    this._riversidePaths = this._riversidePaths.map(function (path) {
+      return path.filter(function (v) {
+        return polygon_util_1["default"].insidePolygon(v, _this._floodplain) && polygon_util_1["default"].distanceToPolyline(v, road1Simple) > 5 && polygon_util_1["default"].distanceToPolyline(v, road2Simple) > 5 && !_this._lakes.some(function (l) {
+          return polygon_util_1["default"].insidePolygon(v, l);
+        });
+      });
+    }).filter(function (path) {
+      return path.length >= 4;
+    }); // Road 1
 
     this.allStreamlinesSimple.push(road1Simple);
     this._riverSecondaryRoad = road2Simple;
@@ -136084,6 +137474,124 @@ function (_super) {
     this.streamlines(!this.coastlineMajor).push(road2);
     this.allStreamlines.push(road1);
     this.allStreamlines.push(road2);
+  };
+  /**
+   * Lines either side of the valley, far enough out to clear the meander belt,
+   * with a varying margin so the road is sometimes right by the water and sometimes far back
+   */
+
+
+  WaterGenerator.prototype.bankLines = function (valley, centreline, widths, oxbows, width) {
+    var e_1, _a;
+
+    var _this = this;
+
+    var axis = hydrology_1.smoothLine(hydrology_1.resampleEqual(valley, 10), 25);
+    var axisNormals = hydrology_1.normals(axis);
+    var left = new Array(axis.length).fill(width / 2);
+    var right = new Array(axis.length).fill(width / 2);
+
+    var nearestAxis = function nearestAxis(p) {
+      var best = 0;
+      var bestDistance = Infinity;
+
+      for (var i = 0; i < axis.length; i++) {
+        var d = axis[i].distanceToSquared(p);
+
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = i;
+        }
+      }
+
+      return best;
+    };
+
+    var extend = function extend(p, halfWidth) {
+      var i = nearestAxis(p);
+      var offset = p.clone().sub(axis[i]).dot(axisNormals[i]);
+      left[i] = Math.max(left[i], offset + halfWidth);
+      right[i] = Math.max(right[i], -offset + halfWidth);
+    };
+
+    centreline.forEach(function (p, i) {
+      return extend(p, widths[i] / 2);
+    });
+
+    try {
+      for (var oxbows_1 = __values(oxbows), oxbows_1_1 = oxbows_1.next(); !oxbows_1_1.done; oxbows_1_1 = oxbows_1.next()) {
+        var o = oxbows_1_1.value;
+        o.forEach(function (p) {
+          return extend(p, 0.4 * width);
+        });
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (oxbows_1_1 && !oxbows_1_1.done && (_a = oxbows_1["return"])) _a.call(oxbows_1);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    } // Spread each extent to its neighbours so the road clears the bends it passes, then smooth
+
+
+    var dilate = function dilate(values, radius) {
+      return values.map(function (_, i) {
+        var m = 0;
+
+        for (var k = -radius; k <= radius; k++) {
+          var j = i + k;
+          if (j >= 0 && j < values.length) m = Math.max(m, values[j]);
+        }
+
+        return m;
+      });
+    };
+
+    var along = 0;
+    var margin = axis.map(function (p, i) {
+      if (i > 0) along += p.distanceTo(axis[i - 1]);
+      return 6 + 40 * Math.max(0, _this.noise.noise2D(along / 400, 9.9));
+    });
+    var leftMargin = hydrology_1.smoothValues(margin, 8);
+    var rightMargin = hydrology_1.smoothValues(margin.map(function (_, i) {
+      return 6 + 40 * Math.max(0, _this.noise.noise2D(i / 40, 4.4));
+    }), 8);
+    var leftExtent = hydrology_1.smoothValues(dilate(left, 4), 3).map(function (v, i) {
+      return Math.max(v, left[i]) + leftMargin[i];
+    });
+    var rightExtent = hydrology_1.smoothValues(dilate(right, 4), 3).map(function (v, i) {
+      return Math.max(v, right[i]) + rightMargin[i];
+    }); // Offsetting a curved line far can fold it back on itself on the inside of curves, cut those out
+
+    var tidy = function tidy(line) {
+      return hydrology_1.despike(hydrology_1.removeLoops(hydrology_1.smoothLine(line, 2), 20, 3).line, Math.PI / 3, 30);
+    };
+
+    return {
+      left: tidy(axis.map(function (p, i) {
+        return p.clone().add(axisNormals[i].clone().multiplyScalar(leftExtent[i]));
+      })),
+      right: tidy(axis.map(function (p, i) {
+        return p.clone().sub(axisNormals[i].clone().multiplyScalar(rightExtent[i]));
+      }))
+    };
+  };
+  /**
+   * Footpaths following each bank of the river
+   */
+
+
+  WaterGenerator.prototype.bankPaths = function (centreline, widths) {
+    var norms = hydrology_1.normals(centreline);
+    return [1, -1].map(function (side) {
+      return hydrology_1.smoothLine(centreline.map(function (p, i) {
+        return p.clone().add(norms[i].clone().multiplyScalar(side * (widths[i] / 2 + 7)));
+      }), 2);
+    });
   };
   /**
    * Assumes simplified
@@ -136150,7 +137658,7 @@ function (_super) {
 
 exports["default"] = WaterGenerator;
 
-},{"./polygon_util":111,"./streamlines":113,"loglevel":54}],117:[function(require,module,exports){
+},{"./hydrology":107,"./polygon_util":113,"./streamlines":115,"loglevel":54,"simplex-noise":90}],119:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136567,7 +138075,7 @@ function () {
 
 exports["default"] = YardHouseLayout;
 
-},{"../vector":131,"./local_frame":109,"./polygon_util":111,"simplify-js":91}],118:[function(require,module,exports){
+},{"../vector":133,"./local_frame":110,"./polygon_util":113,"simplify-js":91}],120:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -137250,7 +138758,7 @@ function () {
 
 exports["default"] = Zoning;
 
-},{"../vector":131,"./polygon_util":111,"loglevel":54,"simplex-noise":90}],119:[function(require,module,exports){
+},{"../vector":133,"./polygon_util":113,"loglevel":54,"simplex-noise":90}],121:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -137681,7 +139189,7 @@ function () {
 
 exports["default"] = ModelGenerator;
 
-},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],120:[function(require,module,exports){
+},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],122:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -138062,6 +139570,10 @@ function () {
 
     this.portBuildings = [];
     this.residentialHouses = [];
+    this.shore = [];
+    this.shoreBeach = [];
+    this.beaches = [];
+    this._waterfrontParks = [];
     this.lowIncomeHouses = [];
     this.lowIncomeFences = [];
     this.zoning = null;
@@ -138101,6 +139613,23 @@ function () {
   Object.defineProperty(Buildings.prototype, "animate", {
     set: function set(v) {
       this._animate = v;
+    },
+    enumerable: true,
+    configurable: true
+  });
+
+  Buildings.prototype.setWaterfront = function (shore, beachWidths, beaches) {
+    this.shore = shore;
+    this.shoreBeach = beachWidths;
+    this.beaches = beaches;
+  };
+
+  Object.defineProperty(Buildings.prototype, "waterfrontParks", {
+    /**
+     * Blocks by the sea kept as parks, world space
+     */
+    get: function get() {
+      return this._waterfrontParks;
     },
     enumerable: true,
     configurable: true
@@ -138274,6 +139803,7 @@ function () {
     this.industrialBuildings = [];
     this.industrialRoads = [];
     this.residentialHouses = [];
+    this._waterfrontParks = [];
     this.lowIncomeHouses = [];
     this.lowIncomeFences = [];
     this._models = new BuildingModels([], []);
@@ -138417,7 +139947,7 @@ function () {
     var out = [[], [], []];
     var zoned = this.zoning !== null && this.zoning.enabled; // Blocks are only tested for water at their centre, so cut away any water they overlap
 
-    var exclusions = [this.tensorField.sea, this.tensorField.river].filter(function (w) {
+    var exclusions = [this.tensorField.sea, this.tensorField.river].concat(this.beaches).filter(function (w) {
       return w.length >= 3;
     });
     if (zoned) exclusions.push.apply(exclusions, __spread(this.zoning.exclusionAreas));
@@ -138440,6 +139970,15 @@ function () {
           var zone = zoned ? this_2.zoning.zoneAt(polygon_util_1["default"].averagePoint(piece)) : 0
           /* Residential */
           ;
+
+          if (zone !== 2
+          /* Industrial */
+          && this_2.becomesWaterfrontPark(piece)) {
+            this_2._waterfrontParks.push(piece);
+
+            continue;
+          }
+
           out[zone].push(piece);
         }
       } catch (e_6_1) {
@@ -138477,9 +140016,52 @@ function () {
 
     return out;
   };
+  /**
+   * Blocks on the water's edge are often kept as parks, nearly always when they have a beach
+   */
+
+
+  Buildings.prototype.becomesWaterfrontPark = function (block) {
+    var e_7, _a;
+
+    if (this.shore.length < 2) return false;
+    var box = polygon_util_1["default"].boundingBox(block);
+    var touching = false;
+    var beach = 0;
+
+    for (var i = 0; i < this.shore.length; i++) {
+      var p = this.shore[i];
+      if (p.x < box[0] - 4 || p.x > box[2] + 4 || p.y < box[1] - 4 || p.y > box[3] + 4) continue;
+
+      try {
+        for (var block_1 = (e_7 = void 0, __values(block)), block_1_1 = block_1.next(); !block_1_1.done; block_1_1 = block_1.next()) {
+          var v = block_1_1.value;
+
+          if (v.distanceToSquared(p) < 36) {
+            touching = true;
+            beach = Math.max(beach, this.shoreBeach[i] || 0);
+            break;
+          }
+        }
+      } catch (e_7_1) {
+        e_7 = {
+          error: e_7_1
+        };
+      } finally {
+        try {
+          if (block_1_1 && !block_1_1.done && (_a = block_1["return"])) _a.call(block_1);
+        } finally {
+          if (e_7) throw e_7.error;
+        }
+      }
+    }
+
+    if (!touching) return false;
+    return Math.random() < (beach > 6 ? 0.8 : 0.3);
+  };
 
   Buildings.prototype.shrunkBlocks = function (zone) {
-    var e_7, _a;
+    var e_8, _a;
 
     var out = [];
 
@@ -138490,15 +140072,15 @@ function () {
         if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
         if (shrunk.length >= 3) out.push(shrunk);
       }
-    } catch (e_7_1) {
-      e_7 = {
-        error: e_7_1
+    } catch (e_8_1) {
+      e_8 = {
+        error: e_8_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_7) throw e_7.error;
+        if (e_8) throw e_8.error;
       }
     }
 
@@ -138510,7 +140092,7 @@ function () {
 
 
   Buildings.prototype.layoutIndustry = function () {
-    var e_8, _a, _b, _c;
+    var e_9, _a, _b, _c;
 
     this.industrialBuildings = this.portBuildings.slice();
     this.industrialRoads = [];
@@ -138534,15 +140116,15 @@ function () {
 
         (_c = this.industrialRoads).push.apply(_c, __spread(layout.roads));
       }
-    } catch (e_8_1) {
-      e_8 = {
-        error: e_8_1
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
       };
     } finally {
       try {
         if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
       } finally {
-        if (e_8) throw e_8.error;
+        if (e_9) throw e_9.error;
       }
     }
   };
@@ -138560,7 +140142,7 @@ function () {
 
 exports["default"] = Buildings;
 
-},{"../impl/graph":104,"../impl/industrial_layout":107,"../impl/polygon_finder":110,"../impl/polygon_util":111,"../impl/yard_houses":117,"./domain_controller":122}],121:[function(require,module,exports){
+},{"../impl/graph":104,"../impl/industrial_layout":108,"../impl/polygon_finder":112,"../impl/polygon_util":113,"../impl/yard_houses":119,"./domain_controller":124}],123:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -138976,7 +140558,7 @@ function (_super) {
 
 exports.RoughCanvasWrapper = RoughCanvasWrapper;
 
-},{"../util":130,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],122:[function(require,module,exports){
+},{"../util":132,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],124:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -139202,7 +140784,7 @@ function () {
 
 exports["default"] = DomainController;
 
-},{"../util":130,"../vector":131}],123:[function(require,module,exports){
+},{"../util":132,"../vector":133}],125:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -139340,7 +140922,7 @@ function () {
 
 exports["default"] = DragController;
 
-},{"../util":130,"../vector":131,"./domain_controller":122,"interactjs":14}],124:[function(require,module,exports){
+},{"../util":132,"../vector":133,"./domain_controller":124,"interactjs":14}],126:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -139737,7 +141319,7 @@ function (_super) {
 
 exports["default"] = HighwayGUI;
 
-},{"../impl/highway_generator":106,"../util":130,"./road_gui":126}],125:[function(require,module,exports){
+},{"../impl/highway_generator":106,"../util":132,"./road_gui":128}],127:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -139949,6 +141531,8 @@ var road_gui_1 = require("./road_gui");
 
 var water_gui_1 = require("./water_gui");
 
+var vector_1 = require("../vector");
+
 var polygon_finder_1 = require("../impl/polygon_finder");
 
 var style_1 = require("./style");
@@ -139964,6 +141548,8 @@ var highway_gui_1 = require("./highway_gui");
 var zoning_1 = require("../impl/zoning");
 
 var port_1 = require("../impl/port");
+
+var park_paths_1 = require("../impl/park_paths");
 /**
  * Handles Map folder, glues together impl
  */
@@ -139984,6 +141570,10 @@ function () {
     this.domainController = domain_controller_1["default"].getInstance();
     this.intersections = [];
     this.bigParks = [];
+    this.parkPaths = []; // World space
+
+    this.waterfrontPaths = [];
+    this.ponds = [];
     this.smallParks = [];
     this.animate = true;
     this.animationSpeed = 30;
@@ -140097,9 +141687,16 @@ function () {
       allStreamlines.push.apply(allStreamlines, __spread(_this.mainRoads.allStreamlines));
       allStreamlines.push.apply(allStreamlines, __spread(_this.majorRoads.allStreamlines));
       allStreamlines.push.apply(allStreamlines, __spread(_this.minorRoads.allStreamlines));
-      allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.streamlinesWithSecondaryRoad));
+      allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.streamlinesWithSecondaryRoad)); // The water's edge closes off the blocks between the coast road and the sea
+
+      allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.waterEdges));
 
       _this.buildings.setAllStreamlines(allStreamlines);
+
+      _this.buildings.setWaterfront(_this.coastline.shoreDetailedWorld, _this.coastline.shoreBeachWidths, _this.coastline.beachesWorld);
+    });
+    this.buildings.setPostGenerateCallback(function () {
+      return _this.layoutWaterfrontParks();
     });
     animateController.onChange(function (b) {
       _this.majorRoads.animate = b;
@@ -140126,6 +141723,8 @@ function () {
 
       _this.bigParks = [];
       _this.smallParks = [];
+      _this.parkPaths = [];
+      _this.ponds = [];
 
       _this.buildings.reset();
 
@@ -140144,6 +141743,8 @@ function () {
 
       _this.bigParks = [];
       _this.smallParks = [];
+      _this.parkPaths = [];
+      _this.ponds = [];
 
       _this.buildings.reset();
 
@@ -140158,6 +141759,8 @@ function () {
 
       _this.bigParks = [];
       _this.smallParks = [];
+      _this.parkPaths = [];
+      _this.ponds = [];
 
       _this.buildings.reset();
 
@@ -140174,6 +141777,8 @@ function () {
 
       _this.bigParks = [];
       _this.smallParks = [];
+      _this.parkPaths = [];
+      _this.ponds = [];
 
       _this.buildings.reset();
 
@@ -140258,6 +141863,8 @@ function () {
   };
 
   MainGUI.prototype.blockedForMinorRoads = function (p) {
+    // Parks have footpaths, not streets
+    if (this.bigParks.length > 0 && this.inBigPark(p)) return true;
     if (!this.zoning.enabled) return false;
     var trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
     return this.zoning.approxHighwayDistance(p) < trimDistance - 6 || this.zoning.zoneAt(p) === 2
@@ -140270,14 +141877,26 @@ function () {
    */
 
 
+  MainGUI.prototype.inBigPark = function (p) {
+    return this.bigParks.some(function (park) {
+      return polygon_util_1["default"].insidePolygon(p, park);
+    });
+  };
+
   MainGUI.prototype.trimMinorRoads = function () {
     var _this = this;
 
-    if (!this.zoning.enabled) return;
+    if (!this.zoning.enabled) {
+      if (this.bigParks.length > 0) this.minorRoads.trimEnds(function (p) {
+        return _this.inBigPark(p);
+      }, 1);
+      return;
+    }
+
     var trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3; // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
 
     this.minorRoads.trimEnds(function (p) {
-      return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p) || _this.zoning.inInterchange(p);
+      return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p) || _this.zoning.inInterchange(p) || _this.inBigPark(p);
     }, 1);
     this.addUnderpasses(trimDistance);
   };
@@ -140451,6 +142070,8 @@ function () {
       // Big parks
       this.bigParks = [];
       this.smallParks = [];
+      this.parkPaths = [];
+      this.ponds = [];
 
       if (polygons.length > this.numBigParks) {
         if (this.clusterBigParks) {
@@ -140484,6 +142105,82 @@ function () {
     (_b = this.tensorField.parks).push.apply(_b, __spread(this.bigParks));
 
     (_c = this.tensorField.parks).push.apply(_c, __spread(this.smallParks));
+
+    this.layoutParks();
+  };
+
+  MainGUI.prototype.layoutParks = function () {
+    var e_3, _a, _b, _c;
+
+    this.parkPaths = [];
+    this.ponds = [];
+
+    try {
+      for (var _d = __values(this.bigParks.concat(this.smallParks)), _e = _d.next(); !_e.done; _e = _d.next()) {
+        var park = _e.value;
+        var layout = park_paths_1["default"].layout(park);
+
+        (_b = this.parkPaths).push.apply(_b, __spread(layout.paths));
+
+        (_c = this.ponds).push.apply(_c, __spread(layout.ponds));
+      }
+    } catch (e_3_1) {
+      e_3 = {
+        error: e_3_1
+      };
+    } finally {
+      try {
+        if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
+      } finally {
+        if (e_3) throw e_3.error;
+      }
+    }
+  };
+  /**
+   * Waterfront parks get a promenade along the top of the beach, and paths like other parks
+   */
+
+
+  MainGUI.prototype.layoutWaterfrontParks = function () {
+    var e_4, _a, _b, _c;
+
+    this.waterfrontPaths = [];
+    var shore = this.coastline.shoreDetailedWorld;
+    var beach = this.coastline.shoreBeachWidths;
+    var sea = this.coastline.seaPolygonWorld;
+
+    var landward = function landward(i) {
+      var a = shore[Math.max(0, i - 1)];
+      var b = shore[Math.min(shore.length - 1, i + 1)];
+      var t = b.clone().sub(a).normalize();
+      var n = new vector_1["default"](-t.y, t.x); // Point the normal away from the sea
+
+      return polygon_util_1["default"].insidePolygon(shore[i].clone().add(n.clone().multiplyScalar(4)), sea) ? n.multiplyScalar(-1) : n;
+    };
+
+    try {
+      for (var _d = __values(this.buildings.waterfrontParks), _e = _d.next(); !_e.done; _e = _d.next()) {
+        var park = _e.value;
+
+        (_b = this.waterfrontPaths).push.apply(_b, __spread(park_paths_1["default"].promenade(park, shore, beach, landward)));
+
+        if (polygon_util_1["default"].calcPolygonArea(park) > 6000) {
+          var layout = park_paths_1["default"].layout(park);
+
+          (_c = this.waterfrontPaths).push.apply(_c, __spread(layout.paths));
+        }
+      }
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
+      };
+    } finally {
+      try {
+        if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
+      } finally {
+        if (e_4) throw e_4.error;
+      }
+    }
   };
 
   MainGUI.prototype.generateEverything = function () {
@@ -140552,7 +142249,7 @@ function () {
   };
 
   MainGUI.prototype.draw = function (style, forceDraw, customCanvas) {
-    var _a, _b;
+    var _a, _b, _c;
 
     var _this = this;
 
@@ -140570,6 +142267,11 @@ function () {
     style.seaPolygon = this.coastline.seaPolygon;
     style.coastline = this.coastline.coastline;
     style.river = this.coastline.river;
+    style.beaches = this.coastline.beaches;
+    style.floodplain = this.coastline.floodplain || [];
+    style.lakes = this.coastline.lakes.concat(this.toScreen(this.ponds));
+    style.sandBars = this.coastline.sandBars;
+    style.paths = this.coastline.riversidePaths.concat(this.toScreen(this.parkPaths)).concat(this.toScreen(this.waterfrontPaths));
     style.lots = this.buildings.lots;
     style.lowIncomeLots = this.buildings.lowIncomeLots;
     style.fences = this.buildings.lowIncomeFenceLines;
@@ -140594,6 +142296,8 @@ function () {
         return _this.domainController.worldToScreen(v.clone());
       });
     })));
+
+    (_c = style.parks).push.apply(_c, __spread(this.toScreen(this.buildings.waterfrontParks)));
 
     style.minorRoads = this.minorRoads.roads;
     style.majorRoads = this.majorRoads.roads;
@@ -140701,7 +142405,7 @@ function () {
 
 exports["default"] = MainGUI;
 
-},{"../impl/graph":104,"../impl/integrator":108,"../impl/polygon_finder":110,"../impl/polygon_util":111,"../impl/port":112,"../impl/zoning":118,"../util":130,"./buildings":120,"./domain_controller":122,"./highway_gui":124,"./road_gui":126,"./style":127,"./water_gui":129}],126:[function(require,module,exports){
+},{"../impl/graph":104,"../impl/integrator":109,"../impl/park_paths":111,"../impl/polygon_finder":112,"../impl/polygon_util":113,"../impl/port":114,"../impl/zoning":120,"../util":132,"../vector":133,"./buildings":122,"./domain_controller":124,"./highway_gui":126,"./road_gui":128,"./style":129,"./water_gui":131}],128:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -141133,7 +142837,7 @@ function () {
 
 exports["default"] = RoadGUI;
 
-},{"../impl/streamlines":113,"../util":130,"./domain_controller":122}],127:[function(require,module,exports){
+},{"../impl/streamlines":115,"../util":132,"./domain_controller":124}],129:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -141207,6 +142911,12 @@ function () {
     this.lots = [];
     this.buildingModels = [];
     this.parks = [];
+    this.beaches = [];
+    this.floodplain = [];
+    this.lakes = []; // Oxbow lakes and ponds
+
+    this.sandBars = [];
+    this.paths = [];
     this.lowIncomeLots = [];
     this.fences = []; // Thin lines around yards
 
@@ -141257,6 +142967,8 @@ function () {
     if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
     if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = colourScheme.buildingColour;
     if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
+    if (!colourScheme.sandColour) colourScheme.sandColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(245,215,140)', 0.4);
+    if (!colourScheme.pathColour) colourScheme.pathColour = colourScheme.minorRoadColour;
 
     if (!colourScheme.buildingSideColour) {
       var parsedRgb = util_1["default"].parseCSSColor(colourScheme.buildingColour).map(function (v) {
@@ -141352,7 +143064,7 @@ function (_super) {
   };
 
   DefaultStyle.prototype.draw = function (canvas) {
-    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4, e_30, _5;
+    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4, e_30, _5, e_31, _6, e_32, _7, e_33, _8, e_34, _9;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -141372,39 +143084,44 @@ function (_super) {
     canvas.setFillStyle(this.colourScheme.seaColour);
     canvas.setStrokeStyle(this.colourScheme.seaColour);
     canvas.setLineWidth(0.1);
-    canvas.drawPolygon(this.seaPolygon); // Coastline
+    canvas.drawPolygon(this.seaPolygon); // Beaches
 
-    canvas.setStrokeStyle(bgColour);
-    canvas.setLineWidth(30 * this.domainController.zoom);
-    canvas.drawPolyline(this.coastline); // Port, built out over the sea
+    canvas.setLineWidth(1);
+
+    if (!this.heightmap) {
+      canvas.setFillStyle(this.colourScheme.sandColour);
+      canvas.setStrokeStyle(this.colourScheme.sandColour);
+
+      try {
+        for (var _10 = __values(this.beaches), _11 = _10.next(); !_11.done; _11 = _10.next()) {
+          var b = _11.value;
+          canvas.drawPolygon(b);
+        }
+      } catch (e_1_1) {
+        e_1 = {
+          error: e_1_1
+        };
+      } finally {
+        try {
+          if (_11 && !_11.done && (_a = _10["return"])) _a.call(_10);
+        } finally {
+          if (e_1) throw e_1.error;
+        }
+      }
+    } // Riverside park
+
+
+    canvas.setFillStyle(this.colourScheme.grassColour);
+    canvas.setStrokeStyle(this.colourScheme.grassColour);
+    canvas.drawPolygon(this.floodplain); // Port, built out over the sea
 
     canvas.setFillStyle(bgColour);
     canvas.setStrokeStyle(bgColour);
     canvas.setLineWidth(1);
 
     try {
-      for (var _6 = __values(this.portLand), _7 = _6.next(); !_7.done; _7 = _6.next()) {
-        var p = _7.value;
-        canvas.drawPolygon(p);
-      }
-    } catch (e_1_1) {
-      e_1 = {
-        error: e_1_1
-      };
-    } finally {
-      try {
-        if (_7 && !_7.done && (_a = _6["return"])) _a.call(_6);
-      } finally {
-        if (e_1) throw e_1.error;
-      }
-    }
-
-    canvas.setFillStyle(this.colourScheme.seaColour);
-    canvas.setStrokeStyle(this.colourScheme.seaColour);
-
-    try {
-      for (var _8 = __values(this.portWater), _9 = _8.next(); !_9.done; _9 = _8.next()) {
-        var p = _9.value;
+      for (var _12 = __values(this.portLand), _13 = _12.next(); !_13.done; _13 = _12.next()) {
+        var p = _13.value;
         canvas.drawPolygon(p);
       }
     } catch (e_2_1) {
@@ -141413,19 +143130,18 @@ function (_super) {
       };
     } finally {
       try {
-        if (_9 && !_9.done && (_b = _8["return"])) _b.call(_8);
+        if (_13 && !_13.done && (_b = _12["return"])) _b.call(_12);
       } finally {
         if (e_2) throw e_2.error;
       }
-    } // Parks
+    }
 
-
-    canvas.setLineWidth(1);
-    canvas.setFillStyle(this.colourScheme.grassColour);
+    canvas.setFillStyle(this.colourScheme.seaColour);
+    canvas.setStrokeStyle(this.colourScheme.seaColour);
 
     try {
-      for (var _10 = __values(this.parks), _11 = _10.next(); !_11.done; _11 = _10.next()) {
-        var p = _11.value;
+      for (var _14 = __values(this.portWater), _15 = _14.next(); !_15.done; _15 = _14.next()) {
+        var p = _15.value;
         canvas.drawPolygon(p);
       }
     } catch (e_3_1) {
@@ -141434,9 +143150,30 @@ function (_super) {
       };
     } finally {
       try {
-        if (_11 && !_11.done && (_c = _10["return"])) _c.call(_10);
+        if (_15 && !_15.done && (_c = _14["return"])) _c.call(_14);
       } finally {
         if (e_3) throw e_3.error;
+      }
+    } // Parks
+
+
+    canvas.setLineWidth(1);
+    canvas.setFillStyle(this.colourScheme.grassColour);
+
+    try {
+      for (var _16 = __values(this.parks), _17 = _16.next(); !_17.done; _17 = _16.next()) {
+        var p = _17.value;
+        canvas.drawPolygon(p);
+      }
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
+      };
+    } finally {
+      try {
+        if (_17 && !_17.done && (_d = _16["return"])) _d.call(_16);
+      } finally {
+        if (e_4) throw e_4.error;
       }
     } // River
 
@@ -141444,26 +143181,89 @@ function (_super) {
     canvas.setFillStyle(this.colourScheme.seaColour);
     canvas.setStrokeStyle(this.colourScheme.seaColour);
     canvas.setLineWidth(1);
-    canvas.drawPolygon(this.river); // Land use
+    canvas.drawPolygon(this.river);
+
+    try {
+      for (var _18 = __values(this.lakes), _19 = _18.next(); !_19.done; _19 = _18.next()) {
+        var l = _19.value;
+        canvas.drawPolygon(l);
+      }
+    } catch (e_5_1) {
+      e_5 = {
+        error: e_5_1
+      };
+    } finally {
+      try {
+        if (_19 && !_19.done && (_e = _18["return"])) _e.call(_18);
+      } finally {
+        if (e_5) throw e_5.error;
+      }
+    }
+
+    if (!this.heightmap) {
+      canvas.setFillStyle(this.colourScheme.sandColour);
+      canvas.setStrokeStyle(this.colourScheme.sandColour);
+
+      try {
+        for (var _20 = __values(this.sandBars), _21 = _20.next(); !_21.done; _21 = _20.next()) {
+          var b = _21.value;
+          canvas.drawPolygon(b);
+        }
+      } catch (e_6_1) {
+        e_6 = {
+          error: e_6_1
+        };
+      } finally {
+        try {
+          if (_21 && !_21.done && (_f = _20["return"])) _f.call(_20);
+        } finally {
+          if (e_6) throw e_6.error;
+        }
+      } // Footpaths
+
+
+      canvas.setStrokeStyle(this.colourScheme.pathColour);
+      canvas.setLineWidth(Math.max(0.6, 1.3 * this.domainController.zoom));
+
+      try {
+        for (var _22 = __values(this.paths), _23 = _22.next(); !_23.done; _23 = _22.next()) {
+          var p = _23.value;
+          canvas.drawPolyline(p);
+        }
+      } catch (e_7_1) {
+        e_7 = {
+          error: e_7_1
+        };
+      } finally {
+        try {
+          if (_23 && !_23.done && (_g = _22["return"])) _g.call(_22);
+        } finally {
+          if (e_7) throw e_7.error;
+        }
+      }
+
+      canvas.setLineWidth(1);
+    } // Land use
+
 
     if (this.showZones && !this.heightmap) {
       canvas.setFillStyle(this.colourScheme.lowIncomeColour);
       canvas.setStrokeStyle(this.colourScheme.lowIncomeColour);
 
       try {
-        for (var _12 = __values(this.lowIncomeAreas), _13 = _12.next(); !_13.done; _13 = _12.next()) {
-          var p = _13.value;
+        for (var _24 = __values(this.lowIncomeAreas), _25 = _24.next(); !_25.done; _25 = _24.next()) {
+          var p = _25.value;
           canvas.drawPolygon(p);
         }
-      } catch (e_4_1) {
-        e_4 = {
-          error: e_4_1
+      } catch (e_8_1) {
+        e_8 = {
+          error: e_8_1
         };
       } finally {
         try {
-          if (_13 && !_13.done && (_d = _12["return"])) _d.call(_12);
+          if (_25 && !_25.done && (_h = _24["return"])) _h.call(_24);
         } finally {
-          if (e_4) throw e_4.error;
+          if (e_8) throw e_8.error;
         }
       }
 
@@ -141471,19 +143271,19 @@ function (_super) {
       canvas.setStrokeStyle(this.colourScheme.industrialColour);
 
       try {
-        for (var _14 = __values(this.industrialAreas), _15 = _14.next(); !_15.done; _15 = _14.next()) {
-          var p = _15.value;
+        for (var _26 = __values(this.industrialAreas), _27 = _26.next(); !_27.done; _27 = _26.next()) {
+          var p = _27.value;
           canvas.drawPolygon(p);
         }
-      } catch (e_5_1) {
-        e_5 = {
-          error: e_5_1
+      } catch (e_9_1) {
+        e_9 = {
+          error: e_9_1
         };
       } finally {
         try {
-          if (_15 && !_15.done && (_e = _14["return"])) _e.call(_14);
+          if (_27 && !_27.done && (_j = _26["return"])) _j.call(_26);
         } finally {
-          if (e_5) throw e_5.error;
+          if (e_9) throw e_9.error;
         }
       }
     } // Road outline
@@ -141493,83 +143293,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.minorWidth * this.domainController.zoom);
 
     try {
-      for (var _16 = __values(this.minorRoads), _17 = _16.next(); !_17.done; _17 = _16.next()) {
-        var s = _17.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_6_1) {
-      e_6 = {
-        error: e_6_1
-      };
-    } finally {
-      try {
-        if (_17 && !_17.done && (_f = _16["return"])) _f.call(_16);
-      } finally {
-        if (e_6) throw e_6.error;
-      }
-    }
-
-    try {
-      for (var _18 = __values(this.frontageRoads), _19 = _18.next(); !_19.done; _19 = _18.next()) {
-        var s = _19.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_7_1) {
-      e_7 = {
-        error: e_7_1
-      };
-    } finally {
-      try {
-        if (_19 && !_19.done && (_g = _18["return"])) _g.call(_18);
-      } finally {
-        if (e_7) throw e_7.error;
-      }
-    }
-
-    try {
-      for (var _20 = __values(this.industrialRoads), _21 = _20.next(); !_21.done; _21 = _20.next()) {
-        var s = _21.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_8_1) {
-      e_8 = {
-        error: e_8_1
-      };
-    } finally {
-      try {
-        if (_21 && !_21.done && (_h = _20["return"])) _h.call(_20);
-      } finally {
-        if (e_8) throw e_8.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
-    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
-
-    try {
-      for (var _22 = __values(this.majorRoads), _23 = _22.next(); !_23.done; _23 = _22.next()) {
-        var s = _23.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_9_1) {
-      e_9 = {
-        error: e_9_1
-      };
-    } finally {
-      try {
-        if (_23 && !_23.done && (_j = _22["return"])) _j.call(_22);
-      } finally {
-        if (e_9) throw e_9.error;
-      }
-    }
-
-    canvas.drawPolyline(this.secondaryRiver);
-    canvas.setStrokeStyle(this.colourScheme.mainRoadOutline);
-    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.mainWidth * this.domainController.zoom);
-
-    try {
-      for (var _24 = __values(this.mainRoads), _25 = _24.next(); !_25.done; _25 = _24.next()) {
-        var s = _25.value;
+      for (var _28 = __values(this.minorRoads), _29 = _28.next(); !_29.done; _29 = _28.next()) {
+        var s = _29.value;
         canvas.drawPolyline(s);
       }
     } catch (e_10_1) {
@@ -141578,47 +143303,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_25 && !_25.done && (_k = _24["return"])) _k.call(_24);
+        if (_29 && !_29.done && (_k = _28["return"])) _k.call(_28);
       } finally {
         if (e_10) throw e_10.error;
-      }
-    }
-
-    try {
-      for (var _26 = __values(this.coastlineRoads), _27 = _26.next(); !_27.done; _27 = _26.next()) {
-        var s = _27.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_11_1) {
-      e_11 = {
-        error: e_11_1
-      };
-    } finally {
-      try {
-        if (_27 && !_27.done && (_l = _26["return"])) _l.call(_26);
-      } finally {
-        if (e_11) throw e_11.error;
-      }
-    } // Road inline
-
-
-    canvas.setStrokeStyle(this.colourScheme.minorRoadColour);
-    canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
-
-    try {
-      for (var _28 = __values(this.minorRoads), _29 = _28.next(); !_29.done; _29 = _28.next()) {
-        var s = _29.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_12_1) {
-      e_12 = {
-        error: e_12_1
-      };
-    } finally {
-      try {
-        if (_29 && !_29.done && (_m = _28["return"])) _m.call(_28);
-      } finally {
-        if (e_12) throw e_12.error;
       }
     }
 
@@ -141627,15 +143314,15 @@ function (_super) {
         var s = _31.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_13_1) {
-      e_13 = {
-        error: e_13_1
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
       };
     } finally {
       try {
-        if (_31 && !_31.done && (_o = _30["return"])) _o.call(_30);
+        if (_31 && !_31.done && (_l = _30["return"])) _l.call(_30);
       } finally {
-        if (e_13) throw e_13.error;
+        if (e_11) throw e_11.error;
       }
     }
 
@@ -141644,56 +143331,56 @@ function (_super) {
         var s = _33.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_14_1) {
-      e_14 = {
-        error: e_14_1
+    } catch (e_12_1) {
+      e_12 = {
+        error: e_12_1
       };
     } finally {
       try {
-        if (_33 && !_33.done && (_p = _32["return"])) _p.call(_32);
+        if (_33 && !_33.done && (_m = _32["return"])) _m.call(_32);
       } finally {
-        if (e_14) throw e_14.error;
+        if (e_12) throw e_12.error;
       }
     }
 
-    canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
-    canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
+    canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
+    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
 
     try {
       for (var _34 = __values(this.majorRoads), _35 = _34.next(); !_35.done; _35 = _34.next()) {
         var s = _35.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_15_1) {
-      e_15 = {
-        error: e_15_1
+    } catch (e_13_1) {
+      e_13 = {
+        error: e_13_1
       };
     } finally {
       try {
-        if (_35 && !_35.done && (_q = _34["return"])) _q.call(_34);
+        if (_35 && !_35.done && (_o = _34["return"])) _o.call(_34);
       } finally {
-        if (e_15) throw e_15.error;
+        if (e_13) throw e_13.error;
       }
     }
 
     canvas.drawPolyline(this.secondaryRiver);
-    canvas.setStrokeStyle(this.colourScheme.mainRoadColour);
-    canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
+    canvas.setStrokeStyle(this.colourScheme.mainRoadOutline);
+    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.mainWidth * this.domainController.zoom);
 
     try {
       for (var _36 = __values(this.mainRoads), _37 = _36.next(); !_37.done; _37 = _36.next()) {
         var s = _37.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_16_1) {
-      e_16 = {
-        error: e_16_1
+    } catch (e_14_1) {
+      e_14 = {
+        error: e_14_1
       };
     } finally {
       try {
-        if (_37 && !_37.done && (_r = _36["return"])) _r.call(_36);
+        if (_37 && !_37.done && (_p = _36["return"])) _p.call(_36);
       } finally {
-        if (e_16) throw e_16.error;
+        if (e_14) throw e_14.error;
       }
     }
 
@@ -141702,15 +143389,128 @@ function (_super) {
         var s = _39.value;
         canvas.drawPolyline(s);
       }
+    } catch (e_15_1) {
+      e_15 = {
+        error: e_15_1
+      };
+    } finally {
+      try {
+        if (_39 && !_39.done && (_q = _38["return"])) _q.call(_38);
+      } finally {
+        if (e_15) throw e_15.error;
+      }
+    } // Road inline
+
+
+    canvas.setStrokeStyle(this.colourScheme.minorRoadColour);
+    canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
+
+    try {
+      for (var _40 = __values(this.minorRoads), _41 = _40.next(); !_41.done; _41 = _40.next()) {
+        var s = _41.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_16_1) {
+      e_16 = {
+        error: e_16_1
+      };
+    } finally {
+      try {
+        if (_41 && !_41.done && (_r = _40["return"])) _r.call(_40);
+      } finally {
+        if (e_16) throw e_16.error;
+      }
+    }
+
+    try {
+      for (var _42 = __values(this.frontageRoads), _43 = _42.next(); !_43.done; _43 = _42.next()) {
+        var s = _43.value;
+        canvas.drawPolyline(s);
+      }
     } catch (e_17_1) {
       e_17 = {
         error: e_17_1
       };
     } finally {
       try {
-        if (_39 && !_39.done && (_s = _38["return"])) _s.call(_38);
+        if (_43 && !_43.done && (_s = _42["return"])) _s.call(_42);
       } finally {
         if (e_17) throw e_17.error;
+      }
+    }
+
+    try {
+      for (var _44 = __values(this.industrialRoads), _45 = _44.next(); !_45.done; _45 = _44.next()) {
+        var s = _45.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_18_1) {
+      e_18 = {
+        error: e_18_1
+      };
+    } finally {
+      try {
+        if (_45 && !_45.done && (_t = _44["return"])) _t.call(_44);
+      } finally {
+        if (e_18) throw e_18.error;
+      }
+    }
+
+    canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
+    canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
+
+    try {
+      for (var _46 = __values(this.majorRoads), _47 = _46.next(); !_47.done; _47 = _46.next()) {
+        var s = _47.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_19_1) {
+      e_19 = {
+        error: e_19_1
+      };
+    } finally {
+      try {
+        if (_47 && !_47.done && (_u = _46["return"])) _u.call(_46);
+      } finally {
+        if (e_19) throw e_19.error;
+      }
+    }
+
+    canvas.drawPolyline(this.secondaryRiver);
+    canvas.setStrokeStyle(this.colourScheme.mainRoadColour);
+    canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
+
+    try {
+      for (var _48 = __values(this.mainRoads), _49 = _48.next(); !_49.done; _49 = _48.next()) {
+        var s = _49.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_20_1) {
+      e_20 = {
+        error: e_20_1
+      };
+    } finally {
+      try {
+        if (_49 && !_49.done && (_v = _48["return"])) _v.call(_48);
+      } finally {
+        if (e_20) throw e_20.error;
+      }
+    }
+
+    try {
+      for (var _50 = __values(this.coastlineRoads), _51 = _50.next(); !_51.done; _51 = _50.next()) {
+        var s = _51.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_21_1) {
+      e_21 = {
+        error: e_21_1
+      };
+    } finally {
+      try {
+        if (_51 && !_51.done && (_w = _50["return"])) _w.call(_50);
+      } finally {
+        if (e_21) throw e_21.error;
       }
     } // Highways go over everything else
 
@@ -141720,89 +143520,8 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.rampWidth * zoom);
 
     try {
-      for (var _40 = __values(this.ramps), _41 = _40.next(); !_41.done; _41 = _40.next()) {
-        var s = _41.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_18_1) {
-      e_18 = {
-        error: e_18_1
-      };
-    } finally {
-      try {
-        if (_41 && !_41.done && (_t = _40["return"])) _t.call(_40);
-      } finally {
-        if (e_18) throw e_18.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.highwayColour);
-    canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
-
-    try {
-      for (var _42 = __values(this.ramps), _43 = _42.next(); !_43.done; _43 = _42.next()) {
-        var s = _43.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_19_1) {
-      e_19 = {
-        error: e_19_1
-      };
-    } finally {
-      try {
-        if (_43 && !_43.done && (_u = _42["return"])) _u.call(_42);
-      } finally {
-        if (e_19) throw e_19.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
-    canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
-
-    try {
-      for (var _44 = __values(this.highways), _45 = _44.next(); !_45.done; _45 = _44.next()) {
-        var s = _45.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_20_1) {
-      e_20 = {
-        error: e_20_1
-      };
-    } finally {
-      try {
-        if (_45 && !_45.done && (_v = _44["return"])) _v.call(_44);
-      } finally {
-        if (e_20) throw e_20.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.highwayColour);
-    canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
-
-    try {
-      for (var _46 = __values(this.highways), _47 = _46.next(); !_47.done; _47 = _46.next()) {
-        var s = _47.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_21_1) {
-      e_21 = {
-        error: e_21_1
-      };
-    } finally {
-      try {
-        if (_47 && !_47.done && (_w = _46["return"])) _w.call(_46);
-      } finally {
-        if (e_21) throw e_21.error;
-      }
-    } // Central reservation of a dual carriageway
-
-
-    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
-    canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
-
-    try {
-      for (var _48 = __values(this.highways), _49 = _48.next(); !_49.done; _49 = _48.next()) {
-        var s = _49.value;
+      for (var _52 = __values(this.ramps), _53 = _52.next(); !_53.done; _53 = _52.next()) {
+        var s = _53.value;
         canvas.drawPolyline(s);
       }
     } catch (e_22_1) {
@@ -141811,9 +143530,90 @@ function (_super) {
       };
     } finally {
       try {
-        if (_49 && !_49.done && (_x = _48["return"])) _x.call(_48);
+        if (_53 && !_53.done && (_x = _52["return"])) _x.call(_52);
       } finally {
         if (e_22) throw e_22.error;
+      }
+    }
+
+    canvas.setStrokeStyle(this.colourScheme.highwayColour);
+    canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
+
+    try {
+      for (var _54 = __values(this.ramps), _55 = _54.next(); !_55.done; _55 = _54.next()) {
+        var s = _55.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_23_1) {
+      e_23 = {
+        error: e_23_1
+      };
+    } finally {
+      try {
+        if (_55 && !_55.done && (_y = _54["return"])) _y.call(_54);
+      } finally {
+        if (e_23) throw e_23.error;
+      }
+    }
+
+    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+    canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
+
+    try {
+      for (var _56 = __values(this.highways), _57 = _56.next(); !_57.done; _57 = _56.next()) {
+        var s = _57.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_24_1) {
+      e_24 = {
+        error: e_24_1
+      };
+    } finally {
+      try {
+        if (_57 && !_57.done && (_z = _56["return"])) _z.call(_56);
+      } finally {
+        if (e_24) throw e_24.error;
+      }
+    }
+
+    canvas.setStrokeStyle(this.colourScheme.highwayColour);
+    canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
+
+    try {
+      for (var _58 = __values(this.highways), _59 = _58.next(); !_59.done; _59 = _58.next()) {
+        var s = _59.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_25_1) {
+      e_25 = {
+        error: e_25_1
+      };
+    } finally {
+      try {
+        if (_59 && !_59.done && (_0 = _58["return"])) _0.call(_58);
+      } finally {
+        if (e_25) throw e_25.error;
+      }
+    } // Central reservation of a dual carriageway
+
+
+    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+    canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
+
+    try {
+      for (var _60 = __values(this.highways), _61 = _60.next(); !_61.done; _61 = _60.next()) {
+        var s = _61.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_26_1) {
+      e_26 = {
+        error: e_26_1
+      };
+    } finally {
+      try {
+        if (_61 && !_61.done && (_1 = _60["return"])) _1.call(_60);
+      } finally {
+        if (e_26) throw e_26.error;
       }
     }
 
@@ -141833,20 +143633,20 @@ function (_super) {
       var this_1 = this;
 
       try {
-        for (var _50 = __values(this.buildingModels), _51 = _50.next(); !_51.done; _51 = _50.next()) {
-          var b = _51.value;
+        for (var _62 = __values(this.buildingModels), _63 = _62.next(); !_63.done; _63 = _62.next()) {
+          var b = _63.value;
 
           _loop_1(b);
         }
-      } catch (e_23_1) {
-        e_23 = {
-          error: e_23_1
+      } catch (e_27_1) {
+        e_27 = {
+          error: e_27_1
         };
       } finally {
         try {
-          if (_51 && !_51.done && (_y = _50["return"])) _y.call(_50);
+          if (_63 && !_63.done && (_2 = _62["return"])) _2.call(_62);
         } finally {
-          if (e_23) throw e_23.error;
+          if (e_27) throw e_27.error;
         }
       }
     } else {
@@ -141856,38 +143656,38 @@ function (_super) {
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _52 = __values(this.lots), _53 = _52.next(); !_53.done; _53 = _52.next()) {
-            var b = _53.value;
+          for (var _64 = __values(this.lots), _65 = _64.next(); !_65.done; _65 = _64.next()) {
+            var b = _65.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_24_1) {
-          e_24 = {
-            error: e_24_1
+        } catch (e_28_1) {
+          e_28 = {
+            error: e_28_1
           };
         } finally {
           try {
-            if (_53 && !_53.done && (_z = _52["return"])) _z.call(_52);
+            if (_65 && !_65.done && (_3 = _64["return"])) _3.call(_64);
           } finally {
-            if (e_24) throw e_24.error;
+            if (e_28) throw e_28.error;
           }
         }
 
         canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
 
         try {
-          for (var _54 = __values(this.fences), _55 = _54.next(); !_55.done; _55 = _54.next()) {
-            var f = _55.value;
+          for (var _66 = __values(this.fences), _67 = _66.next(); !_67.done; _67 = _66.next()) {
+            var f = _67.value;
             canvas.drawPolyline(f);
           }
-        } catch (e_25_1) {
-          e_25 = {
-            error: e_25_1
+        } catch (e_29_1) {
+          e_29 = {
+            error: e_29_1
           };
         } finally {
           try {
-            if (_55 && !_55.done && (_0 = _54["return"])) _0.call(_54);
+            if (_67 && !_67.done && (_4 = _66["return"])) _4.call(_66);
           } finally {
-            if (e_25) throw e_25.error;
+            if (e_29) throw e_29.error;
           }
         }
 
@@ -141895,38 +143695,38 @@ function (_super) {
         canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
 
         try {
-          for (var _56 = __values(this.lowIncomeLots), _57 = _56.next(); !_57.done; _57 = _56.next()) {
-            var b = _57.value;
+          for (var _68 = __values(this.lowIncomeLots), _69 = _68.next(); !_69.done; _69 = _68.next()) {
+            var b = _69.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_26_1) {
-          e_26 = {
-            error: e_26_1
+        } catch (e_30_1) {
+          e_30 = {
+            error: e_30_1
           };
         } finally {
           try {
-            if (_57 && !_57.done && (_1 = _56["return"])) _1.call(_56);
+            if (_69 && !_69.done && (_5 = _68["return"])) _5.call(_68);
           } finally {
-            if (e_26) throw e_26.error;
+            if (e_30) throw e_30.error;
           }
         }
 
         canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
 
         try {
-          for (var _58 = __values(this.industrialLots), _59 = _58.next(); !_59.done; _59 = _58.next()) {
-            var b = _59.value;
+          for (var _70 = __values(this.industrialLots), _71 = _70.next(); !_71.done; _71 = _70.next()) {
+            var b = _71.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_27_1) {
-          e_27 = {
-            error: e_27_1
+        } catch (e_31_1) {
+          e_31 = {
+            error: e_31_1
           };
         } finally {
           try {
-            if (_59 && !_59.done && (_2 = _58["return"])) _2.call(_58);
+            if (_71 && !_71.done && (_6 = _70["return"])) _6.call(_70);
           } finally {
-            if (e_27) throw e_27.error;
+            if (e_31) throw e_31.error;
           }
         }
       } // Pseudo-3D
@@ -141939,55 +143739,55 @@ function (_super) {
         try {
           // This is a cheap approximation that often creates visual artefacts
           // Draws building sides, then rooves instead of properly clipping polygons etc.
-          for (var _60 = __values(this.buildingModels), _61 = _60.next(); !_61.done; _61 = _60.next()) {
-            var b = _61.value;
+          for (var _72 = __values(this.buildingModels), _73 = _72.next(); !_73.done; _73 = _72.next()) {
+            var b = _73.value;
 
             try {
-              for (var _62 = (e_29 = void 0, __values(b.sides)), _63 = _62.next(); !_63.done; _63 = _62.next()) {
-                var s = _63.value;
+              for (var _74 = (e_33 = void 0, __values(b.sides)), _75 = _74.next(); !_75.done; _75 = _74.next()) {
+                var s = _75.value;
                 canvas.drawPolygon(s);
               }
-            } catch (e_29_1) {
-              e_29 = {
-                error: e_29_1
+            } catch (e_33_1) {
+              e_33 = {
+                error: e_33_1
               };
             } finally {
               try {
-                if (_63 && !_63.done && (_4 = _62["return"])) _4.call(_62);
+                if (_75 && !_75.done && (_8 = _74["return"])) _8.call(_74);
               } finally {
-                if (e_29) throw e_29.error;
+                if (e_33) throw e_33.error;
               }
             }
           }
-        } catch (e_28_1) {
-          e_28 = {
-            error: e_28_1
+        } catch (e_32_1) {
+          e_32 = {
+            error: e_32_1
           };
         } finally {
           try {
-            if (_61 && !_61.done && (_3 = _60["return"])) _3.call(_60);
+            if (_73 && !_73.done && (_7 = _72["return"])) _7.call(_72);
           } finally {
-            if (e_28) throw e_28.error;
+            if (e_32) throw e_32.error;
           }
         }
 
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _64 = __values(this.buildingModels), _65 = _64.next(); !_65.done; _65 = _64.next()) {
-            var b = _65.value;
+          for (var _76 = __values(this.buildingModels), _77 = _76.next(); !_77.done; _77 = _76.next()) {
+            var b = _77.value;
             canvas.setFillStyle(this.roofColour(b.zone));
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_30_1) {
-          e_30 = {
-            error: e_30_1
+        } catch (e_34_1) {
+          e_34 = {
+            error: e_34_1
           };
         } finally {
           try {
-            if (_65 && !_65.done && (_5 = _64["return"])) _5.call(_64);
+            if (_77 && !_77.done && (_9 = _76["return"])) _9.call(_76);
           } finally {
-            if (e_30) throw e_30.error;
+            if (e_34) throw e_34.error;
           }
         }
       }
@@ -142038,7 +143838,7 @@ function (_super) {
   };
 
   RoughStyle.prototype.draw = function (canvas) {
-    var e_31, _a, e_32, _b, e_33, _c, e_34, _d, e_35, _e, e_36, _f, e_37, _g, e_38, _h;
+    var e_35, _a, e_36, _b, e_37, _c, e_38, _d, e_39, _e, e_40, _f, e_41, _g, e_42, _h;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -142063,10 +143863,16 @@ function (_super) {
     });
     canvas.drawPolygon(this.seaPolygon);
     canvas.setOptions({
-      stroke: this.colourScheme.bgColour,
-      strokeWidth: 30
+      fill: this.colourScheme.sandColour,
+      stroke: "none"
     });
-    canvas.drawPolyline(this.coastline);
+    this.beaches.forEach(function (b) {
+      return canvas.drawPolygon(b);
+    });
+    canvas.setOptions({
+      fill: this.colourScheme.grassColour
+    });
+    canvas.drawPolygon(this.floodplain);
     canvas.setOptions({
       roughness: 0,
       fillWeight: 1,
@@ -142075,7 +143881,16 @@ function (_super) {
       stroke: "none",
       strokeWidth: 1
     });
-    canvas.drawPolygon(this.river); // Port
+    canvas.drawPolygon(this.river);
+    this.lakes.forEach(function (l) {
+      return canvas.drawPolygon(l);
+    });
+    canvas.setOptions({
+      fill: this.colourScheme.sandColour
+    });
+    this.sandBars.forEach(function (b) {
+      return canvas.drawPolygon(b);
+    }); // Port
 
     canvas.setOptions({
       fill: this.colourScheme.bgColour
@@ -142095,6 +143910,24 @@ function (_super) {
     });
     this.parks.forEach(function (p) {
       return canvas.drawPolygon(p);
+    });
+    canvas.setOptions({
+      fill: this.colourScheme.seaColour
+    });
+    this.lakes.forEach(function (l) {
+      return canvas.drawPolygon(l);
+    });
+    canvas.setOptions({
+      stroke: this.colourScheme.minorRoadColour,
+      strokeWidth: 0.6,
+      fill: 'none'
+    });
+    this.paths.forEach(function (p) {
+      return canvas.drawPolyline(p);
+    });
+    canvas.setOptions({
+      stroke: 'none',
+      strokeWidth: 1
     }); // Land use
 
     if (this.showZones) {
@@ -142176,15 +144009,15 @@ function (_super) {
             var b = _k.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_31_1) {
-          e_31 = {
-            error: e_31_1
+        } catch (e_35_1) {
+          e_35 = {
+            error: e_35_1
           };
         } finally {
           try {
             if (_k && !_k.done && (_a = _j["return"])) _a.call(_j);
           } finally {
-            if (e_31) throw e_31.error;
+            if (e_35) throw e_35.error;
           }
         }
 
@@ -142193,15 +144026,15 @@ function (_super) {
             var b = _m.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_32_1) {
-          e_32 = {
-            error: e_32_1
+        } catch (e_36_1) {
+          e_36 = {
+            error: e_36_1
           };
         } finally {
           try {
             if (_m && !_m.done && (_b = _l["return"])) _b.call(_l);
           } finally {
-            if (e_32) throw e_32.error;
+            if (e_36) throw e_36.error;
           }
         }
 
@@ -142210,15 +144043,15 @@ function (_super) {
             var b = _p.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_33_1) {
-          e_33 = {
-            error: e_33_1
+        } catch (e_37_1) {
+          e_37 = {
+            error: e_37_1
           };
         } finally {
           try {
             if (_p && !_p.done && (_c = _o["return"])) _c.call(_o);
           } finally {
-            if (e_33) throw e_33.error;
+            if (e_37) throw e_37.error;
           }
         }
 
@@ -142231,15 +144064,15 @@ function (_super) {
             var f = _r.value;
             canvas.drawPolyline(f);
           }
-        } catch (e_34_1) {
-          e_34 = {
-            error: e_34_1
+        } catch (e_38_1) {
+          e_38 = {
+            error: e_38_1
           };
         } finally {
           try {
             if (_r && !_r.done && (_d = _q["return"])) _d.call(_q);
           } finally {
-            if (e_34) throw e_34.error;
+            if (e_38) throw e_38.error;
           }
         }
       } // Pseudo-3D
@@ -142262,32 +144095,32 @@ function (_super) {
             var b = _t.value;
 
             try {
-              for (var _u = (e_36 = void 0, __values(b.sides)), _v = _u.next(); !_v.done; _v = _u.next()) {
+              for (var _u = (e_40 = void 0, __values(b.sides)), _v = _u.next(); !_v.done; _v = _u.next()) {
                 var s = _v.value;
                 var averagePoint = s[0].clone().add(s[1]).divideScalar(2);
                 allSidesDistances.push([averagePoint.distanceToSquared(camera), s]);
               }
-            } catch (e_36_1) {
-              e_36 = {
-                error: e_36_1
+            } catch (e_40_1) {
+              e_40 = {
+                error: e_40_1
               };
             } finally {
               try {
                 if (_v && !_v.done && (_f = _u["return"])) _f.call(_u);
               } finally {
-                if (e_36) throw e_36.error;
+                if (e_40) throw e_40.error;
               }
             }
           }
-        } catch (e_35_1) {
-          e_35 = {
-            error: e_35_1
+        } catch (e_39_1) {
+          e_39 = {
+            error: e_39_1
           };
         } finally {
           try {
             if (_t && !_t.done && (_e = _s["return"])) _e.call(_s);
           } finally {
-            if (e_35) throw e_35.error;
+            if (e_39) throw e_39.error;
           }
         }
 
@@ -142300,15 +144133,15 @@ function (_super) {
             var p = allSidesDistances_1_1.value;
             canvas.drawPolygon(p[1]);
           }
-        } catch (e_37_1) {
-          e_37 = {
-            error: e_37_1
+        } catch (e_41_1) {
+          e_41 = {
+            error: e_41_1
           };
         } finally {
           try {
             if (allSidesDistances_1_1 && !allSidesDistances_1_1.done && (_g = allSidesDistances_1["return"])) _g.call(allSidesDistances_1);
           } finally {
-            if (e_37) throw e_37.error;
+            if (e_41) throw e_41.error;
           }
         }
 
@@ -142324,15 +144157,15 @@ function (_super) {
             var b = _x.value;
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_38_1) {
-          e_38 = {
-            error: e_38_1
+        } catch (e_42_1) {
+          e_42 = {
+            error: e_42_1
           };
         } finally {
           try {
             if (_x && !_x.done && (_h = _w["return"])) _h.call(_w);
           } finally {
-            if (e_38) throw e_38.error;
+            if (e_42) throw e_42.error;
           }
         }
       }
@@ -142344,7 +144177,7 @@ function (_super) {
 
 exports.RoughStyle = RoughStyle;
 
-},{"../util":130,"./canvas_wrapper":121,"./domain_controller":122,"loglevel":54}],128:[function(require,module,exports){
+},{"../util":132,"./canvas_wrapper":123,"./domain_controller":124,"loglevel":54}],130:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -142577,7 +144410,7 @@ function (_super) {
 
 exports["default"] = TensorFieldGUI;
 
-},{"../impl/tensor_field":115,"../util":130,"../vector":131,"./domain_controller":122}],129:[function(require,module,exports){
+},{"../impl/tensor_field":117,"../util":132,"../vector":133,"./domain_controller":124}],131:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -142730,6 +144563,97 @@ function (_super) {
     enumerable: true,
     configurable: true
   });
+
+  WaterGUI.prototype.toScreen = function (polygons) {
+    var _this = this;
+
+    return polygons.map(function (p) {
+      return p.map(function (v) {
+        return _this.domainController.worldToScreen(v.clone());
+      });
+    });
+  };
+
+  Object.defineProperty(WaterGUI.prototype, "beaches", {
+    get: function get() {
+      return this.toScreen(this.streamlines.beaches);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "floodplain", {
+    get: function get() {
+      return this.toScreen([this.streamlines.floodplain])[0];
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "lakes", {
+    get: function get() {
+      return this.toScreen(this.streamlines.lakes);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "sandBars", {
+    get: function get() {
+      return this.toScreen(this.streamlines.sandBars);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "riversidePaths", {
+    get: function get() {
+      return this.toScreen(this.streamlines.riversidePaths);
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "shoreWorld", {
+    get: function get() {
+      return this.streamlines.shore;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "shoreDetailedWorld", {
+    get: function get() {
+      return this.streamlines.shoreDetailed;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "shoreBeachWidths", {
+    get: function get() {
+      return this.streamlines.shoreBeachWidths;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "beachesWorld", {
+    get: function get() {
+      return this.streamlines.beaches;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "floodplainWorld", {
+    get: function get() {
+      return this.streamlines.floodplain;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(WaterGUI.prototype, "waterEdges", {
+    /**
+     * Water's edge, for closing off waterfront blocks. Not a road
+     */
+    get: function get() {
+      return this.streamlines.shore.length >= 2 ? [this.streamlines.shore] : [];
+    },
+    enumerable: true,
+    configurable: true
+  });
   Object.defineProperty(WaterGUI.prototype, "seaPolygonWorld", {
     get: function get() {
       return this.streamlines.seaPolygon;
@@ -142761,7 +144685,7 @@ function (_super) {
 
 exports["default"] = WaterGUI;
 
-},{"../impl/water_generator":116,"../util":130,"./road_gui":126}],130:[function(require,module,exports){
+},{"../impl/water_generator":118,"../util":132,"./road_gui":128}],132:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -143100,7 +145024,7 @@ function () {
 
 exports["default"] = Util;
 
-},{}],131:[function(require,module,exports){
+},{}],133:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -143301,4 +145225,4 @@ function () {
 
 exports["default"] = Vector;
 
-},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,115,114,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131]);
+},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,114,115,117,116,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133]);

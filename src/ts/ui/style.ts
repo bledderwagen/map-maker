@@ -42,6 +42,8 @@ export interface ColourScheme {
     industrialBuildingColour?: string;
     lowIncomeColour?: string;  // Land use tint
     lowIncomeBuildingColour?: string;
+    sandColour?: string;  // Beaches and sand bars
+    pathColour?: string;  // Footpaths in parks
 }
 
 /**
@@ -60,6 +62,11 @@ export default abstract class Style {
     public lots: Vector[][] = [];
     public buildingModels: BuildingModel[] = [];
     public parks: Vector[][] = [];
+    public beaches: Vector[][] = [];
+    public floodplain: Vector[] = [];
+    public lakes: Vector[][] = [];  // Oxbow lakes and ponds
+    public sandBars: Vector[][] = [];
+    public paths: Vector[][] = [];
     public lowIncomeLots: Vector[][] = [];
     public fences: Vector[][] = [];  // Thin lines around yards
     public industrialLots: Vector[][] = [];
@@ -115,6 +122,8 @@ export default abstract class Style {
         if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = Util.mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
         if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = colourScheme.buildingColour;
         if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
+        if (!colourScheme.sandColour) colourScheme.sandColour = Util.mixColours(colourScheme.bgColour, 'rgb(245,215,140)', 0.4);
+        if (!colourScheme.pathColour) colourScheme.pathColour = colourScheme.minorRoadColour;
 
 
         if (!colourScheme.buildingSideColour) {
@@ -186,10 +195,18 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(0.1);
         canvas.drawPolygon(this.seaPolygon);
 
-        // Coastline
-        canvas.setStrokeStyle(bgColour);
-        canvas.setLineWidth(30 * this.domainController.zoom);
-        canvas.drawPolyline(this.coastline);
+        // Beaches
+        canvas.setLineWidth(1);
+        if (!this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.sandColour);
+            canvas.setStrokeStyle(this.colourScheme.sandColour);
+            for (const b of this.beaches) canvas.drawPolygon(b);
+        }
+
+        // Riverside park
+        canvas.setFillStyle(this.colourScheme.grassColour);
+        canvas.setStrokeStyle(this.colourScheme.grassColour);
+        canvas.drawPolygon(this.floodplain);
 
         // Port, built out over the sea
         canvas.setFillStyle(bgColour);
@@ -210,6 +227,18 @@ export class DefaultStyle extends Style {
         canvas.setStrokeStyle(this.colourScheme.seaColour);
         canvas.setLineWidth(1);
         canvas.drawPolygon(this.river);
+        for (const l of this.lakes) canvas.drawPolygon(l);
+        if (!this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.sandColour);
+            canvas.setStrokeStyle(this.colourScheme.sandColour);
+            for (const b of this.sandBars) canvas.drawPolygon(b);
+
+            // Footpaths
+            canvas.setStrokeStyle(this.colourScheme.pathColour);
+            canvas.setLineWidth(Math.max(0.6, 1.3 * this.domainController.zoom));
+            for (const p of this.paths) canvas.drawPolyline(p);
+            canvas.setLineWidth(1);
+        }
 
         // Land use
         if (this.showZones && !this.heightmap) {
@@ -372,10 +401,14 @@ export class RoughStyle extends Style {
         canvas.drawPolygon(this.seaPolygon);
 
         canvas.setOptions({
-            stroke: this.colourScheme.bgColour,
-            strokeWidth: 30,
+            fill: this.colourScheme.sandColour,
+            stroke: "none",
         });
-        canvas.drawPolyline(this.coastline);
+        this.beaches.forEach(b => canvas.drawPolygon(b));
+        canvas.setOptions({
+            fill: this.colourScheme.grassColour,
+        });
+        canvas.drawPolygon(this.floodplain);
 
         canvas.setOptions({
             roughness: 0,
@@ -387,6 +420,11 @@ export class RoughStyle extends Style {
         });
 
         canvas.drawPolygon(this.river);
+        this.lakes.forEach(l => canvas.drawPolygon(l));
+        canvas.setOptions({
+            fill: this.colourScheme.sandColour,
+        });
+        this.sandBars.forEach(b => canvas.drawPolygon(b));
 
         // Port
         canvas.setOptions({
@@ -403,6 +441,20 @@ export class RoughStyle extends Style {
             fill: this.colourScheme.grassColour,
         });
         this.parks.forEach(p => canvas.drawPolygon(p));
+        canvas.setOptions({
+            fill: this.colourScheme.seaColour,
+        });
+        this.lakes.forEach(l => canvas.drawPolygon(l));
+        canvas.setOptions({
+            stroke: this.colourScheme.minorRoadColour,
+            strokeWidth: 0.6,
+            fill: 'none',
+        });
+        this.paths.forEach(p => canvas.drawPolyline(p));
+        canvas.setOptions({
+            stroke: 'none',
+            strokeWidth: 1,
+        });
 
         // Land use
         if (this.showZones) {
