@@ -134,6 +134,22 @@ export default class WaterGUI extends RoadGUI {
         return this.streamlines.shoreBeachWidths;
     }
 
+    get riversidePathsWorld(): Vector[][] {
+        return this.streamlines.riversidePaths;
+    }
+
+    get lakesWorld(): Vector[][] {
+        return this.streamlines.lakes;
+    }
+
+    get sandBarsWorld(): Vector[][] {
+        return this.streamlines.sandBars;
+    }
+
+    get riverWorld(): Vector[] {
+        return this.streamlines.riverPolygon;
+    }
+
     get beachesWorld(): Vector[][] {
         return this.streamlines.beaches;
     }

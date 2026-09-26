@@ -89,10 +89,9 @@ export default class YardHouseLayout {
                 for (const w0 of widths) {
                     const w = w0 * scale;
                     const front = frame.toWorld(u + w / 2, 2);
-                    const back = frame.toWorld(u + w / 2, depth * 0.6);
                     // Corners are already taken by the lots of a longer edge
-                    if (!lots.some(l => PolygonUtil.insidePolygon(front, l) || PolygonUtil.insidePolygon(back, l))) {
-                        const lot = YardHouseLayout.addLot(out, block, frame, u, u + w, depth, style);
+                    if (!lots.some(l => PolygonUtil.insidePolygon(front, l))) {
+                        const lot = YardHouseLayout.addLot(out, block, frame, u, u + w, depth, style, lots);
                         if (lot !== null) lots.push(lot);
                     }
                     u += w;
@@ -119,11 +118,20 @@ export default class YardHouseLayout {
      * Returns the lot polygon, or null if the lot didn't fit
      */
     private static addLot(out: YardHouses, block: Vector[], frame: LocalFrame,
-                          u0: number, u1: number, D: number, style: YardStyle): Vector[] {
+                          u0: number, u1: number, D: number, style: YardStyle, existing: Vector[][]): Vector[] {
         const W = u1 - u0;
         if (W < 3) return null;
-        const lot = PolygonUtil.intersectPolygons(frame.rect(u0, u1, 0, D), block);
-        if (lot.length < 3 || PolygonUtil.calcPolygonArea(lot) < 0.5 * W * D) return null;
+        let lot = PolygonUtil.intersectPolygons(frame.rect(u0, u1, 0, D), block);
+        if (lot.length < 3) return null;
+        // Lots never overlap: cut away any part already taken by a neighbouring lot
+        const box = PolygonUtil.boundingBox(lot);
+        const neighbours = existing.filter(l => PolygonUtil.boundingBoxesOverlap(box, PolygonUtil.boundingBox(l)));
+        if (neighbours.length > 0) {
+            const pieces = PolygonUtil.subtractPolygons(lot, neighbours, 0.3 * W * D);
+            if (pieces.length === 0) return null;
+            lot = pieces.reduce((a, b) => PolygonUtil.calcPolygonArea(a) >= PolygonUtil.calcPolygonArea(b) ? a : b);
+        }
+        if (PolygonUtil.calcPolygonArea(lot) < 0.5 * W * D) return null;
         YardHouseLayout.addRowLot(out, lot, frame, u0, u1, 0, D, true, style);
         return lot;
     }

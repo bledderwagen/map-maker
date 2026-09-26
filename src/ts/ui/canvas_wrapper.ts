@@ -89,6 +89,7 @@ export default abstract class CanvasWrapper {
 export class DefaultCanvasWrapper extends CanvasWrapper {
     private ctx: CanvasRenderingContext2D;
     private svg: any;
+    private svgFill: string = null;
 
     constructor(canvas: HTMLCanvasElement, scale=1, resizeToWindow=true) {
         super(canvas, scale, resizeToWindow);
@@ -104,6 +105,37 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
 
     setFillStyle(colour: string): void {
         this.ctx.fillStyle = colour;
+        this.svgFill = null;
+    }
+
+    /**
+     * Fill with a repeating image tile, like the symbol patterns on OpenStreetMap
+     * The tile is in screen pixels, so the pattern stays the same size when zooming
+     */
+    setFillPattern(tile: HTMLCanvasElement): void {
+        const pattern = this.ctx.createPattern(tile, 'repeat');
+        if (pattern === null) return;
+        if (this._scale !== 1 && (pattern as any).setTransform) {
+            (pattern as any).setTransform(new DOMMatrix().scale(this._scale, this._scale));
+        }
+        this.ctx.fillStyle = pattern;
+        this.svgFill = null;
+        if (this.svg) {
+            try {
+                const url = tile.toDataURL();
+                const svgPattern = this.svg.pattern(tile.width, tile.height, (add: any) => {
+                    add.image(url).size(tile.width, tile.height);
+                });
+                this.svgFill = svgPattern.url();
+            } catch (e) {
+                this.svgFill = null;
+            }
+        }
+    }
+
+    private svgFillValue(): string {
+        if (this.svgFill !== null) return this.svgFill;
+        return typeof this.ctx.fillStyle === 'string' ? this.ctx.fillStyle : 'none';
     }
 
     clearCanvas(): void {
@@ -142,7 +174,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
 
         if (this.svg) {
             this.svg.rect({
-                fill: this.ctx.fillStyle,
+                fill: this.svgFillValue(),
                 'fill-opacity': 1,
                 stroke: this.ctx.strokeStyle,
                 'stroke-width': this.ctx.lineWidth,
@@ -175,7 +207,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
             const vectorArray = polygon.map(v => [v.x, v.y]);
             vectorArray.push(vectorArray[0]);
             this.svg.polyline(vectorArray).attr({
-                fill: this.ctx.fillStyle,
+                fill: this.svgFillValue(),
                 'fill-opacity': 1,
                 stroke: this.ctx.strokeStyle,
                 'stroke-width': this.ctx.lineWidth,

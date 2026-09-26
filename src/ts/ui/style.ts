@@ -68,7 +68,8 @@ export default abstract class Style {
     public lakes: Vector[][] = [];  // Oxbow lakes and ponds
     public sandBars: Vector[][] = [];
     public paths: Vector[][] = [];
-    public trees: Vector[][] = [];
+    public woods: Vector[][] = [];
+    private woodTile: HTMLCanvasElement = null;
     public lowIncomeLots: Vector[][] = [];
     public fences: Vector[][] = [];  // Thin lines around yards
     public industrialLots: Vector[][] = [];
@@ -137,6 +138,42 @@ export default abstract class Style {
                 colourScheme.buildingSideColour = colourScheme.buildingColour;
             }
         }
+    }
+
+    /**
+     * Tile of tree symbols over the wood colour, scattered irregularly so no grid shows
+     */
+    protected woodPattern(): HTMLCanvasElement {
+        if (this.woodTile !== null) return this.woodTile;
+        const size = 36;
+        const tile = document.createElement('canvas');
+        tile.width = size;
+        tile.height = size;
+        const ctx = tile.getContext('2d');
+        ctx.fillStyle = this.colourScheme.treeColour;
+        ctx.fillRect(0, 0, size, size);
+        const symbol = Util.mixColours(this.colourScheme.treeColour, 'rgb(40,80,40)', 0.45);
+        ctx.fillStyle = symbol;
+        ctx.strokeStyle = symbol;
+        ctx.lineWidth = 1;
+        // Positions chosen so neighbouring tiles don't line up into rows
+        const trees = [[6, 7], [24, 4], [15, 18], [31, 22], [5, 29], [22, 32]];
+        for (const [x, y] of trees) {
+            for (const dx of [-size, 0, size]) {
+                for (const dy of [-size, 0, size]) {
+                    // Round crown on a short trunk
+                    ctx.beginPath();
+                    ctx.arc(x + dx, y + dy - 1.5, 2.3, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(x + dx, y + dy);
+                    ctx.lineTo(x + dx, y + dy + 2.5);
+                    ctx.stroke();
+                }
+            }
+        }
+        this.woodTile = tile;
+        return tile;
     }
 
     protected roofColour(zone: Zone): string {
@@ -233,9 +270,10 @@ export class DefaultStyle extends Style {
         canvas.drawPolygon(this.river);
         for (const l of this.lakes) canvas.drawPolygon(l);
         if (!this.heightmap) {
-            canvas.setFillStyle(this.colourScheme.treeColour);
+            // Woods: a green fill scattered with little tree symbols, as OpenStreetMap draws forest
+            canvas.setFillPattern(this.woodPattern());
             canvas.setStrokeStyle(this.colourScheme.treeColour);
-            for (const t of this.trees) canvas.drawPolygon(t);
+            for (const w of this.woods) canvas.drawPolygon(w);
 
             canvas.setFillStyle(this.colourScheme.sandColour);
             canvas.setStrokeStyle(this.colourScheme.sandColour);
@@ -455,8 +493,14 @@ export class RoughStyle extends Style {
         this.lakes.forEach(l => canvas.drawPolygon(l));
         canvas.setOptions({
             fill: this.colourScheme.treeColour,
+            fillStyle: 'hachure',
+            hachureGap: 3,
+            hachureAngle: -41,
         });
-        this.trees.forEach(t => canvas.drawPolygon(t));
+        this.woods.forEach(w => canvas.drawPolygon(w));
+        canvas.setOptions({
+            fillStyle: 'solid',
+        });
         canvas.setOptions({
             stroke: this.colourScheme.minorRoadColour,
             strokeWidth: 0.6,

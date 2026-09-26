@@ -292,11 +292,13 @@ export default class MainGUI {
     }
 
     /**
-     * Roads may bridge the river, but only by crossing it fairly directly. Stretches that wander
-     * about inside the riverside park are removed, splitting the road
+     * Roads may bridge the river, but only straight across it, the way real bridges are built.
+     * A stretch inside the riverside park that doesn't cross the water, or wanders about, is removed,
+     * and a crossing that curves is replaced by a straight bridge between the two banks
      */
     private removeWanderingBridges(roads: RoadGUI): void {
         const park = this.coastline.floodplainWorld;
+        const river = this.coastline.riverWorld;
         if (!park || park.length < 3) return;
         const out: Vector[][] = [];
         for (const line of roads.allStreamlines) {
@@ -312,12 +314,15 @@ export default class MainGUI {
                 // A run inside the park
                 let j = i;
                 while (j < fine.length && PolygonUtil.insidePolygon(fine[j], park)) j++;
-                const run = fine.slice(Math.max(0, i - 1), Math.min(fine.length, j + 1));
-                const length = polylineLength(run);
-                const direct = run[0].distanceTo(run[run.length - 1]);
+                const inside = fine.slice(i, j);
                 const reachesOtherSide = i > 0 && j < fine.length;
-                if (reachesOtherSide && length < 1.25 * direct + 10) {
-                    current.push(...fine.slice(i, j));
+                const a = fine[Math.max(0, i - 1)];
+                const b = fine[Math.min(fine.length - 1, j)];
+                const length = polylineLength([a].concat(inside, [b]));
+                const direct = a.distanceTo(b);
+                const crossesWater = inside.some(v => PolygonUtil.insidePolygon(v, river));
+                if (reachesOtherSide && crossesWater && length < 1.3 * direct + 10) {
+                    // Straight bridge: the road runs directly from a to b
                 } else {
                     if (current.length >= 2) out.push(current);
                     current = [];
@@ -326,7 +331,10 @@ export default class MainGUI {
             }
             if (current.length >= 2) out.push(current);
         }
-        roads.replaceRoads(out.map(l => l.filter((_, k) => k % 3 === 0 || k === l.length - 1)));
+        roads.replaceRoads(out.map(l => l.filter((_, k) => k % 3 === 0 || k === l.length - 1
+            || !PolygonUtil.insidePolygon(l[k], park) !== !PolygonUtil.insidePolygon(l[Math.min(l.length - 1, k + 1)], park)
+            || l[k].distanceTo(l[Math.min(l.length - 1, k + 1)]) > 6
+            || l[k].distanceTo(l[Math.max(0, k - 1)]) > 6)));
     }
 
     private roadHalfWidths(): {minor: number; major: number; main: number; highway: number; ramp: number} {
@@ -651,7 +659,7 @@ export default class MainGUI {
             const layout = ParkPaths.layout(park);
             this.parkPaths.push(...layout.paths, ...layout.pitches);
             this.ponds.push(...layout.ponds);
-            this.trees.push(...layout.trees);
+            this.trees.push(...layout.woods);
         }
     }
 
@@ -672,12 +680,18 @@ export default class MainGUI {
             // Point the normal away from the sea
             return PolygonUtil.insidePolygon(shore[i].clone().add(n.clone().multiplyScalar(4)), sea) ? n.multiplyScalar(-1) : n;
         };
+        // Riverside woodland, clear of the channel and the bankside paths
+        const floodplain = this.coastline.floodplainWorld;
+        if (floodplain && floodplain.length >= 3) {
+            this.waterfrontTrees.push(...ParkPaths.woods(floodplain, this.coastline.riversidePathsWorld,
+                this.coastline.riverWorld, this.coastline.lakesWorld.concat(this.coastline.sandBarsWorld)));
+        }
         for (const park of this.buildings.waterfrontParks) {
             this.waterfrontPaths.push(...ParkPaths.promenade(park, shore, beach, landward));
             if (PolygonUtil.calcPolygonArea(park) > 6000) {
                 const layout = ParkPaths.layout(park);
                 this.waterfrontPaths.push(...layout.paths);
-                this.waterfrontTrees.push(...layout.trees);
+                this.waterfrontTrees.push(...layout.woods);
             }
         }
     }
@@ -722,7 +736,7 @@ export default class MainGUI {
         style.floodplain = this.coastline.floodplain || [];
         style.lakes = this.coastline.lakes.concat(this.toScreen(this.ponds));
         style.sandBars = this.coastline.sandBars;
-        style.trees = this.toScreen(this.trees.concat(this.waterfrontTrees));
+        style.woods = this.toScreen(this.trees.concat(this.waterfrontTrees));
         style.paths = this.coastline.riversidePaths.concat(this.toScreen(this.parkPaths)).concat(this.toScreen(this.waterfrontPaths));
         style.lots = this.buildings.lots;
         style.lowIncomeLots = this.buildings.lowIncomeLots;

@@ -413,6 +413,33 @@ export default class PolygonUtil {
     }
 
     /**
+     * Outlines of the union of circles, smoothed. Holes are filled
+     */
+    public static unionOfCircles(centres: Vector[], radius: number, smoothing: number): Vector[][] {
+        if (centres.length === 0) return [];
+        try {
+            const factory: any = PolygonUtil.geometryFactory;
+            const circles = centres.map(c => factory.createPoint(new jsts.geom.Coordinate(c.x, c.y)).buffer(radius, 4));
+            const collection = factory.createGeometryCollection(circles);
+            let union: any = (jsts.operation as any).union.UnaryUnionOp.union(collection);
+            // Close up and round off: grow then shrink by the same amount
+            union = union.buffer(smoothing).buffer(-smoothing);
+            const out: Vector[][] = [];
+            for (let i = 0; i < union.getNumGeometries(); i++) {
+                const piece = union.getGeometryN(i);
+                if (!piece.getExteriorRing || piece.getArea() < 4 * radius * radius) continue;
+                const ring = piece.getExteriorRing().getCoordinates().map((c: any) => new Vector(c.x, c.y));
+                ring.pop();
+                if (ring.length >= 3) out.push(ring);
+            }
+            return out;
+        } catch (error) {
+            log.warn(error);
+            return [];
+        }
+    }
+
+    /**
      * Largest piece of the intersection of two polygons, or [] if they don't overlap
      */
     public static intersectPolygons(a: Vector[], b: Vector[]): Vector[] {
