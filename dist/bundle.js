@@ -132460,7 +132460,20 @@ function () {
 
     for (var i = 0; i < numStrips - 1; i++) {
       var v = vmin + (i + 1) * stripWidth + i * roadGap + roadGap / 2;
-      var road = polygon_util_1["default"].clipLineToPolygon(frame.line(umin - extend, v, umax + extend, v), block);
+      var u0 = umin - extend;
+      var u1 = umax + extend; // Often a dead end court off one side rather than a through road
+
+      if (Math.random() < 0.5) {
+        var reach = (umax - umin) * (0.6 + 0.2 * Math.random());
+
+        if (Math.random() < 0.5) {
+          u1 = umin + reach;
+        } else {
+          u0 = umax - reach;
+        }
+      }
+
+      var road = polygon_util_1["default"].clipLineToPolygon(frame.line(u0, v, u1, v), block);
       if (road.length >= 2) out.roads.push(road);
     } // Long blocks are split by a cross street
 
@@ -132542,7 +132555,7 @@ function () {
   IndustrialLayout.parcelWidths = function (u0, u1, base) {
     var e_3, _a;
 
-    var choices = [1, 1, 1, 1, 1.5, 2];
+    var choices = [0.6, 1, 1, 1, 1.4, 2, 2.8];
     var widths = [];
     var total = 0;
 
@@ -134488,11 +134501,11 @@ function () {
 
       if (k < numPiers - 1) {
         water.push(frame.rect(u1, u1 + slipWidth, slipBack, quayWall + 1));
-      } // Road down one side of the pier, transit shed along the other
+      } // Road down one side of the pier, a long transit shed covering most of the rest
 
 
       roads.push(frame.line(u0 + 5, quayRoad, u0 + 5, pierEnd - 4));
-      buildings.push(frame.rect(u0 + 10, u1 - 3, slipBack + 5, pierEnd - 6));
+      buildings.push(frame.rect(u0 + 10, u1 - 4, quayWall + 3, pierEnd - 6));
     } // Quay road, joined to the coast road at both ends
 
 
@@ -139606,6 +139619,23 @@ var __spread = void 0 && (void 0).__spread || function () {
   return ar;
 };
 
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
@@ -139708,7 +139738,7 @@ function () {
     this.highwayParams = Object.assign({
       numHighways: 2,
       frontageRoads: true,
-      frontageDistance: 17,
+      frontageDistance: 13,
       interchangeSize: 22
     }, this.minorParams);
     this.highwayParams.dsep = 350;
@@ -139898,8 +139928,8 @@ function () {
       this.port = port_1["default"].plan(this.coastline.coastRoadWorld, this.coastline.seaPolygonWorld, this.tensorField.river, {
         halfSpan: (0.6 + 0.4 * Math.random()) * this.zoningParams.industrialSize,
         pierLength: 55 + Math.random() * 30,
-        pierWidth: 24,
-        slipWidth: 22
+        pierWidth: 34,
+        slipWidth: 28
       }, inner);
     }
 
@@ -139946,6 +139976,113 @@ function () {
     this.minorRoads.trimEnds(function (p) {
       return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p) || _this.zoning.inInterchange(p);
     }, 1);
+    this.addUnderpasses(trimDistance);
+  };
+  /**
+   * In real cities the street grid usually carries on under a freeway
+   * Where side streets stop either side of a highway roughly in line, join some of them up
+   */
+
+
+  MainGUI.prototype.addUnderpasses = function (trimDistance) {
+    var e_1, _a, e_2, _b;
+
+    var SPACING = 70; // Minimum distance between underpasses
+
+    var CHANCE = 0.6;
+    var ends = [];
+
+    try {
+      for (var _c = __values(this.minorRoads.allStreamlines), _d = _c.next(); !_d.done; _d = _c.next()) {
+        var s = _d.value;
+        if (s.length < 2) continue;
+
+        try {
+          for (var _e = (e_2 = void 0, __values([[s[s.length - 1], s[s.length - 2]], [s[0], s[1]]])), _f = _e.next(); !_f.done; _f = _e.next()) {
+            var _g = __read(_f.value, 2),
+                end = _g[0],
+                previous = _g[1];
+
+            var d = this.zoning.exactHighwayDistance(end);
+            if (d > trimDistance + 3) continue;
+            if (this.zoning.inInterchange(end) || this.zoning.inIndustrialDistrict(end)) continue;
+            var dir = end.clone().sub(previous);
+            if (dir.lengthSq() === 0) continue;
+            ends.push({
+              point: end,
+              dir: dir.normalize()
+            });
+          }
+        } catch (e_2_1) {
+          e_2 = {
+            error: e_2_1
+          };
+        } finally {
+          try {
+            if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+          } finally {
+            if (e_2) throw e_2.error;
+          }
+        }
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    }
+
+    var used = new Set();
+    var underpasses = [];
+    var maxSpan = 2 * trimDistance + 12;
+
+    var _loop_1 = function _loop_1(i) {
+      if (used.has(i)) return "continue";
+      var best = -1;
+      var bestScore = Infinity;
+
+      for (var j = 0; j < ends.length; j++) {
+        if (j === i || used.has(j)) continue;
+        var gap = ends[j].point.clone().sub(ends[i].point);
+        var length_1 = gap.length();
+        if (length_1 < trimDistance || length_1 > maxSpan) continue;
+        var across = gap.clone().divideScalar(length_1); // Both ends must point at each other, across the highway
+
+        if (across.dot(ends[i].dir) < 0.9 || across.dot(ends[j].dir) > -0.9) continue;
+        var score = length_1 * (2 - across.dot(ends[i].dir));
+
+        if (score < bestScore) {
+          bestScore = score;
+          best = j;
+        }
+      }
+
+      if (best < 0) return "continue";
+      used.add(i);
+      used.add(best);
+      var a = ends[i].point;
+      var b = ends[best].point;
+      var middle = a.clone().add(b).divideScalar(2);
+      if (Math.random() > CHANCE) return "continue";
+      if (underpasses.some(function (u) {
+        return u[0].clone().add(u[1]).divideScalar(2).distanceTo(middle) < SPACING;
+      })) return "continue";
+      if (!this_1.tensorField.onLand(middle)) return "continue";
+      underpasses.push([a.clone(), b.clone()]);
+    };
+
+    var this_1 = this;
+
+    for (var i = 0; i < ends.length; i++) {
+      _loop_1(i);
+    }
+
+    this.minorRoads.addRoads(underpasses);
   };
   /**
    * Pick new industrial sites and rebuild everything that depends on them
@@ -140407,6 +140544,41 @@ var __generator = void 0 && (void 0).__generator || function (thisArg, body) {
   }
 };
 
+var __read = void 0 && (void 0).__read || function (o, n) {
+  var m = typeof Symbol === "function" && o[Symbol.iterator];
+  if (!m) return o;
+  var i = m.call(o),
+      r,
+      ar = [],
+      e;
+
+  try {
+    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) {
+      ar.push(r.value);
+    }
+  } catch (error) {
+    e = {
+      error: error
+    };
+  } finally {
+    try {
+      if (r && !r.done && (m = i["return"])) m.call(i);
+    } finally {
+      if (e) throw e.error;
+    }
+  }
+
+  return ar;
+};
+
+var __spread = void 0 && (void 0).__spread || function () {
+  for (var ar = [], i = 0; i < arguments.length; i++) {
+    ar = ar.concat(__read(arguments[i]));
+  }
+
+  return ar;
+};
+
 var __values = void 0 && (void 0).__values || function (o) {
   var s = typeof Symbol === "function" && Symbol.iterator,
       m = s && o[s],
@@ -140565,6 +140737,16 @@ function () {
     }
 
     this.streamlines.trimSimplifiedEnds(inside, overshoot);
+  };
+  /**
+   * Adds already simplified roads, e.g. links made after generation
+   */
+
+
+  RoadGUI.prototype.addRoads = function (roads) {
+    var _a;
+
+    (_a = this.streamlines.allStreamlinesSimple).push.apply(_a, __spread(roads));
   };
 
   RoadGUI.prototype.generateRoads = function (animate) {

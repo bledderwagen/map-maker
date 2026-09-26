@@ -107,7 +107,7 @@ export default class MainGUI {
         this.highwayParams = Object.assign({
             numHighways: 2,
             frontageRoads: true,
-            frontageDistance: 17,
+            frontageDistance: 13,
             interchangeSize: 22,
         }, this.minorParams);
         this.highwayParams.dsep = 350;
@@ -276,8 +276,8 @@ export default class MainGUI {
                 this.tensorField.river, {
                     halfSpan: (0.6 + 0.4 * Math.random()) * this.zoningParams.industrialSize,
                     pierLength: 55 + Math.random() * 30,  // All piers in a port share one length
-                    pierWidth: 24,
-                    slipWidth: 22,
+                    pierWidth: 34,
+                    slipWidth: 28,
                 }, inner);
         }
         this.buildings.setPortBuildings(this.port ? this.port.buildings : []);
@@ -325,6 +325,63 @@ export default class MainGUI {
         this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
             || this.zoning.inIndustrialDistrict(p)
             || this.zoning.inInterchange(p), 1);
+        this.addUnderpasses(trimDistance);
+    }
+
+    /**
+     * In real cities the street grid usually carries on under a freeway
+     * Where side streets stop either side of a highway roughly in line, join some of them up
+     */
+    private addUnderpasses(trimDistance: number): void {
+        const SPACING = 70;  // Minimum distance between underpasses
+        const CHANCE = 0.6;
+        const ends: {point: Vector; dir: Vector}[] = [];
+        for (const s of this.minorRoads.allStreamlines) {
+            if (s.length < 2) continue;
+            for (const [end, previous] of [[s[s.length - 1], s[s.length - 2]], [s[0], s[1]]]) {
+                const d = this.zoning.exactHighwayDistance(end);
+                if (d > trimDistance + 3) continue;
+                if (this.zoning.inInterchange(end) || this.zoning.inIndustrialDistrict(end)) continue;
+                const dir = end.clone().sub(previous);
+                if (dir.lengthSq() === 0) continue;
+                ends.push({point: end, dir: dir.normalize()});
+            }
+        }
+
+        const used = new Set<number>();
+        const underpasses: Vector[][] = [];
+        const maxSpan = 2 * trimDistance + 12;
+        for (let i = 0; i < ends.length; i++) {
+            if (used.has(i)) continue;
+            let best = -1;
+            let bestScore = Infinity;
+            for (let j = 0; j < ends.length; j++) {
+                if (j === i || used.has(j)) continue;
+                const gap = ends[j].point.clone().sub(ends[i].point);
+                const length = gap.length();
+                if (length < trimDistance || length > maxSpan) continue;
+                const across = gap.clone().divideScalar(length);
+                // Both ends must point at each other, across the highway
+                if (across.dot(ends[i].dir) < 0.9 || across.dot(ends[j].dir) > -0.9) continue;
+                const score = length * (2 - across.dot(ends[i].dir));
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = j;
+                }
+            }
+            if (best < 0) continue;
+            used.add(i);
+            used.add(best);
+
+            const a = ends[i].point;
+            const b = ends[best].point;
+            const middle = a.clone().add(b).divideScalar(2);
+            if (Math.random() > CHANCE) continue;
+            if (underpasses.some(u => u[0].clone().add(u[1]).divideScalar(2).distanceTo(middle) < SPACING)) continue;
+            if (!this.tensorField.onLand(middle)) continue;
+            underpasses.push([a.clone(), b.clone()]);
+        }
+        this.minorRoads.addRoads(underpasses);
     }
 
     /**

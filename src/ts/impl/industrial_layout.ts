@@ -47,7 +47,18 @@ export default class IndustrialLayout {
 
         for (let i = 0; i < numStrips - 1; i++) {
             const v = vmin + (i + 1) * stripWidth + i * roadGap + roadGap / 2;
-            const road = PolygonUtil.clipLineToPolygon(frame.line(umin - extend, v, umax + extend, v), block);
+            let u0 = umin - extend;
+            let u1 = umax + extend;
+            // Often a dead end court off one side rather than a through road
+            if (Math.random() < 0.5) {
+                const reach = (umax - umin) * (0.6 + 0.2 * Math.random());
+                if (Math.random() < 0.5) {
+                    u1 = umin + reach;
+                } else {
+                    u0 = umax - reach;
+                }
+            }
+            const road = PolygonUtil.clipLineToPolygon(frame.line(u0, v, u1, v), block);
             if (road.length >= 2) out.roads.push(road);
         }
 
@@ -86,10 +97,10 @@ export default class IndustrialLayout {
     }
 
     /**
-     * Mostly standard width parcels, with some wider ones, scaled to fill the row exactly
+     * Mostly standard width parcels, with some narrower and wider ones, scaled to fill the row exactly
      */
     private static parcelWidths(u0: number, u1: number, base: number): number[][] {
-        const choices = [1, 1, 1, 1, 1.5, 2];
+        const choices = [0.6, 1, 1, 1, 1.4, 2, 2.8];
         const widths: number[] = [];
         let total = 0;
         while (total < u1 - u0 - 0.5 * base) {

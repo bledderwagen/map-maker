@@ -107,6 +107,13 @@ export default class RoadGUI {
         this.streamlines.trimSimplifiedEnds(inside, overshoot);
     }
 
+    /**
+     * Adds already simplified roads, e.g. links made after generation
+     */
+    addRoads(roads: Vector[][]): void {
+        this.streamlines.allStreamlinesSimple.push(...roads);
+    }
+
     async generateRoads(animate=false): Promise<unknown> {
         this.preGenerateCallback();
 

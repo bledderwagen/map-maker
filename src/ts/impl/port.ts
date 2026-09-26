@@ -132,9 +132,9 @@ export default class PortPlanner {
                 water.push(frame.rect(u1, u1 + slipWidth, slipBack, quayWall + 1));
             }
 
-            // Road down one side of the pier, transit shed along the other
+            // Road down one side of the pier, a long transit shed covering most of the rest
             roads.push(frame.line(u0 + 5, quayRoad, u0 + 5, pierEnd - 4));
-            buildings.push(frame.rect(u0 + 10, u1 - 3, slipBack + 5, pierEnd - 6));
+            buildings.push(frame.rect(u0 + 10, u1 - 4, quayWall + 3, pierEnd - 6));
         }
 
         // Quay road, joined to the coast road at both ends
