@@ -130244,7 +130244,7 @@ function () {
     this.buildingModels = false; // Draw pseudo-3D buildings?
 
     this.showFrame = false;
-    this.showZones = true; // Tint industrial and low income areas
+    this.showZones = false; // Tint industrial and low income areas
     // Force redraw of roads when switching from tensor vis to map vis
 
     this.previousFrameDrawTensor = true; // 3D camera position
@@ -132276,11 +132276,12 @@ var polygon_util_1 = require("./polygon_util");
 
 var local_frame_1 = require("./local_frame");
 /**
- * Lays out an industrial block as a regular grid of fenced parcels
+ * Lays out an industrial block as a grid of parcels along service roads
  *
- * The block is aligned to its longest side, then split into strips separated by service roads so
- * that every parcel fronts a road. Each strip holds one or two rows of equal parcels, each with a
- * single building set back behind a yard where lorries can turn.
+ * The block is aligned to its longest side. Blocks deep enough for more than one row of parcels
+ * get service roads along their length, and very long blocks a cross street, so every parcel
+ * fronts a road. Parcels share a common depth but vary in width, and hold sheds of a few
+ * different shapes, always set behind a yard at the front where lorries can turn.
  */
 
 
@@ -132289,9 +132290,10 @@ var IndustrialLayout =
 function () {
   function IndustrialLayout() {}
 
-  IndustrialLayout.layoutBlock = function (block, params, tankFarm) {
+  IndustrialLayout.layoutBlock = function (block, params, tankFarmChance) {
+    var e_1, _a, e_2, _b;
+
     var out = {
-      yards: [],
       buildings: [],
       roads: []
     };
@@ -132304,23 +132306,38 @@ function () {
         umin = bounds.umin,
         umax = bounds.umax,
         vmin = bounds.vmin,
-        vmax = bounds.vmax; // Strips of parcels, separated by service roads
-
+        vmax = bounds.vmax;
     var roadGap = 2 * params.setback;
+    var extend = 4 * params.setback; // Roads run past the inset edge to reach the block's road
+    // Strips of parcels running along the block, separated by service roads
+
     var width = vmax - vmin;
     var numStrips = Math.max(1, Math.round((width + roadGap) / (2 * params.parcelDepth + roadGap)));
+    if (numStrips === 1 && width > 1.6 * params.parcelDepth + roadGap) numStrips = 2;
     var stripWidth = (width - roadGap * (numStrips - 1)) / numStrips;
     if (stripWidth < 0.5 * params.parcelDepth) return out;
 
     for (var i = 0; i < numStrips - 1; i++) {
       var v = vmin + (i + 1) * stripWidth + i * roadGap + roadGap / 2;
-      var road = polygon_util_1["default"].clipLineToPolygon(frame.line(umin - 4 * params.setback, v, umax + 4 * params.setback, v), block);
+      var road = polygon_util_1["default"].clipLineToPolygon(frame.line(umin - extend, v, umax + extend, v), block);
       if (road.length >= 2) out.roads.push(road);
-    } // Equal parcels along the strip
+    } // Long blocks are split by a cross street
 
 
-    var numParcels = Math.max(1, Math.round((umax - umin) / params.parcelWidth));
-    var parcelWidth = (umax - umin) / numParcels;
+    var length = umax - umin;
+    var sections = [];
+
+    if (numStrips > 1 && length > 7 * params.parcelWidth) {
+      var u = umin + length * (0.4 + 0.2 * Math.random());
+      var road = polygon_util_1["default"].clipLineToPolygon(frame.line(u, vmin - extend, u, vmax + extend), block);
+
+      if (road.length >= 2) {
+        out.roads.push(road);
+        sections.push([umin, u - roadGap / 2], [u + roadGap / 2, umax]);
+      }
+    }
+
+    if (sections.length === 0) sections.push([umin, umax]);
     var rows = stripWidth >= 1.4 * params.parcelDepth ? 2 : 1;
     var rowDepth = stripWidth / rows;
 
@@ -132328,14 +132345,92 @@ function () {
       var stripStart = vmin + i * (stripWidth + roadGap);
 
       for (var r = 0; r < rows; r++) {
-        var v0 = stripStart + r * rowDepth; // The first row faces the road before the strip, the second the road after it
+        var v0 = stripStart + r * rowDepth; // Face the service road where there is one, else the block's own road
 
         var frontLow = r === 0;
+        if (rows === 1 && numStrips > 1) frontLow = i > 0;
 
-        for (var j = 0; j < numParcels; j++) {
-          var u0 = umin + j * parcelWidth;
-          IndustrialLayout.addParcel(out, frame, inset, u0, u0 + parcelWidth, v0, v0 + rowDepth, frontLow, tankFarm);
+        try {
+          for (var sections_1 = (e_1 = void 0, __values(sections)), sections_1_1 = sections_1.next(); !sections_1_1.done; sections_1_1 = sections_1.next()) {
+            var _c = __read(sections_1_1.value, 2),
+                s0 = _c[0],
+                s1 = _c[1];
+
+            try {
+              for (var _d = (e_2 = void 0, __values(IndustrialLayout.parcelWidths(s0, s1, params.parcelWidth))), _e = _d.next(); !_e.done; _e = _d.next()) {
+                var _f = __read(_e.value, 2),
+                    u0 = _f[0],
+                    u1 = _f[1];
+
+                var tankFarm = Math.random() < tankFarmChance;
+                IndustrialLayout.addParcel(out, frame, inset, u0, u1, v0, v0 + rowDepth, frontLow, tankFarm);
+              }
+            } catch (e_2_1) {
+              e_2 = {
+                error: e_2_1
+              };
+            } finally {
+              try {
+                if (_e && !_e.done && (_b = _d["return"])) _b.call(_d);
+              } finally {
+                if (e_2) throw e_2.error;
+              }
+            }
+          }
+        } catch (e_1_1) {
+          e_1 = {
+            error: e_1_1
+          };
+        } finally {
+          try {
+            if (sections_1_1 && !sections_1_1.done && (_a = sections_1["return"])) _a.call(sections_1);
+          } finally {
+            if (e_1) throw e_1.error;
+          }
         }
+      }
+    }
+
+    return out;
+  };
+  /**
+   * Mostly standard width parcels, with some wider ones, scaled to fill the row exactly
+   */
+
+
+  IndustrialLayout.parcelWidths = function (u0, u1, base) {
+    var e_3, _a;
+
+    var choices = [1, 1, 1, 1, 1.5, 2];
+    var widths = [];
+    var total = 0;
+
+    while (total < u1 - u0 - 0.5 * base) {
+      var w = base * choices[Math.floor(Math.random() * choices.length)];
+      widths.push(w);
+      total += w;
+    }
+
+    if (widths.length === 0) return [];
+    var scale = (u1 - u0) / total;
+    var out = [];
+    var u = u0;
+
+    try {
+      for (var widths_1 = __values(widths), widths_1_1 = widths_1.next(); !widths_1_1.done; widths_1_1 = widths_1.next()) {
+        var w = widths_1_1.value;
+        out.push([u, u + w * scale]);
+        u += w * scale;
+      }
+    } catch (e_3_1) {
+      e_3 = {
+        error: e_3_1
+      };
+    } finally {
+      try {
+        if (widths_1_1 && !widths_1_1.done && (_a = widths_1["return"])) _a.call(widths_1);
+      } finally {
+        if (e_3) throw e_3.error;
       }
     }
 
@@ -132343,85 +132438,137 @@ function () {
   };
 
   IndustrialLayout.addParcel = function (out, frame, inset, u0, u1, v0, v1, frontLow, tankFarm) {
-    var e_1, _a, e_2, _b, _c;
+    var _a;
 
-    var gap = IndustrialLayout.FENCE_GAP;
+    var gap = IndustrialLayout.GAP;
     u0 += gap;
     u1 -= gap;
     v0 += gap;
     v1 -= gap;
-    if (u1 - u0 < 10 || v1 - v0 < 10) return;
-    var rect = frame.rect(u0, u1, v0, v1);
-    var yard = polygon_util_1["default"].intersectPolygons(rect, inset);
-    if (yard.length < 3) return;
-    if (polygon_util_1["default"].calcPolygonArea(yard) < IndustrialLayout.MIN_PARCEL_FILL * (u1 - u0) * (v1 - v0)) return;
-    out.yards.push(yard); // Lorry yard at the front, gaps down the sides and at the back
+    var W = u1 - u0;
+    var D = v1 - v0;
+    if (W < 12 || D < 12) return; // Parcel coordinates: a along the frontage, d back from the front
 
-    var sideGap = Math.max(4, 0.12 * (u1 - u0));
-    var frontYard = 0.35 * (v1 - v0);
-    var backGap = 4;
-    var bu0 = u0 + sideGap;
-    var bu1 = u1 - sideGap;
-    var bv0 = frontLow ? v0 + frontYard : v0 + backGap;
-    var bv1 = frontLow ? v1 - backGap : v1 - frontYard;
-    if (bu1 - bu0 < 6 || bv1 - bv0 < 6) return;
+    var mirror = Math.random() < 0.5;
 
-    var inside = function inside(polygon) {
-      return polygon.every(function (p) {
-        return polygon_util_1["default"].insidePolygon(p, yard);
+    var toWorld = function toWorld(a, d) {
+      return frame.toWorld(mirror ? u1 - a : u0 + a, frontLow ? v0 + d : v1 - d);
+    };
+
+    var polygon = function polygon(points) {
+      return points.map(function (_a) {
+        var _b = __read(_a, 2),
+            a = _b[0],
+            d = _b[1];
+
+        return toWorld(a, d);
       });
     };
 
+    var rect = function rect(a0, a1, d0, d1) {
+      return polygon([[a0, d0], [a1, d0], [a1, d1], [a0, d1]]);
+    };
+
+    if (!polygon_util_1["default"].insidePolygon(toWorld(W / 2, D / 2), inset)) return; // Lorry yard at the front, space at the sides and back
+
+    var side = Math.max(2, W * (0.04 + 0.03 * Math.random()));
+    var back = 1.5 + 1.5 * Math.random();
+    var yard = Math.max(7, D * (0.15 + 0.08 * Math.random()));
+
+    var inside = function inside(b) {
+      return b.every(function (p) {
+        return polygon_util_1["default"].insidePolygon(p, inset);
+      });
+    };
+
+    var r = Math.random();
+    var lengthwise = 0.75 + 0.2 * Math.random(); // Parcels cut off by a slanted block edge get a smaller building, shrunk towards the front
+
+    for (var attempt = 0; attempt < IndustrialLayout.FIT_ATTEMPTS; attempt++) {
+      var scale = 1 - 0.15 * attempt;
+      var a0 = side + (W - 2 * side) * (1 - scale) / 2;
+      var a1 = W - a0;
+      var d0 = yard;
+      var d1 = d0 + (D - back - yard) * scale;
+      if (a1 - a0 < 8 || d1 - d0 < 8) return;
+      var buildings = IndustrialLayout.buildingsFor(r, lengthwise, tankFarm, a0, a1, d0, d1, toWorld, polygon, rect);
+
+      if (buildings.every(inside)) {
+        (_a = out.buildings).push.apply(_a, __spread(buildings));
+
+        return;
+      }
+    }
+  };
+
+  IndustrialLayout.buildingsFor = function (r, lengthwise, tankFarm, a0, a1, d0, d1, toWorld, polygon, rect) {
+    var e_4, _a, e_5, _b;
+
+    var buildings = [];
+
     if (tankFarm) {
-      // Four equal tanks
-      var radius = Math.min(bu1 - bu0, bv1 - bv0) / 6;
-      var tanks = [];
+      var radius = Math.min(a1 - a0, d1 - d0) / 6;
 
       try {
-        for (var _d = __values([0.25, 0.75]), _e = _d.next(); !_e.done; _e = _d.next()) {
-          var fu = _e.value;
+        for (var _c = __values([0.25, 0.75]), _d = _c.next(); !_d.done; _d = _c.next()) {
+          var fa = _d.value;
 
           try {
-            for (var _f = (e_2 = void 0, __values([0.25, 0.75])), _g = _f.next(); !_g.done; _g = _f.next()) {
-              var fv = _g.value;
-              var centre = frame.toWorld(bu0 + fu * (bu1 - bu0), bv0 + fv * (bv1 - bv0));
-              tanks.push(polygon_util_1["default"].circle(centre, radius, 16));
+            for (var _e = (e_5 = void 0, __values([0.3, 0.75])), _f = _e.next(); !_f.done; _f = _e.next()) {
+              var fd = _f.value;
+              buildings.push(polygon_util_1["default"].circle(toWorld(a0 + fa * (a1 - a0), d0 + fd * (d1 - d0)), radius, 16));
             }
-          } catch (e_2_1) {
-            e_2 = {
-              error: e_2_1
+          } catch (e_5_1) {
+            e_5 = {
+              error: e_5_1
             };
           } finally {
             try {
-              if (_g && !_g.done && (_b = _f["return"])) _b.call(_f);
+              if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
             } finally {
-              if (e_2) throw e_2.error;
+              if (e_5) throw e_5.error;
             }
           }
         }
-      } catch (e_1_1) {
-        e_1 = {
-          error: e_1_1
+      } catch (e_4_1) {
+        e_4 = {
+          error: e_4_1
         };
       } finally {
         try {
-          if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
+          if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
         } finally {
-          if (e_1) throw e_1.error;
+          if (e_4) throw e_4.error;
         }
       }
-
-      if (tanks.every(inside)) (_c = out.buildings).push.apply(_c, __spread(tanks));
-      return;
+    } else if (r < 0.3) {
+      // L shaped: shed at the back with a wing reaching forward down one side
+      var neck = d0 + 0.45 * (d1 - d0);
+      var wing = a0 + (lengthwise - 0.45) * (a1 - a0);
+      buildings.push(polygon([[a0, d0], [wing, d0], [wing, neck], [a1, neck], [a1, d1], [a0, d1]]));
+    } else if (r < 0.5) {
+      // Shed with a small office block at the front
+      var officeDepth = Math.min(8, 0.25 * (d1 - d0));
+      buildings.push(rect(a0, a1, d0 + officeDepth, d1));
+      var officeWidth = 0.3 * (a1 - a0);
+      buildings.push(rect(a0, a0 + officeWidth, d0, d0 + officeDepth - 1));
+    } else if (r < 0.65 && a1 - a0 > 35) {
+      // Two sheds side by side with a lane between
+      var middle = (a0 + a1) / 2;
+      buildings.push(rect(a0, middle - 3, d0, d1));
+      buildings.push(rect(middle + 3, a1, d0 + 0.2 * (d1 - d0), d1));
+    } else {
+      // Plain shed, not always the full width
+      var narrow = lengthwise < 0.85 ? 0.2 * (a1 - a0) : 0;
+      buildings.push(rect(a0, a1 - narrow, d0, d1));
     }
 
-    var building = frame.rect(bu0, bu1, bv0, bv1);
-    if (inside(building)) out.buildings.push(building);
+    return buildings;
   };
 
-  IndustrialLayout.FENCE_GAP = 1.5; // Half the gap between neighbouring parcels
+  IndustrialLayout.GAP = 1.5; // Half the gap between neighbouring parcels
 
-  IndustrialLayout.MIN_PARCEL_FILL = 0.75; // Parcels cut down more than this by the block edge are left empty
+  IndustrialLayout.FIT_ATTEMPTS = 5; // Buildings that cross the block edge are shrunk this many times
 
   return IndustrialLayout;
 }();
@@ -137072,8 +137219,8 @@ var HEIGHTS = (_a = {}, _a[0
 }, _a[2
 /* Industrial */
 ] = {
-  min: 8,
-  max: 11
+  min: 7,
+  max: 13
 }, _a);
 /**
  * Pseudo 3D buildings
@@ -137213,8 +137360,6 @@ function () {
 
     this.industrialBuildings = []; // Warehouses, tanks and port buildings
 
-    this.industrialYards = []; // Fenced parcels
-
     this.industrialRoads = []; // Service roads through industrial blocks
 
     this.portBuildings = [];
@@ -137234,10 +137379,10 @@ function () {
     };
     this.industrialParams = {
       setback: 9,
-      parcelWidth: 42,
-      parcelDepth: 36
+      parcelWidth: 38,
+      parcelDepth: 32
     };
-    this.TANK_FARM_CHANCE = 0.12;
+    this.TANK_FARM_CHANCE = 0.05;
     folder.add({
       'AddBuildings': function AddBuildings() {
         return _this.generate(_this._animate);
@@ -137285,13 +137430,6 @@ function () {
   Object.defineProperty(Buildings.prototype, "industrialLots", {
     get: function get() {
       return this.toScreen(this.industrialBuildings);
-    },
-    enumerable: true,
-    configurable: true
-  });
-  Object.defineProperty(Buildings.prototype, "industrialYardPolygons", {
-    get: function get() {
-      return this.toScreen(this.industrialYards);
     },
     enumerable: true,
     configurable: true
@@ -137422,7 +137560,6 @@ function () {
 
     this.zoneBlocks = [[], [], []];
     this.industrialBuildings = [];
-    this.industrialYards = [];
     this.industrialRoads = [];
     this._models = new BuildingModels([], []);
   };
@@ -137626,24 +137763,29 @@ function () {
 
 
   Buildings.prototype.layoutIndustry = function () {
-    var e_7, _a, _b, _c, _d;
+    var e_7, _a, _b, _c;
 
     this.industrialBuildings = this.portBuildings.slice();
-    this.industrialYards = [];
     this.industrialRoads = [];
 
     try {
-      for (var _e = __values(this.zoneBlocks[2
+      for (var _d = __values(this.zoneBlocks[2
       /* Industrial */
-      ]), _f = _e.next(); !_f.done; _f = _e.next()) {
-        var block = _f.value;
-        var layout = industrial_layout_1["default"].layoutBlock(block, this.industrialParams, Math.random() < this.TANK_FARM_CHANCE);
+      ]), _e = _d.next(); !_e.done; _e = _d.next()) {
+        var block = _e.value;
+        var layout = industrial_layout_1["default"].layoutBlock(block, this.industrialParams, this.TANK_FARM_CHANCE);
+
+        if (layout.buildings.length === 0) {
+          // Small blocks can't afford the full setback, but shouldn't be left empty
+          var tight = Object.assign({}, this.industrialParams, {
+            setback: 0.6 * this.industrialParams.setback
+          });
+          layout = industrial_layout_1["default"].layoutBlock(block, tight, this.TANK_FARM_CHANCE);
+        }
 
         (_b = this.industrialBuildings).push.apply(_b, __spread(layout.buildings));
 
-        (_c = this.industrialYards).push.apply(_c, __spread(layout.yards));
-
-        (_d = this.industrialRoads).push.apply(_d, __spread(layout.roads));
+        (_c = this.industrialRoads).push.apply(_c, __spread(layout.roads));
       }
     } catch (e_7_1) {
       e_7 = {
@@ -137651,7 +137793,7 @@ function () {
       };
     } finally {
       try {
-        if (_f && !_f.done && (_a = _e["return"])) _a.call(_e);
+        if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
       } finally {
         if (e_7) throw e_7.error;
       }
@@ -139582,7 +139724,6 @@ function () {
     style.mainRoads = this.mainRoads.roads;
     style.coastlineRoads = this.coastline.roads;
     style.highways = this.highways.roads;
-    style.industrialYards = this.buildings.industrialYardPolygons;
     style.industrialRoads = this.buildings.industrialServiceRoads.concat(this.toScreen(this.port ? this.port.roads : []));
     style.portLand = this.toScreen(this.port ? this.port.land : []);
     style.portWater = this.toScreen(this.port ? this.port.water : []);
@@ -140149,7 +140290,6 @@ function () {
     this.industrialLots = [];
     this.lowIncomeAreas = [];
     this.industrialAreas = [];
-    this.industrialYards = [];
     this.portLand = [];
     this.portWater = []; // Polylines
 
@@ -140193,11 +140333,8 @@ function () {
     if (!colourScheme.rampWidth) colourScheme.rampWidth = colourScheme.majorWidth * 0.7;
     if (!colourScheme.industrialColour) colourScheme.industrialColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(150,110,180)', 0.18);
     if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
-    if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = util_1["default"].mixColours(colourScheme.buildingColour, 'rgb(120,130,160)', 0.3);
+    if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = colourScheme.buildingColour;
     if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
-    if (!colourScheme.industrialYardColour) colourScheme.industrialYardColour = util_1["default"].mixColours(colourScheme.industrialColour, 'rgb(150,150,155)', 0.3);
-    if (!colourScheme.industrialFenceColour) colourScheme.industrialFenceColour = util_1["default"].mixColours(colourScheme.industrialYardColour, 'rgb(40,40,40)', 0.35);
-    if (!colourScheme.quayColour) colourScheme.quayColour = util_1["default"].mixColours(colourScheme.bgColour, 'rgb(150,150,155)', 0.35);
 
     if (!colourScheme.buildingSideColour) {
       var parsedRgb = util_1["default"].parseCSSColor(colourScheme.buildingColour).map(function (v) {
@@ -140293,7 +140430,7 @@ function (_super) {
   };
 
   DefaultStyle.prototype.draw = function (canvas) {
-    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4, e_30, _5;
+    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p, e_15, _q, e_16, _r, e_17, _s, e_18, _t, e_19, _u, e_20, _v, e_21, _w, e_22, _x, e_23, _y, e_24, _z, e_25, _0, e_26, _1, e_27, _2, e_28, _3, e_29, _4;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -140319,14 +140456,13 @@ function (_super) {
     canvas.setLineWidth(30 * this.domainController.zoom);
     canvas.drawPolyline(this.coastline); // Port, built out over the sea
 
-    var quayColour = this.heightmap ? bgColour : this.colourScheme.quayColour;
-    canvas.setFillStyle(quayColour);
-    canvas.setStrokeStyle(quayColour);
+    canvas.setFillStyle(bgColour);
+    canvas.setStrokeStyle(bgColour);
     canvas.setLineWidth(1);
 
     try {
-      for (var _6 = __values(this.portLand), _7 = _6.next(); !_7.done; _7 = _6.next()) {
-        var p = _7.value;
+      for (var _5 = __values(this.portLand), _6 = _5.next(); !_6.done; _6 = _5.next()) {
+        var p = _6.value;
         canvas.drawPolygon(p);
       }
     } catch (e_1_1) {
@@ -140335,7 +140471,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_7 && !_7.done && (_a = _6["return"])) _a.call(_6);
+        if (_6 && !_6.done && (_a = _5["return"])) _a.call(_5);
       } finally {
         if (e_1) throw e_1.error;
       }
@@ -140345,8 +140481,8 @@ function (_super) {
     canvas.setStrokeStyle(this.colourScheme.seaColour);
 
     try {
-      for (var _8 = __values(this.portWater), _9 = _8.next(); !_9.done; _9 = _8.next()) {
-        var p = _9.value;
+      for (var _7 = __values(this.portWater), _8 = _7.next(); !_8.done; _8 = _7.next()) {
+        var p = _8.value;
         canvas.drawPolygon(p);
       }
     } catch (e_2_1) {
@@ -140355,7 +140491,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_9 && !_9.done && (_b = _8["return"])) _b.call(_8);
+        if (_8 && !_8.done && (_b = _7["return"])) _b.call(_7);
       } finally {
         if (e_2) throw e_2.error;
       }
@@ -140366,8 +140502,8 @@ function (_super) {
     canvas.setFillStyle(this.colourScheme.grassColour);
 
     try {
-      for (var _10 = __values(this.parks), _11 = _10.next(); !_11.done; _11 = _10.next()) {
-        var p = _11.value;
+      for (var _9 = __values(this.parks), _10 = _9.next(); !_10.done; _10 = _9.next()) {
+        var p = _10.value;
         canvas.drawPolygon(p);
       }
     } catch (e_3_1) {
@@ -140376,7 +140512,7 @@ function (_super) {
       };
     } finally {
       try {
-        if (_11 && !_11.done && (_c = _10["return"])) _c.call(_10);
+        if (_10 && !_10.done && (_c = _9["return"])) _c.call(_9);
       } finally {
         if (e_3) throw e_3.error;
       }
@@ -140393,8 +140529,8 @@ function (_super) {
       canvas.setStrokeStyle(this.colourScheme.lowIncomeColour);
 
       try {
-        for (var _12 = __values(this.lowIncomeAreas), _13 = _12.next(); !_13.done; _13 = _12.next()) {
-          var p = _13.value;
+        for (var _11 = __values(this.lowIncomeAreas), _12 = _11.next(); !_12.done; _12 = _11.next()) {
+          var p = _12.value;
           canvas.drawPolygon(p);
         }
       } catch (e_4_1) {
@@ -140403,7 +140539,7 @@ function (_super) {
         };
       } finally {
         try {
-          if (_13 && !_13.done && (_d = _12["return"])) _d.call(_12);
+          if (_12 && !_12.done && (_d = _11["return"])) _d.call(_11);
         } finally {
           if (e_4) throw e_4.error;
         }
@@ -140413,8 +140549,8 @@ function (_super) {
       canvas.setStrokeStyle(this.colourScheme.industrialColour);
 
       try {
-        for (var _14 = __values(this.industrialAreas), _15 = _14.next(); !_15.done; _15 = _14.next()) {
-          var p = _15.value;
+        for (var _13 = __values(this.industrialAreas), _14 = _13.next(); !_14.done; _14 = _13.next()) {
+          var p = _14.value;
           canvas.drawPolygon(p);
         }
       } catch (e_5_1) {
@@ -140423,33 +140559,9 @@ function (_super) {
         };
       } finally {
         try {
-          if (_15 && !_15.done && (_e = _14["return"])) _e.call(_14);
+          if (_14 && !_14.done && (_e = _13["return"])) _e.call(_13);
         } finally {
           if (e_5) throw e_5.error;
-        }
-      }
-    } // Fenced industrial yards
-
-
-    if (!this.heightmap) {
-      canvas.setFillStyle(this.colourScheme.industrialYardColour);
-      canvas.setStrokeStyle(this.colourScheme.industrialFenceColour);
-      canvas.setLineWidth(Math.max(0.5, 0.4 * this.domainController.zoom));
-
-      try {
-        for (var _16 = __values(this.industrialYards), _17 = _16.next(); !_17.done; _17 = _16.next()) {
-          var p = _17.value;
-          canvas.drawPolygon(p);
-        }
-      } catch (e_6_1) {
-        e_6 = {
-          error: e_6_1
-        };
-      } finally {
-        try {
-          if (_17 && !_17.done && (_f = _16["return"])) _f.call(_16);
-        } finally {
-          if (e_6) throw e_6.error;
         }
       }
     } // Road outline
@@ -140459,8 +140571,25 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.minorWidth * this.domainController.zoom);
 
     try {
-      for (var _18 = __values(this.minorRoads), _19 = _18.next(); !_19.done; _19 = _18.next()) {
-        var s = _19.value;
+      for (var _15 = __values(this.minorRoads), _16 = _15.next(); !_16.done; _16 = _15.next()) {
+        var s = _16.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_6_1) {
+      e_6 = {
+        error: e_6_1
+      };
+    } finally {
+      try {
+        if (_16 && !_16.done && (_f = _15["return"])) _f.call(_15);
+      } finally {
+        if (e_6) throw e_6.error;
+      }
+    }
+
+    try {
+      for (var _17 = __values(this.frontageRoads), _18 = _17.next(); !_18.done; _18 = _17.next()) {
+        var s = _18.value;
         canvas.drawPolyline(s);
       }
     } catch (e_7_1) {
@@ -140469,15 +140598,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_19 && !_19.done && (_g = _18["return"])) _g.call(_18);
+        if (_18 && !_18.done && (_g = _17["return"])) _g.call(_17);
       } finally {
         if (e_7) throw e_7.error;
       }
     }
 
     try {
-      for (var _20 = __values(this.frontageRoads), _21 = _20.next(); !_21.done; _21 = _20.next()) {
-        var s = _21.value;
+      for (var _19 = __values(this.industrialRoads), _20 = _19.next(); !_20.done; _20 = _19.next()) {
+        var s = _20.value;
         canvas.drawPolyline(s);
       }
     } catch (e_8_1) {
@@ -140486,15 +140615,18 @@ function (_super) {
       };
     } finally {
       try {
-        if (_21 && !_21.done && (_h = _20["return"])) _h.call(_20);
+        if (_20 && !_20.done && (_h = _19["return"])) _h.call(_19);
       } finally {
         if (e_8) throw e_8.error;
       }
     }
 
+    canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
+    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
+
     try {
-      for (var _22 = __values(this.industrialRoads), _23 = _22.next(); !_23.done; _23 = _22.next()) {
-        var s = _23.value;
+      for (var _21 = __values(this.majorRoads), _22 = _21.next(); !_22.done; _22 = _21.next()) {
+        var s = _22.value;
         canvas.drawPolyline(s);
       }
     } catch (e_9_1) {
@@ -140503,29 +140635,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_23 && !_23.done && (_j = _22["return"])) _j.call(_22);
+        if (_22 && !_22.done && (_j = _21["return"])) _j.call(_21);
       } finally {
         if (e_9) throw e_9.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
-    canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
-
-    try {
-      for (var _24 = __values(this.majorRoads), _25 = _24.next(); !_25.done; _25 = _24.next()) {
-        var s = _25.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_10_1) {
-      e_10 = {
-        error: e_10_1
-      };
-    } finally {
-      try {
-        if (_25 && !_25.done && (_k = _24["return"])) _k.call(_24);
-      } finally {
-        if (e_10) throw e_10.error;
       }
     }
 
@@ -140534,8 +140646,25 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.mainWidth * this.domainController.zoom);
 
     try {
-      for (var _26 = __values(this.mainRoads), _27 = _26.next(); !_27.done; _27 = _26.next()) {
-        var s = _27.value;
+      for (var _23 = __values(this.mainRoads), _24 = _23.next(); !_24.done; _24 = _23.next()) {
+        var s = _24.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_10_1) {
+      e_10 = {
+        error: e_10_1
+      };
+    } finally {
+      try {
+        if (_24 && !_24.done && (_k = _23["return"])) _k.call(_23);
+      } finally {
+        if (e_10) throw e_10.error;
+      }
+    }
+
+    try {
+      for (var _25 = __values(this.coastlineRoads), _26 = _25.next(); !_26.done; _26 = _25.next()) {
+        var s = _26.value;
         canvas.drawPolyline(s);
       }
     } catch (e_11_1) {
@@ -140544,26 +140673,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_27 && !_27.done && (_l = _26["return"])) _l.call(_26);
+        if (_26 && !_26.done && (_l = _25["return"])) _l.call(_25);
       } finally {
         if (e_11) throw e_11.error;
-      }
-    }
-
-    try {
-      for (var _28 = __values(this.coastlineRoads), _29 = _28.next(); !_29.done; _29 = _28.next()) {
-        var s = _29.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_12_1) {
-      e_12 = {
-        error: e_12_1
-      };
-    } finally {
-      try {
-        if (_29 && !_29.done && (_m = _28["return"])) _m.call(_28);
-      } finally {
-        if (e_12) throw e_12.error;
       }
     } // Road inline
 
@@ -140572,8 +140684,25 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
 
     try {
-      for (var _30 = __values(this.minorRoads), _31 = _30.next(); !_31.done; _31 = _30.next()) {
-        var s = _31.value;
+      for (var _27 = __values(this.minorRoads), _28 = _27.next(); !_28.done; _28 = _27.next()) {
+        var s = _28.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_12_1) {
+      e_12 = {
+        error: e_12_1
+      };
+    } finally {
+      try {
+        if (_28 && !_28.done && (_m = _27["return"])) _m.call(_27);
+      } finally {
+        if (e_12) throw e_12.error;
+      }
+    }
+
+    try {
+      for (var _29 = __values(this.frontageRoads), _30 = _29.next(); !_30.done; _30 = _29.next()) {
+        var s = _30.value;
         canvas.drawPolyline(s);
       }
     } catch (e_13_1) {
@@ -140582,15 +140711,15 @@ function (_super) {
       };
     } finally {
       try {
-        if (_31 && !_31.done && (_o = _30["return"])) _o.call(_30);
+        if (_30 && !_30.done && (_o = _29["return"])) _o.call(_29);
       } finally {
         if (e_13) throw e_13.error;
       }
     }
 
     try {
-      for (var _32 = __values(this.frontageRoads), _33 = _32.next(); !_33.done; _33 = _32.next()) {
-        var s = _33.value;
+      for (var _31 = __values(this.industrialRoads), _32 = _31.next(); !_32.done; _32 = _31.next()) {
+        var s = _32.value;
         canvas.drawPolyline(s);
       }
     } catch (e_14_1) {
@@ -140599,15 +140728,18 @@ function (_super) {
       };
     } finally {
       try {
-        if (_33 && !_33.done && (_p = _32["return"])) _p.call(_32);
+        if (_32 && !_32.done && (_p = _31["return"])) _p.call(_31);
       } finally {
         if (e_14) throw e_14.error;
       }
     }
 
+    canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
+    canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
+
     try {
-      for (var _34 = __values(this.industrialRoads), _35 = _34.next(); !_35.done; _35 = _34.next()) {
-        var s = _35.value;
+      for (var _33 = __values(this.majorRoads), _34 = _33.next(); !_34.done; _34 = _33.next()) {
+        var s = _34.value;
         canvas.drawPolyline(s);
       }
     } catch (e_15_1) {
@@ -140616,29 +140748,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_35 && !_35.done && (_q = _34["return"])) _q.call(_34);
+        if (_34 && !_34.done && (_q = _33["return"])) _q.call(_33);
       } finally {
         if (e_15) throw e_15.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
-    canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
-
-    try {
-      for (var _36 = __values(this.majorRoads), _37 = _36.next(); !_37.done; _37 = _36.next()) {
-        var s = _37.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_16_1) {
-      e_16 = {
-        error: e_16_1
-      };
-    } finally {
-      try {
-        if (_37 && !_37.done && (_r = _36["return"])) _r.call(_36);
-      } finally {
-        if (e_16) throw e_16.error;
       }
     }
 
@@ -140647,8 +140759,25 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
 
     try {
-      for (var _38 = __values(this.mainRoads), _39 = _38.next(); !_39.done; _39 = _38.next()) {
-        var s = _39.value;
+      for (var _35 = __values(this.mainRoads), _36 = _35.next(); !_36.done; _36 = _35.next()) {
+        var s = _36.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_16_1) {
+      e_16 = {
+        error: e_16_1
+      };
+    } finally {
+      try {
+        if (_36 && !_36.done && (_r = _35["return"])) _r.call(_35);
+      } finally {
+        if (e_16) throw e_16.error;
+      }
+    }
+
+    try {
+      for (var _37 = __values(this.coastlineRoads), _38 = _37.next(); !_38.done; _38 = _37.next()) {
+        var s = _38.value;
         canvas.drawPolyline(s);
       }
     } catch (e_17_1) {
@@ -140657,26 +140786,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_39 && !_39.done && (_s = _38["return"])) _s.call(_38);
+        if (_38 && !_38.done && (_s = _37["return"])) _s.call(_37);
       } finally {
         if (e_17) throw e_17.error;
-      }
-    }
-
-    try {
-      for (var _40 = __values(this.coastlineRoads), _41 = _40.next(); !_41.done; _41 = _40.next()) {
-        var s = _41.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_18_1) {
-      e_18 = {
-        error: e_18_1
-      };
-    } finally {
-      try {
-        if (_41 && !_41.done && (_t = _40["return"])) _t.call(_40);
-      } finally {
-        if (e_18) throw e_18.error;
       }
     } // Highways go over everything else
 
@@ -140686,8 +140798,28 @@ function (_super) {
     canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.rampWidth * zoom);
 
     try {
-      for (var _42 = __values(this.ramps), _43 = _42.next(); !_43.done; _43 = _42.next()) {
-        var s = _43.value;
+      for (var _39 = __values(this.ramps), _40 = _39.next(); !_40.done; _40 = _39.next()) {
+        var s = _40.value;
+        canvas.drawPolyline(s);
+      }
+    } catch (e_18_1) {
+      e_18 = {
+        error: e_18_1
+      };
+    } finally {
+      try {
+        if (_40 && !_40.done && (_t = _39["return"])) _t.call(_39);
+      } finally {
+        if (e_18) throw e_18.error;
+      }
+    }
+
+    canvas.setStrokeStyle(this.colourScheme.highwayColour);
+    canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
+
+    try {
+      for (var _41 = __values(this.ramps), _42 = _41.next(); !_42.done; _42 = _41.next()) {
+        var s = _42.value;
         canvas.drawPolyline(s);
       }
     } catch (e_19_1) {
@@ -140696,18 +140828,18 @@ function (_super) {
       };
     } finally {
       try {
-        if (_43 && !_43.done && (_u = _42["return"])) _u.call(_42);
+        if (_42 && !_42.done && (_u = _41["return"])) _u.call(_41);
       } finally {
         if (e_19) throw e_19.error;
       }
     }
 
-    canvas.setStrokeStyle(this.colourScheme.highwayColour);
-    canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
+    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
+    canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
 
     try {
-      for (var _44 = __values(this.ramps), _45 = _44.next(); !_45.done; _45 = _44.next()) {
-        var s = _45.value;
+      for (var _43 = __values(this.highways), _44 = _43.next(); !_44.done; _44 = _43.next()) {
+        var s = _44.value;
         canvas.drawPolyline(s);
       }
     } catch (e_20_1) {
@@ -140716,18 +140848,18 @@ function (_super) {
       };
     } finally {
       try {
-        if (_45 && !_45.done && (_v = _44["return"])) _v.call(_44);
+        if (_44 && !_44.done && (_v = _43["return"])) _v.call(_43);
       } finally {
         if (e_20) throw e_20.error;
       }
     }
 
-    canvas.setStrokeStyle(this.colourScheme.highwayOutline);
-    canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
+    canvas.setStrokeStyle(this.colourScheme.highwayColour);
+    canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
 
     try {
-      for (var _46 = __values(this.highways), _47 = _46.next(); !_47.done; _47 = _46.next()) {
-        var s = _47.value;
+      for (var _45 = __values(this.highways), _46 = _45.next(); !_46.done; _46 = _45.next()) {
+        var s = _46.value;
         canvas.drawPolyline(s);
       }
     } catch (e_21_1) {
@@ -140736,29 +140868,9 @@ function (_super) {
       };
     } finally {
       try {
-        if (_47 && !_47.done && (_w = _46["return"])) _w.call(_46);
+        if (_46 && !_46.done && (_w = _45["return"])) _w.call(_45);
       } finally {
         if (e_21) throw e_21.error;
-      }
-    }
-
-    canvas.setStrokeStyle(this.colourScheme.highwayColour);
-    canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
-
-    try {
-      for (var _48 = __values(this.highways), _49 = _48.next(); !_49.done; _49 = _48.next()) {
-        var s = _49.value;
-        canvas.drawPolyline(s);
-      }
-    } catch (e_22_1) {
-      e_22 = {
-        error: e_22_1
-      };
-    } finally {
-      try {
-        if (_49 && !_49.done && (_x = _48["return"])) _x.call(_48);
-      } finally {
-        if (e_22) throw e_22.error;
       }
     } // Central reservation of a dual carriageway
 
@@ -140767,19 +140879,19 @@ function (_super) {
     canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
 
     try {
-      for (var _50 = __values(this.highways), _51 = _50.next(); !_51.done; _51 = _50.next()) {
-        var s = _51.value;
+      for (var _47 = __values(this.highways), _48 = _47.next(); !_48.done; _48 = _47.next()) {
+        var s = _48.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_23_1) {
-      e_23 = {
-        error: e_23_1
+    } catch (e_22_1) {
+      e_22 = {
+        error: e_22_1
       };
     } finally {
       try {
-        if (_51 && !_51.done && (_y = _50["return"])) _y.call(_50);
+        if (_48 && !_48.done && (_x = _47["return"])) _x.call(_47);
       } finally {
-        if (e_23) throw e_23.error;
+        if (e_22) throw e_22.error;
       }
     }
 
@@ -140799,20 +140911,20 @@ function (_super) {
       var this_1 = this;
 
       try {
-        for (var _52 = __values(this.buildingModels), _53 = _52.next(); !_53.done; _53 = _52.next()) {
-          var b = _53.value;
+        for (var _49 = __values(this.buildingModels), _50 = _49.next(); !_50.done; _50 = _49.next()) {
+          var b = _50.value;
 
           _loop_1(b);
         }
-      } catch (e_24_1) {
-        e_24 = {
-          error: e_24_1
+      } catch (e_23_1) {
+        e_23 = {
+          error: e_23_1
         };
       } finally {
         try {
-          if (_53 && !_53.done && (_z = _52["return"])) _z.call(_52);
+          if (_50 && !_50.done && (_y = _49["return"])) _y.call(_49);
         } finally {
-          if (e_24) throw e_24.error;
+          if (e_23) throw e_23.error;
         }
       }
     } else {
@@ -140822,8 +140934,27 @@ function (_super) {
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _54 = __values(this.lots), _55 = _54.next(); !_55.done; _55 = _54.next()) {
-            var b = _55.value;
+          for (var _51 = __values(this.lots), _52 = _51.next(); !_52.done; _52 = _51.next()) {
+            var b = _52.value;
+            canvas.drawPolygon(b);
+          }
+        } catch (e_24_1) {
+          e_24 = {
+            error: e_24_1
+          };
+        } finally {
+          try {
+            if (_52 && !_52.done && (_z = _51["return"])) _z.call(_51);
+          } finally {
+            if (e_24) throw e_24.error;
+          }
+        }
+
+        canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
+
+        try {
+          for (var _53 = __values(this.lowIncomeLots), _54 = _53.next(); !_54.done; _54 = _53.next()) {
+            var b = _54.value;
             canvas.drawPolygon(b);
           }
         } catch (e_25_1) {
@@ -140832,17 +140963,17 @@ function (_super) {
           };
         } finally {
           try {
-            if (_55 && !_55.done && (_0 = _54["return"])) _0.call(_54);
+            if (_54 && !_54.done && (_0 = _53["return"])) _0.call(_53);
           } finally {
             if (e_25) throw e_25.error;
           }
         }
 
-        canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
+        canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
 
         try {
-          for (var _56 = __values(this.lowIncomeLots), _57 = _56.next(); !_57.done; _57 = _56.next()) {
-            var b = _57.value;
+          for (var _55 = __values(this.industrialLots), _56 = _55.next(); !_56.done; _56 = _55.next()) {
+            var b = _56.value;
             canvas.drawPolygon(b);
           }
         } catch (e_26_1) {
@@ -140851,28 +140982,9 @@ function (_super) {
           };
         } finally {
           try {
-            if (_57 && !_57.done && (_1 = _56["return"])) _1.call(_56);
+            if (_56 && !_56.done && (_1 = _55["return"])) _1.call(_55);
           } finally {
             if (e_26) throw e_26.error;
-          }
-        }
-
-        canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
-
-        try {
-          for (var _58 = __values(this.industrialLots), _59 = _58.next(); !_59.done; _59 = _58.next()) {
-            var b = _59.value;
-            canvas.drawPolygon(b);
-          }
-        } catch (e_27_1) {
-          e_27 = {
-            error: e_27_1
-          };
-        } finally {
-          try {
-            if (_59 && !_59.done && (_2 = _58["return"])) _2.call(_58);
-          } finally {
-            if (e_27) throw e_27.error;
           }
         }
       } // Pseudo-3D
@@ -140885,55 +140997,55 @@ function (_super) {
         try {
           // This is a cheap approximation that often creates visual artefacts
           // Draws building sides, then rooves instead of properly clipping polygons etc.
-          for (var _60 = __values(this.buildingModels), _61 = _60.next(); !_61.done; _61 = _60.next()) {
-            var b = _61.value;
+          for (var _57 = __values(this.buildingModels), _58 = _57.next(); !_58.done; _58 = _57.next()) {
+            var b = _58.value;
 
             try {
-              for (var _62 = (e_29 = void 0, __values(b.sides)), _63 = _62.next(); !_63.done; _63 = _62.next()) {
-                var s = _63.value;
+              for (var _59 = (e_28 = void 0, __values(b.sides)), _60 = _59.next(); !_60.done; _60 = _59.next()) {
+                var s = _60.value;
                 canvas.drawPolygon(s);
               }
-            } catch (e_29_1) {
-              e_29 = {
-                error: e_29_1
+            } catch (e_28_1) {
+              e_28 = {
+                error: e_28_1
               };
             } finally {
               try {
-                if (_63 && !_63.done && (_4 = _62["return"])) _4.call(_62);
+                if (_60 && !_60.done && (_3 = _59["return"])) _3.call(_59);
               } finally {
-                if (e_29) throw e_29.error;
+                if (e_28) throw e_28.error;
               }
             }
           }
-        } catch (e_28_1) {
-          e_28 = {
-            error: e_28_1
+        } catch (e_27_1) {
+          e_27 = {
+            error: e_27_1
           };
         } finally {
           try {
-            if (_61 && !_61.done && (_3 = _60["return"])) _3.call(_60);
+            if (_58 && !_58.done && (_2 = _57["return"])) _2.call(_57);
           } finally {
-            if (e_28) throw e_28.error;
+            if (e_27) throw e_27.error;
           }
         }
 
         canvas.setStrokeStyle(this.colourScheme.buildingStroke);
 
         try {
-          for (var _64 = __values(this.buildingModels), _65 = _64.next(); !_65.done; _65 = _64.next()) {
-            var b = _65.value;
+          for (var _61 = __values(this.buildingModels), _62 = _61.next(); !_62.done; _62 = _61.next()) {
+            var b = _62.value;
             canvas.setFillStyle(this.roofColour(b.zone));
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_30_1) {
-          e_30 = {
-            error: e_30_1
+        } catch (e_29_1) {
+          e_29 = {
+            error: e_29_1
           };
         } finally {
           try {
-            if (_65 && !_65.done && (_5 = _64["return"])) _5.call(_64);
+            if (_62 && !_62.done && (_4 = _61["return"])) _4.call(_61);
           } finally {
-            if (e_30) throw e_30.error;
+            if (e_29) throw e_29.error;
           }
         }
       }
@@ -140984,7 +141096,7 @@ function (_super) {
   };
 
   RoughStyle.prototype.draw = function (canvas) {
-    var e_31, _a, e_32, _b, e_33, _c, e_34, _d, e_35, _e, e_36, _f, e_37, _g;
+    var e_30, _a, e_31, _b, e_32, _c, e_33, _d, e_34, _e, e_35, _f, e_36, _g;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -141024,7 +141136,7 @@ function (_super) {
     canvas.drawPolygon(this.river); // Port
 
     canvas.setOptions({
-      fill: this.colourScheme.quayColour
+      fill: this.colourScheme.bgColour
     });
     this.portLand.forEach(function (p) {
       return canvas.drawPolygon(p);
@@ -141056,14 +141168,8 @@ function (_super) {
       this.industrialAreas.forEach(function (p) {
         return canvas.drawPolygon(p);
       });
-    }
+    } // Roads
 
-    canvas.setOptions({
-      fill: this.colourScheme.industrialYardColour
-    });
-    this.industrialYards.forEach(function (p) {
-      return canvas.drawPolygon(p);
-    }); // Roads
 
     canvas.setOptions({
       stroke: this.colourScheme.minorRoadColour,
@@ -141128,15 +141234,15 @@ function (_super) {
             var b = _j.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_31_1) {
-          e_31 = {
-            error: e_31_1
+        } catch (e_30_1) {
+          e_30 = {
+            error: e_30_1
           };
         } finally {
           try {
             if (_j && !_j.done && (_a = _h["return"])) _a.call(_h);
           } finally {
-            if (e_31) throw e_31.error;
+            if (e_30) throw e_30.error;
           }
         }
 
@@ -141145,15 +141251,15 @@ function (_super) {
             var b = _l.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_32_1) {
-          e_32 = {
-            error: e_32_1
+        } catch (e_31_1) {
+          e_31 = {
+            error: e_31_1
           };
         } finally {
           try {
             if (_l && !_l.done && (_b = _k["return"])) _b.call(_k);
           } finally {
-            if (e_32) throw e_32.error;
+            if (e_31) throw e_31.error;
           }
         }
 
@@ -141162,15 +141268,15 @@ function (_super) {
             var b = _o.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_33_1) {
-          e_33 = {
-            error: e_33_1
+        } catch (e_32_1) {
+          e_32 = {
+            error: e_32_1
           };
         } finally {
           try {
             if (_o && !_o.done && (_c = _m["return"])) _c.call(_m);
           } finally {
-            if (e_33) throw e_33.error;
+            if (e_32) throw e_32.error;
           }
         }
       } // Pseudo-3D
@@ -141193,32 +141299,32 @@ function (_super) {
             var b = _q.value;
 
             try {
-              for (var _r = (e_35 = void 0, __values(b.sides)), _s = _r.next(); !_s.done; _s = _r.next()) {
+              for (var _r = (e_34 = void 0, __values(b.sides)), _s = _r.next(); !_s.done; _s = _r.next()) {
                 var s = _s.value;
                 var averagePoint = s[0].clone().add(s[1]).divideScalar(2);
                 allSidesDistances.push([averagePoint.distanceToSquared(camera), s]);
               }
-            } catch (e_35_1) {
-              e_35 = {
-                error: e_35_1
+            } catch (e_34_1) {
+              e_34 = {
+                error: e_34_1
               };
             } finally {
               try {
                 if (_s && !_s.done && (_e = _r["return"])) _e.call(_r);
               } finally {
-                if (e_35) throw e_35.error;
+                if (e_34) throw e_34.error;
               }
             }
           }
-        } catch (e_34_1) {
-          e_34 = {
-            error: e_34_1
+        } catch (e_33_1) {
+          e_33 = {
+            error: e_33_1
           };
         } finally {
           try {
             if (_q && !_q.done && (_d = _p["return"])) _d.call(_p);
           } finally {
-            if (e_34) throw e_34.error;
+            if (e_33) throw e_33.error;
           }
         }
 
@@ -141231,15 +141337,15 @@ function (_super) {
             var p = allSidesDistances_1_1.value;
             canvas.drawPolygon(p[1]);
           }
-        } catch (e_36_1) {
-          e_36 = {
-            error: e_36_1
+        } catch (e_35_1) {
+          e_35 = {
+            error: e_35_1
           };
         } finally {
           try {
             if (allSidesDistances_1_1 && !allSidesDistances_1_1.done && (_f = allSidesDistances_1["return"])) _f.call(allSidesDistances_1);
           } finally {
-            if (e_36) throw e_36.error;
+            if (e_35) throw e_35.error;
           }
         }
 
@@ -141255,15 +141361,15 @@ function (_super) {
             var b = _u.value;
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_37_1) {
-          e_37 = {
-            error: e_37_1
+        } catch (e_36_1) {
+          e_36 = {
+            error: e_36_1
           };
         } finally {
           try {
             if (_u && !_u.done && (_g = _t["return"])) _g.call(_t);
           } finally {
-            if (e_37) throw e_37.error;
+            if (e_36) throw e_36.error;
           }
         }
       }

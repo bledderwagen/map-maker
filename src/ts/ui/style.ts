@@ -42,9 +42,6 @@ export interface ColourScheme {
     industrialBuildingColour?: string;
     lowIncomeColour?: string;  // Land use tint
     lowIncomeBuildingColour?: string;
-    industrialYardColour?: string;  // Paved, fenced parcels
-    industrialFenceColour?: string;
-    quayColour?: string;  // Port land
 }
 
 /**
@@ -67,7 +64,6 @@ export default abstract class Style {
     public industrialLots: Vector[][] = [];
     public lowIncomeAreas: Vector[][] = [];
     public industrialAreas: Vector[][] = [];
-    public industrialYards: Vector[][] = [];
     public portLand: Vector[][] = [];
     public portWater: Vector[][] = [];
 
@@ -117,11 +113,9 @@ export default abstract class Style {
         if (!colourScheme.rampWidth) colourScheme.rampWidth = colourScheme.majorWidth * 0.7;
         if (!colourScheme.industrialColour) colourScheme.industrialColour = Util.mixColours(colourScheme.bgColour, 'rgb(150,110,180)', 0.18);
         if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = Util.mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
-        if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = Util.mixColours(colourScheme.buildingColour, 'rgb(120,130,160)', 0.3);
+        if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = colourScheme.buildingColour;
         if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
-        if (!colourScheme.industrialYardColour) colourScheme.industrialYardColour = Util.mixColours(colourScheme.industrialColour, 'rgb(150,150,155)', 0.3);
-        if (!colourScheme.industrialFenceColour) colourScheme.industrialFenceColour = Util.mixColours(colourScheme.industrialYardColour, 'rgb(40,40,40)', 0.35);
-        if (!colourScheme.quayColour) colourScheme.quayColour = Util.mixColours(colourScheme.bgColour, 'rgb(150,150,155)', 0.35);
+
 
         if (!colourScheme.buildingSideColour) {
             const parsedRgb = Util.parseCSSColor(colourScheme.buildingColour).map(v => Math.max(0, v - 40));
@@ -198,9 +192,8 @@ export class DefaultStyle extends Style {
         canvas.drawPolyline(this.coastline);
 
         // Port, built out over the sea
-        const quayColour = this.heightmap ? bgColour : this.colourScheme.quayColour;
-        canvas.setFillStyle(quayColour);
-        canvas.setStrokeStyle(quayColour);
+        canvas.setFillStyle(bgColour);
+        canvas.setStrokeStyle(bgColour);
         canvas.setLineWidth(1);
         for (const p of this.portLand) canvas.drawPolygon(p);
         canvas.setFillStyle(this.colourScheme.seaColour);
@@ -226,14 +219,6 @@ export class DefaultStyle extends Style {
             canvas.setFillStyle(this.colourScheme.industrialColour);
             canvas.setStrokeStyle(this.colourScheme.industrialColour);
             for (const p of this.industrialAreas) canvas.drawPolygon(p);
-        }
-
-        // Fenced industrial yards
-        if (!this.heightmap) {
-            canvas.setFillStyle(this.colourScheme.industrialYardColour);
-            canvas.setStrokeStyle(this.colourScheme.industrialFenceColour);
-            canvas.setLineWidth(Math.max(0.5, 0.4 * this.domainController.zoom));
-            for (const p of this.industrialYards) canvas.drawPolygon(p);
         }
 
         // Road outline
@@ -402,7 +387,7 @@ export class RoughStyle extends Style {
 
         // Port
         canvas.setOptions({
-            fill: this.colourScheme.quayColour,
+            fill: this.colourScheme.bgColour,
         });
         this.portLand.forEach(p => canvas.drawPolygon(p));
         canvas.setOptions({
@@ -427,10 +412,6 @@ export class RoughStyle extends Style {
             });
             this.industrialAreas.forEach(p => canvas.drawPolygon(p));
         }
-        canvas.setOptions({
-            fill: this.colourScheme.industrialYardColour,
-        });
-        this.industrialYards.forEach(p => canvas.drawPolygon(p));
 
         // Roads
         canvas.setOptions({

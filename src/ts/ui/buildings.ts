@@ -25,7 +25,7 @@ export interface BuildingModel {
 const HEIGHTS: {[zone: number]: {min: number, max: number}} = {
     [Zone.Residential]: {min: 20, max: 40},
     [Zone.LowIncome]: {min: 8, max: 18},
-    [Zone.Industrial]: {min: 8, max: 11},  // Sheds are all much the same height
+    [Zone.Industrial]: {min: 7, max: 13},
 };
 
 /**
@@ -107,7 +107,6 @@ export default class Buildings {
     private _blocks: Vector[][] = [];
     private zoneBlocks: Vector[][][] = [[], [], []];  // Indexed by Zone, world space
     private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
-    private industrialYards: Vector[][] = [];  // Fenced parcels
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
     private zoning: Zoning = null;
@@ -129,10 +128,10 @@ export default class Buildings {
 
     private industrialParams: IndustrialParams = {
         setback: 9,
-        parcelWidth: 42,
-        parcelDepth: 36,
+        parcelWidth: 38,
+        parcelDepth: 32,
     };
-    private readonly TANK_FARM_CHANCE = 0.12;
+    private readonly TANK_FARM_CHANCE = 0.05;
 
     constructor(private tensorField: TensorField,
                 folder: dat.GUI,
@@ -167,10 +166,6 @@ export default class Buildings {
 
     get industrialLots(): Vector[][] {
         return this.toScreen(this.industrialBuildings);
-    }
-
-    get industrialYardPolygons(): Vector[][] {
-        return this.toScreen(this.industrialYards);
     }
 
     get industrialServiceRoads(): Vector[][] {
@@ -237,7 +232,6 @@ export default class Buildings {
         for (const f of this.polygonFinders) f.reset();
         this.zoneBlocks = [[], [], []];
         this.industrialBuildings = [];
-        this.industrialYards = [];
         this.industrialRoads = [];
         this._models = new BuildingModels([], []);
     }
@@ -317,12 +311,15 @@ export default class Buildings {
      */
     private layoutIndustry(): void {
         this.industrialBuildings = this.portBuildings.slice();
-        this.industrialYards = [];
         this.industrialRoads = [];
         for (const block of this.zoneBlocks[Zone.Industrial]) {
-            const layout = IndustrialLayout.layoutBlock(block, this.industrialParams, Math.random() < this.TANK_FARM_CHANCE);
+            let layout = IndustrialLayout.layoutBlock(block, this.industrialParams, this.TANK_FARM_CHANCE);
+            if (layout.buildings.length === 0) {
+                // Small blocks can't afford the full setback, but shouldn't be left empty
+                const tight = Object.assign({}, this.industrialParams, {setback: 0.6 * this.industrialParams.setback});
+                layout = IndustrialLayout.layoutBlock(block, tight, this.TANK_FARM_CHANCE);
+            }
             this.industrialBuildings.push(...layout.buildings);
-            this.industrialYards.push(...layout.yards);
             this.industrialRoads.push(...layout.roads);
         }
     }

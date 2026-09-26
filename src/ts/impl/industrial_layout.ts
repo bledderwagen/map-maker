@@ -3,30 +3,30 @@ import PolygonUtil from './polygon_util';
 import LocalFrame from './local_frame';
 
 export interface IndustrialParams {
-    setback: number;  // Fence line distance from the road centre
-    parcelWidth: number;  // Frontage of each parcel
+    setback: number;  // Distance from the road centre to the front of a parcel
+    parcelWidth: number;  // Typical frontage of a parcel
     parcelDepth: number;
 }
 
 export interface IndustrialBlockLayout {
-    yards: Vector[][];  // Fenced parcels, world space
-    buildings: Vector[][];
+    buildings: Vector[][];  // World space
     roads: Vector[][];  // Service roads through the block
 }
 
 /**
- * Lays out an industrial block as a regular grid of fenced parcels
+ * Lays out an industrial block as a grid of parcels along service roads
  *
- * The block is aligned to its longest side, then split into strips separated by service roads so
- * that every parcel fronts a road. Each strip holds one or two rows of equal parcels, each with a
- * single building set back behind a yard where lorries can turn.
+ * The block is aligned to its longest side. Blocks deep enough for more than one row of parcels
+ * get service roads along their length, and very long blocks a cross street, so every parcel
+ * fronts a road. Parcels share a common depth but vary in width, and hold sheds of a few
+ * different shapes, always set behind a yard at the front where lorries can turn.
  */
 export default class IndustrialLayout {
-    private static readonly FENCE_GAP = 1.5;  // Half the gap between neighbouring parcels
-    private static readonly MIN_PARCEL_FILL = 0.75;  // Parcels cut down more than this by the block edge are left empty
+    private static readonly GAP = 1.5;  // Half the gap between neighbouring parcels
+    private static readonly FIT_ATTEMPTS = 5;  // Buildings that cross the block edge are shrunk this many times
 
-    static layoutBlock(block: Vector[], params: IndustrialParams, tankFarm: boolean): IndustrialBlockLayout {
-        const out: IndustrialBlockLayout = {yards: [], buildings: [], roads: []};
+    static layoutBlock(block: Vector[], params: IndustrialParams, tankFarmChance: number): IndustrialBlockLayout {
+        const out: IndustrialBlockLayout = {buildings: [], roads: []};
 
         const inset = PolygonUtil.resizeGeometry(block, -params.setback);
         if (inset.length > 3 && inset[0].equals(inset[inset.length - 1])) inset.pop();
@@ -35,23 +35,35 @@ export default class IndustrialLayout {
         const bounds = LocalFrame.orientedBounds(inset);
         if (bounds === null) return out;
         const {frame, umin, umax, vmin, vmax} = bounds;
-
-        // Strips of parcels, separated by service roads
         const roadGap = 2 * params.setback;
+        const extend = 4 * params.setback;  // Roads run past the inset edge to reach the block's road
+
+        // Strips of parcels running along the block, separated by service roads
         const width = vmax - vmin;
-        const numStrips = Math.max(1, Math.round((width + roadGap) / (2 * params.parcelDepth + roadGap)));
+        let numStrips = Math.max(1, Math.round((width + roadGap) / (2 * params.parcelDepth + roadGap)));
+        if (numStrips === 1 && width > 1.6 * params.parcelDepth + roadGap) numStrips = 2;
         const stripWidth = (width - roadGap * (numStrips - 1)) / numStrips;
         if (stripWidth < 0.5 * params.parcelDepth) return out;
 
         for (let i = 0; i < numStrips - 1; i++) {
             const v = vmin + (i + 1) * stripWidth + i * roadGap + roadGap / 2;
-            const road = PolygonUtil.clipLineToPolygon(frame.line(umin - 4 * params.setback, v, umax + 4 * params.setback, v), block);
+            const road = PolygonUtil.clipLineToPolygon(frame.line(umin - extend, v, umax + extend, v), block);
             if (road.length >= 2) out.roads.push(road);
         }
 
-        // Equal parcels along the strip
-        const numParcels = Math.max(1, Math.round((umax - umin) / params.parcelWidth));
-        const parcelWidth = (umax - umin) / numParcels;
+        // Long blocks are split by a cross street
+        const length = umax - umin;
+        const sections: number[][] = [];
+        if (numStrips > 1 && length > 7 * params.parcelWidth) {
+            const u = umin + length * (0.4 + 0.2 * Math.random());
+            const road = PolygonUtil.clipLineToPolygon(frame.line(u, vmin - extend, u, vmax + extend), block);
+            if (road.length >= 2) {
+                out.roads.push(road);
+                sections.push([umin, u - roadGap / 2], [u + roadGap / 2, umax]);
+            }
+        }
+        if (sections.length === 0) sections.push([umin, umax]);
+
         const rows = stripWidth >= 1.4 * params.parcelDepth ? 2 : 1;
         const rowDepth = stripWidth / rows;
 
@@ -59,13 +71,39 @@ export default class IndustrialLayout {
             const stripStart = vmin + i * (stripWidth + roadGap);
             for (let r = 0; r < rows; r++) {
                 const v0 = stripStart + r * rowDepth;
-                // The first row faces the road before the strip, the second the road after it
-                const frontLow = r === 0;
-                for (let j = 0; j < numParcels; j++) {
-                    const u0 = umin + j * parcelWidth;
-                    IndustrialLayout.addParcel(out, frame, inset, u0, u0 + parcelWidth, v0, v0 + rowDepth, frontLow, tankFarm);
+                // Face the service road where there is one, else the block's own road
+                let frontLow = r === 0;
+                if (rows === 1 && numStrips > 1) frontLow = i > 0;
+                for (const [s0, s1] of sections) {
+                    for (const [u0, u1] of IndustrialLayout.parcelWidths(s0, s1, params.parcelWidth)) {
+                        const tankFarm = Math.random() < tankFarmChance;
+                        IndustrialLayout.addParcel(out, frame, inset, u0, u1, v0, v0 + rowDepth, frontLow, tankFarm);
+                    }
                 }
             }
+        }
+        return out;
+    }
+
+    /**
+     * Mostly standard width parcels, with some wider ones, scaled to fill the row exactly
+     */
+    private static parcelWidths(u0: number, u1: number, base: number): number[][] {
+        const choices = [1, 1, 1, 1, 1.5, 2];
+        const widths: number[] = [];
+        let total = 0;
+        while (total < u1 - u0 - 0.5 * base) {
+            const w = base * choices[Math.floor(Math.random() * choices.length)];
+            widths.push(w);
+            total += w;
+        }
+        if (widths.length === 0) return [];
+        const scale = (u1 - u0) / total;
+        const out: number[][] = [];
+        let u = u0;
+        for (const w of widths) {
+            out.push([u, u + w * scale]);
+            u += w * scale;
         }
         return out;
     }
@@ -73,43 +111,80 @@ export default class IndustrialLayout {
     private static addParcel(out: IndustrialBlockLayout, frame: LocalFrame, inset: Vector[],
                              u0: number, u1: number, v0: number, v1: number,
                              frontLow: boolean, tankFarm: boolean): void {
-        const gap = IndustrialLayout.FENCE_GAP;
+        const gap = IndustrialLayout.GAP;
         u0 += gap; u1 -= gap; v0 += gap; v1 -= gap;
-        if (u1 - u0 < 10 || v1 - v0 < 10) return;
+        const W = u1 - u0;
+        const D = v1 - v0;
+        if (W < 12 || D < 12) return;
 
-        const rect = frame.rect(u0, u1, v0, v1);
-        const yard = PolygonUtil.intersectPolygons(rect, inset);
-        if (yard.length < 3) return;
-        if (PolygonUtil.calcPolygonArea(yard) < IndustrialLayout.MIN_PARCEL_FILL * (u1 - u0) * (v1 - v0)) return;
-        out.yards.push(yard);
+        // Parcel coordinates: a along the frontage, d back from the front
+        const mirror = Math.random() < 0.5;
+        const toWorld = (a: number, d: number): Vector => frame.toWorld(
+            mirror ? u1 - a : u0 + a,
+            frontLow ? v0 + d : v1 - d);
+        const polygon = (points: number[][]): Vector[] => points.map(([a, d]) => toWorld(a, d));
+        const rect = (a0: number, a1: number, d0: number, d1: number): Vector[] =>
+            polygon([[a0, d0], [a1, d0], [a1, d1], [a0, d1]]);
 
-        // Lorry yard at the front, gaps down the sides and at the back
-        const sideGap = Math.max(4, 0.12 * (u1 - u0));
-        const frontYard = 0.35 * (v1 - v0);
-        const backGap = 4;
-        const bu0 = u0 + sideGap;
-        const bu1 = u1 - sideGap;
-        const bv0 = frontLow ? v0 + frontYard : v0 + backGap;
-        const bv1 = frontLow ? v1 - backGap : v1 - frontYard;
-        if (bu1 - bu0 < 6 || bv1 - bv0 < 6) return;
+        if (!PolygonUtil.insidePolygon(toWorld(W / 2, D / 2), inset)) return;
 
-        const inside = (polygon: Vector[]): boolean => polygon.every(p => PolygonUtil.insidePolygon(p, yard));
+        // Lorry yard at the front, space at the sides and back
+        const side = Math.max(2, W * (0.04 + 0.03 * Math.random()));
+        const back = 1.5 + 1.5 * Math.random();
+        const yard = Math.max(7, D * (0.15 + 0.08 * Math.random()));
+        const inside = (b: Vector[]): boolean => b.every(p => PolygonUtil.insidePolygon(p, inset));
+        const r = Math.random();
+        const lengthwise = 0.75 + 0.2 * Math.random();
+        // Parcels cut off by a slanted block edge get a smaller building, shrunk towards the front
+        for (let attempt = 0; attempt < IndustrialLayout.FIT_ATTEMPTS; attempt++) {
+            const scale = 1 - 0.15 * attempt;
+            const a0 = side + (W - 2 * side) * (1 - scale) / 2;
+            const a1 = W - a0;
+            const d0 = yard;
+            const d1 = d0 + (D - back - yard) * scale;
+            if (a1 - a0 < 8 || d1 - d0 < 8) return;
+            const buildings = IndustrialLayout.buildingsFor(r, lengthwise, tankFarm, a0, a1, d0, d1, toWorld, polygon, rect);
+            if (buildings.every(inside)) {
+                out.buildings.push(...buildings);
+                return;
+            }
+        }
+    }
 
+    private static buildingsFor(r: number, lengthwise: number, tankFarm: boolean,
+                                a0: number, a1: number, d0: number, d1: number,
+                                toWorld: (a: number, d: number) => Vector,
+                                polygon: (points: number[][]) => Vector[],
+                                rect: (a0: number, a1: number, d0: number, d1: number) => Vector[]): Vector[][] {
+        const buildings: Vector[][] = [];
         if (tankFarm) {
-            // Four equal tanks
-            const radius = Math.min(bu1 - bu0, bv1 - bv0) / 6;
-            const tanks: Vector[][] = [];
-            for (const fu of [0.25, 0.75]) {
-                for (const fv of [0.25, 0.75]) {
-                    const centre = frame.toWorld(bu0 + fu * (bu1 - bu0), bv0 + fv * (bv1 - bv0));
-                    tanks.push(PolygonUtil.circle(centre, radius, 16));
+            const radius = Math.min(a1 - a0, d1 - d0) / 6;
+            for (const fa of [0.25, 0.75]) {
+                for (const fd of [0.3, 0.75]) {
+                    buildings.push(PolygonUtil.circle(toWorld(a0 + fa * (a1 - a0), d0 + fd * (d1 - d0)), radius, 16));
                 }
             }
-            if (tanks.every(inside)) out.buildings.push(...tanks);
-            return;
+        } else if (r < 0.3) {
+            // L shaped: shed at the back with a wing reaching forward down one side
+            const neck = d0 + 0.45 * (d1 - d0);
+            const wing = a0 + (lengthwise - 0.45) * (a1 - a0);
+            buildings.push(polygon([[a0, d0], [wing, d0], [wing, neck], [a1, neck], [a1, d1], [a0, d1]]));
+        } else if (r < 0.5) {
+            // Shed with a small office block at the front
+            const officeDepth = Math.min(8, 0.25 * (d1 - d0));
+            buildings.push(rect(a0, a1, d0 + officeDepth, d1));
+            const officeWidth = 0.3 * (a1 - a0);
+            buildings.push(rect(a0, a0 + officeWidth, d0, d0 + officeDepth - 1));
+        } else if (r < 0.65 && a1 - a0 > 35) {
+            // Two sheds side by side with a lane between
+            const middle = (a0 + a1) / 2;
+            buildings.push(rect(a0, middle - 3, d0, d1));
+            buildings.push(rect(middle + 3, a1, d0 + 0.2 * (d1 - d0), d1));
+        } else {
+            // Plain shed, not always the full width
+            const narrow = lengthwise < 0.85 ? 0.2 * (a1 - a0) : 0;
+            buildings.push(rect(a0, a1 - narrow, d0, d1));
         }
-
-        const building = frame.rect(bu0, bu1, bv0, bv1);
-        if (inside(building)) out.buildings.push(building);
+        return buildings;
     }
 }

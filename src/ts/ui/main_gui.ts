@@ -444,7 +444,6 @@ export default class MainGUI {
         style.mainRoads = this.mainRoads.roads;
         style.coastlineRoads = this.coastline.roads;
         style.highways = this.highways.roads;
-        style.industrialYards = this.buildings.industrialYardPolygons;
         style.industrialRoads = this.buildings.industrialServiceRoads.concat(this.toScreen(this.port ? this.port.roads : []));
         style.portLand = this.toScreen(this.port ? this.port.land : []);
         style.portWater = this.toScreen(this.port ? this.port.water : []);

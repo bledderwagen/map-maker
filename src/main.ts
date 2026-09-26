@@ -43,7 +43,7 @@ class Main {
     private zoomBuildings: boolean = false;  // Show buildings only when zoomed in?
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
     private showFrame: boolean = false;
-    private showZones: boolean = true;  // Tint industrial and low income areas
+    private showZones: boolean = false;  // Tint industrial and low income areas
 
     // Force redraw of roads when switching from tensor vis to map vis
     private previousFrameDrawTensor = true;

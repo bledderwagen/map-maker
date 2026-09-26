@@ -56,7 +56,7 @@ Highways, industry and low income neighbourhoods are generated together, because
 * **Highways** (Map → Highways): one to four long, smooth expressways cross the whole map. They follow the city's tensor field, so they line up with the street grid, and they bridge rivers.
   * **Interchanges**: diamond interchanges where main roads cross a highway, cloverleafs where two highways cross. Other roads pass under or over the highway.
   * **Frontage roads** run alongside highways. Side streets end at the frontage road instead of crossing the highway, and no buildings go in the verge between them.
-* **Industry** (Map → Zoning): industrial districts are placed at highway interchanges, well away from the water. They are superblocks bounded by main and major roads, with no residential side streets. Each block is laid out as a regular grid of equal fenced parcels, set back from the road, with straight service roads through the middle so every parcel fronts a road. Each parcel has one building of similar height, set behind a lorry yard with space all round; some parcels are tank farms. Parks are never placed in industrial districts.
+* **Industry** (Map → Zoning): industrial districts are placed at highway interchanges, well away from the water. They are superblocks bounded by main and major roads with no residential side streets; instead each block gets its own service roads, so every lot fronts a road. Lots sit on a common grid but vary in width, are set back from the road, and hold one or two sheds of a few shapes (plain, L shaped, with a front office, twin sheds) behind a lorry yard with space all round. A few lots are tank farms. Parks are never placed in industrial districts.
 * **Ports**: waterfront land is too valuable to waste on anything but a port, so some maps (`portChance`) get a port on a straight stretch of coast instead of waterfront industry. It has reclaimed quay land, slips cut back into the quay, piers of identical length each with a road and transit shed, a quay road and a container yard.
 
 ![A port with equal length piers next to fenced industrial parcels](docs/images/port.png)
@@ -64,10 +64,10 @@ Highways, industry and low income neighbourhoods are generated together, because
 
 * **Low income neighbourhoods** form rings around industry and bands along the highways. Their houses are smaller, denser and lower.
 * **Zoning controls**: `numIndustrialZones`, `industrialSize`, `lowIncomeAmount` and `portChance`; Buildings has `industrialParcelWidth` and `industrialSetback`. `Regenerate` picks new industrial sites and rebuilds side streets and buildings without touching the main road network.
-* **Land use colours**: industrial areas are tinted purple and low income areas warm beige. Toggle them with Style → `showZones`. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `industrialYardColour`, `industrialFenceColour`, `quayColour`, `lowIncomeColour` and `lowIncomeBuildingColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour` and `lowIncomeBuildingColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
 * **Bug fixes** in the original lot generation: many blocks were left empty or turned into one giant building because block subdivision cut in the wrong place, dead ends broke block detection, and the build failed on case-sensitive file systems.
 
-![The Apple colour scheme shows land use clearly](docs/images/land-use-apple.png)
+![The optional land use tint in the Apple colour scheme](docs/images/land-use-apple.png)
 
 
 ## About The Project
