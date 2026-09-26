@@ -27,6 +27,7 @@ export default class WaterGenerator extends StreamlineGenerator {
     private coastlineMajor = true;
     private _coastline: Vector[] = [];  // Noisy line
     private _seaPolygon: Vector[] = [];  // Uses screen rectangle and simplified road
+    private _coastRoad: Vector[] = [];  // Simplified coastline, the edge of the sea polygon
     private _riverPolygon: Vector[] = []; // Simplified
     private _riverSecondaryRoad: Vector[] = [];
 
@@ -44,6 +45,10 @@ export default class WaterGenerator extends StreamlineGenerator {
 
     get seaPolygon(): Vector[] {
         return this._seaPolygon;
+    }
+
+    get coastRoad(): Vector[] {
+        return this._coastRoad;
     }
 
     get riverPolygon(): Vector[] {
@@ -78,6 +83,7 @@ export default class WaterGenerator extends StreamlineGenerator {
 
         const road = this.simplifyStreamline(coastStreamline);
         this._seaPolygon = this.getSeaPolygon(road);
+        this._coastRoad = road;
         this.allStreamlinesSimple.push(road);
         this.tensorField.sea = (this._seaPolygon);
 

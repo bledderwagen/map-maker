@@ -7,6 +7,7 @@ import PolygonFinder from '../impl/polygon_finder';
 import {PolygonParams} from '../impl/polygon_finder';
 import PolygonUtil from '../impl/polygon_util';
 import Zoning, {Zone} from '../impl/zoning';
+import IndustrialLayout, {IndustrialParams} from '../impl/industrial_layout';
 
 
 export interface BuildingModel {
@@ -24,7 +25,7 @@ export interface BuildingModel {
 const HEIGHTS: {[zone: number]: {min: number, max: number}} = {
     [Zone.Residential]: {min: 20, max: 40},
     [Zone.LowIncome]: {min: 8, max: 18},
-    [Zone.Industrial]: {min: 6, max: 14},
+    [Zone.Industrial]: {min: 8, max: 11},  // Sheds are all much the same height
 };
 
 /**
@@ -105,7 +106,10 @@ export default class Buildings {
     private _models: BuildingModels = new BuildingModels([], []);
     private _blocks: Vector[][] = [];
     private zoneBlocks: Vector[][][] = [[], [], []];  // Indexed by Zone, world space
-    private industrialBuildings: Vector[][] = [];  // Warehouses and tanks, replaces the industrial lots
+    private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
+    private industrialYards: Vector[][] = [];  // Fenced parcels
+    private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
+    private portBuildings: Vector[][] = [];
     private zoning: Zoning = null;
 
     private buildingParams: PolygonParams = {
@@ -123,13 +127,12 @@ export default class Buildings {
         chanceNoDivide: 0,
     };
 
-    // Warehouses and factories on large lots
-    private industrialParams: PolygonParams = {
-        maxLength: 20,
-        minArea: 500,
-        shrinkSpacing: 5,
-        chanceNoDivide: 0,
+    private industrialParams: IndustrialParams = {
+        setback: 9,
+        parcelWidth: 42,
+        parcelDepth: 36,
     };
+    private readonly TANK_FARM_CHANCE = 0.12;
 
     constructor(private tensorField: TensorField,
                 folder: dat.GUI,
@@ -141,7 +144,8 @@ export default class Buildings {
         folder.add(this.buildingParams, 'shrinkSpacing');
         folder.add(this.buildingParams, 'chanceNoDivide');
         folder.add(this.lowIncomeParams, 'minArea').name('lowIncomeMinArea');
-        folder.add(this.industrialParams, 'minArea').name('industrialMinArea');
+        folder.add(this.industrialParams, 'parcelWidth').name('industrialParcelWidth');
+        folder.add(this.industrialParams, 'setback').name('industrialSetback');
         this.polygonFinders = this.createPolygonFinders();
     }
 
@@ -162,8 +166,29 @@ export default class Buildings {
     }
 
     get industrialLots(): Vector[][] {
-        if (this.industrialBuildings.length > 0) return this.toScreen(this.industrialBuildings);
-        return this.toScreen(this.polygonFinders[Zone.Industrial].polygons);
+        return this.toScreen(this.industrialBuildings);
+    }
+
+    get industrialYardPolygons(): Vector[][] {
+        return this.toScreen(this.industrialYards);
+    }
+
+    get industrialServiceRoads(): Vector[][] {
+        return this.toScreen(this.industrialRoads);
+    }
+
+    /**
+     * World space service roads, for including in the road graph
+     */
+    get industrialServiceRoadsWorld(): Vector[][] {
+        return this.industrialRoads;
+    }
+
+    /**
+     * Port buildings are placed by zoning, but drawn and modelled with the rest
+     */
+    setPortBuildings(buildings: Vector[][]): void {
+        this.portBuildings = buildings;
     }
 
     get lowIncomeBlocks(): Vector[][] {
@@ -182,7 +207,8 @@ export default class Buildings {
         const finders: PolygonFinder[] = [];
         finders[Zone.Residential] = new PolygonFinder([], this.buildingParams, this.tensorField);
         finders[Zone.LowIncome] = new PolygonFinder([], this.lowIncomeParams, this.tensorField);
-        finders[Zone.Industrial] = new PolygonFinder([], this.industrialParams, this.tensorField);
+        // Industrial blocks are laid out by IndustrialLayout instead
+        finders[Zone.Industrial] = new PolygonFinder([], this.buildingParams, this.tensorField);
         return finders;
     }
 
@@ -211,6 +237,8 @@ export default class Buildings {
         for (const f of this.polygonFinders) f.reset();
         this.zoneBlocks = [[], [], []];
         this.industrialBuildings = [];
+        this.industrialYards = [];
+        this.industrialRoads = [];
         this._models = new BuildingModels([], []);
     }
 
@@ -237,13 +265,13 @@ export default class Buildings {
 
         this.zoneBlocks = this.zoneAndClipBlocks(blockFinder.polygons);
         this.polygonFinders = this.createPolygonFinders();
-        for (const zone of [Zone.Residential, Zone.LowIncome, Zone.Industrial]) {
+        for (const zone of [Zone.Residential, Zone.LowIncome]) {
             this.polygonFinders[zone].setPolygons(this.zoneBlocks[zone]);
         }
 
         await Promise.all(this.polygonFinders.map(f => f.shrink(animate)));
         await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
-        this.industrialBuildings = this.createIndustrialBuildings(this.polygonFinders[Zone.Industrial].polygons);
+        this.layoutIndustry();
         this.redraw();
 
         const lots: Vector[][] = [];
@@ -285,39 +313,18 @@ export default class Buildings {
     }
 
     /**
-     * Industrial lots become warehouses with a loading yard around them,
-     * open storage yards, or groups of storage tanks
+     * Regular fenced parcels with service roads, plus the port if there is one
      */
-    private createIndustrialBuildings(lots: Vector[][]): Vector[][] {
-        const out: Vector[][] = [];
-        for (const lot of lots) {
-            const area = PolygonUtil.calcPolygonArea(lot);
-            const r = Math.random();
-            if (r < 0.15 && area > 400) {
-                out.push(...this.storageTanks(lot));
-            } else if (r < 0.25) {
-                // Open yard, no building
-            } else {
-                const warehouse = PolygonUtil.resizeGeometry(lot, -2.5);
-                out.push(warehouse.length > 2 ? warehouse : lot);
-            }
+    private layoutIndustry(): void {
+        this.industrialBuildings = this.portBuildings.slice();
+        this.industrialYards = [];
+        this.industrialRoads = [];
+        for (const block of this.zoneBlocks[Zone.Industrial]) {
+            const layout = IndustrialLayout.layoutBlock(block, this.industrialParams, Math.random() < this.TANK_FARM_CHANCE);
+            this.industrialBuildings.push(...layout.buildings);
+            this.industrialYards.push(...layout.yards);
+            this.industrialRoads.push(...layout.roads);
         }
-        return out;
-    }
-
-    private storageTanks(lot: Vector[]): Vector[][] {
-        const tanks: Vector[][] = [];
-        const radius = 4 + Math.random() * 4;
-        const spacing = radius * 2.6;
-        const box = PolygonUtil.boundingBox(lot);
-        for (let x = box[0] + spacing / 2; x < box[2]; x += spacing) {
-            for (let y = box[1] + spacing / 2; y < box[3]; y += spacing) {
-                const tank = PolygonUtil.circle(new Vector(x, y), radius, 16);
-                if (tank.every(v => PolygonUtil.insidePolygon(v, lot))) tanks.push(tank);
-                if (tanks.length >= 8) return tanks;
-            }
-        }
-        return tanks;
     }
 
     setPreGenerateCallback(callback: () => any): void {

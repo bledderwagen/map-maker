@@ -22,6 +22,7 @@ import Util from '../util';
 import HighwayGUI from './highway_gui';
 import {HighwayParams} from '../impl/highway_generator';
 import Zoning, {Zone, ZoningParams} from '../impl/zoning';
+import PortPlanner, {Port} from '../impl/port';
 
 /**
  * Handles Map folder, glues together impl
@@ -45,6 +46,8 @@ export default class MainGUI {
     private minorRoads: RoadGUI;
     private buildings: Buildings;
     private zoning: Zoning;
+    private port: Port = null;
+    private portChance = 0.5;  // Chance that a map with a coast gets a port
 
     // Params
     private coastlineParams: WaterParams;
@@ -145,6 +148,7 @@ export default class MainGUI {
         zoningFolder.add(this.zoningParams, 'numIndustrialZones', 0, 6).step(1);
         zoningFolder.add(this.zoningParams, 'industrialSize', 40, 400);
         zoningFolder.add(this.zoningParams, 'lowIncomeAmount', 0, 1);
+        zoningFolder.add(this, 'portChance', 0, 1);
 
         const buildingsFolder = guiFolder.addFolder('Buildings');
         this.buildings = new Buildings(tensorField, buildingsFolder, redraw, this.minorParams.dstep, this.animate);
@@ -174,7 +178,7 @@ export default class MainGUI {
 
         this.coastline.setPreGenerateCallback(() => {
             this.highways.clearStreamlines();
-            this.zoning.reset();
+            this.resetZoning();
             this.mainRoads.clearStreamlines();
             this.majorRoads.clearStreamlines();
             this.minorRoads.clearStreamlines();
@@ -187,7 +191,7 @@ export default class MainGUI {
         });
 
         this.highways.setPreGenerateCallback(() => {
-            this.zoning.reset();
+            this.resetZoning();
             this.mainRoads.clearStreamlines();
             this.majorRoads.clearStreamlines();
             this.minorRoads.clearStreamlines();
@@ -198,7 +202,7 @@ export default class MainGUI {
         });
 
         this.mainRoads.setPreGenerateCallback(() => {
-            this.zoning.reset();
+            this.resetZoning();
             this.majorRoads.clearStreamlines();
             this.minorRoads.clearStreamlines();
             this.bigParks = [];
@@ -241,6 +245,12 @@ export default class MainGUI {
         });
     }
 
+    private resetZoning(): void {
+        this.zoning.reset();
+        this.port = null;
+        this.buildings.setPortBuildings([]);
+    }
+
     /**
      * Interchanges and industrial sites depend on where main roads meet highways
      */
@@ -255,9 +265,26 @@ export default class MainGUI {
 
         // No building lots between a highway and its frontage roads
         this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 8;
+        this.port = null;
+        if (this.zoningParams.numIndustrialZones > 0 && Math.random() < this.portChance) {
+            const inner = (v: Vector): boolean => {
+                const t = v.clone().sub(origin);
+                return t.x > 0.15 * worldDimensions.x && t.x < 0.85 * worldDimensions.x &&
+                    t.y > 0.15 * worldDimensions.y && t.y < 0.85 * worldDimensions.y;
+            };
+            this.port = PortPlanner.plan(this.coastline.coastRoadWorld, this.coastline.seaPolygonWorld,
+                this.tensorField.river, {
+                    halfSpan: (0.6 + 0.4 * Math.random()) * this.zoningParams.industrialSize,
+                    pierLength: 55 + Math.random() * 30,  // All piers in a port share one length
+                    pierWidth: 24,
+                    slipWidth: 22,
+                }, inner);
+        }
+        this.buildings.setPortBuildings(this.port ? this.port.buildings : []);
+
         this.zoning.setup(origin, worldDimensions,
             this.highways.highwaysWorld, this.highways.interchanges,
-            this.coastline.allStreamlines);
+            this.coastline.allStreamlines, this.port ? this.port.centre : null);
     }
 
     /**
@@ -417,6 +444,10 @@ export default class MainGUI {
         style.mainRoads = this.mainRoads.roads;
         style.coastlineRoads = this.coastline.roads;
         style.highways = this.highways.roads;
+        style.industrialYards = this.buildings.industrialYardPolygons;
+        style.industrialRoads = this.buildings.industrialServiceRoads.concat(this.toScreen(this.port ? this.port.roads : []));
+        style.portLand = this.toScreen(this.port ? this.port.land : []);
+        style.portWater = this.toScreen(this.port ? this.port.water : []);
         style.frontageRoads = this.highways.frontageRoads;
         style.ramps = this.highways.ramps;
         style.secondaryRiver = this.coastline.secondaryRiver;
@@ -424,6 +455,10 @@ export default class MainGUI {
 
         // Drawing an export shouldn't stop the screen from catching up
         if (customCanvas) this.redraw = true;
+    }
+
+    private toScreen(polygons: Vector[][]): Vector[][] {
+        return polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
     }
 
     roadsEmpty(): boolean {
@@ -453,7 +488,9 @@ export default class MainGUI {
     }
 
     public get minorRoadPolygons(): Vector[][] {
-        return this.minorRoads.roads.concat(this.highways.frontageRoads).map(r => PolygonUtil.resizeGeometry(r, 1 * this.domainController.zoom, false));
+        return this.minorRoads.roads.concat(this.highways.frontageRoads)
+            .concat(this.buildings.industrialServiceRoads)
+            .concat(this.toScreen(this.port ? this.port.roads : [])).map(r => PolygonUtil.resizeGeometry(r, 1 * this.domainController.zoom, false));
     }
 
     public get majorRoadPolygons(): Vector[][] {

@@ -98,6 +98,14 @@ export default class WaterGUI extends RoadGUI {
         return this.streamlines.seaPolygon.map(v => this.domainController.worldToScreen(v.clone()));
     }
 
+    get seaPolygonWorld(): Vector[] {
+        return this.streamlines.seaPolygon;
+    }
+
+    get coastRoadWorld(): Vector[] {
+        return this.streamlines.coastRoad;
+    }
+
     protected addDevParamsToFolder(params: StreamlineParams, folder: dat.GUI): void {
         folder.add(params, 'dsep');
         folder.add(params, 'dtest');

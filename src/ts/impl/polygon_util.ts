@@ -368,6 +368,71 @@ export default class PolygonUtil {
         return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
     }
 
+    /**
+     * Largest piece of the intersection of two polygons, or [] if they don't overlap
+     */
+    public static intersectPolygons(a: Vector[], b: Vector[]): Vector[] {
+        try {
+            const geometry: any = PolygonUtil.polygonToJts(a).intersection(PolygonUtil.polygonToJts(b));
+            let best: any = null;
+            for (let i = 0; i < geometry.getNumGeometries(); i++) {
+                const piece = geometry.getGeometryN(i);
+                if (piece.getArea() > 0 && (best === null || piece.getArea() > best.getArea())) best = piece;
+            }
+            if (best === null || !best.getExteriorRing) return [];
+            const out = best.getExteriorRing().getCoordinates().map((c: any) => new Vector(c.x, c.y));
+            out.pop();  // Closing point duplicates the first
+            return out;
+        } catch (error) {
+            log.warn(error);
+            return [];
+        }
+    }
+
+    /**
+     * Longest piece of line that lies inside polygon, or [] if none
+     */
+    public static clipLineToPolygon(line: Vector[], polygon: Vector[]): Vector[] {
+        try {
+            const geometry: any = PolygonUtil.lineToJts(line).intersection(PolygonUtil.polygonToJts(polygon));
+            let best: any = null;
+            for (let i = 0; i < geometry.getNumGeometries(); i++) {
+                const piece = geometry.getGeometryN(i);
+                if (piece.getLength() > 0 && (best === null || piece.getLength() > best.getLength())) best = piece;
+            }
+            if (best === null) return [];
+            return best.getCoordinates().map((c: any) => new Vector(c.x, c.y));
+        } catch (error) {
+            log.warn(error);
+            return [];
+        }
+    }
+
+    /**
+     * Samples a polyline every step, also returning the distance along the line of each sample
+     */
+    public static resamplePolyline(line: Vector[], step: number): {points: Vector[]; distances: number[]} {
+        const points: Vector[] = [];
+        const distances: number[] = [];
+        let travelled = 0;
+        for (let i = 0; i < line.length - 1; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            const length = a.distanceTo(b);
+            const n = Math.max(1, Math.ceil(length / step));
+            for (let j = 0; j < n; j++) {
+                points.push(a.clone().add(b.clone().sub(a).multiplyScalar(j / n)));
+                distances.push(travelled + length * j / n);
+            }
+            travelled += length;
+        }
+        if (line.length > 0) {
+            points.push(line[line.length - 1].clone());
+            distances.push(travelled);
+        }
+        return {points, distances};
+    }
+
     private static lineToJts(line: Vector[]): jsts.geom.LineString {
         const coords = line.map(v => new jsts.geom.Coordinate(v.x, v.y));
         return PolygonUtil.geometryFactory.createLineString(coords);

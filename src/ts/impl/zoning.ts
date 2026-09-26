@@ -70,11 +70,12 @@ export default class Zoning {
     /**
      * Called once highways and interchanges exist
      * Picks where industry goes and prepares distance lookups
-     * @param waterfront polylines along coast and river, candidates for ports
+     * @param waterfront polylines along coast and river, other industry is kept away from them
+     * @param portCentre where the port is, if there is one
      */
     setup(origin: Vector, worldDimensions: Vector,
           highways: Vector[][], interchanges: {centre: Vector; area: Vector[]}[],
-          waterfront: Vector[][]): void {
+          waterfront: Vector[][], portCentre: Vector): void {
         this.reset();
         this.noise = new SimplexNoise();
         this.origin = origin.clone();
@@ -85,7 +86,7 @@ export default class Zoning {
 
         this.computeHighwayDistances();
         this.computeInterchangeCells();
-        this.pickIndustrialCentres(origin, worldDimensions, interchanges.map(i => i.centre), waterfront);
+        this.pickIndustrialCentres(origin, worldDimensions, interchanges.map(i => i.centre), waterfront, portCentre);
         this.rasteriseZones([]);
     }
 
@@ -231,10 +232,11 @@ export default class Zoning {
     }
 
     /**
-     * Industry wants highway access or a waterfront
+     * Industry wants highway access
+     * Waterfront land is too valuable for anything but a port, so other industry keeps away from it
      */
     private pickIndustrialCentres(origin: Vector, worldDimensions: Vector,
-                                  interchanges: Vector[], waterfront: Vector[][]): void {
+                                  interchanges: Vector[], waterfront: Vector[][], portCentre: Vector): void {
         const R = this.params.industrialSize;
         const inner = (v: Vector): boolean => {
             const t = v.clone().sub(origin);
@@ -242,6 +244,7 @@ export default class Zoning {
                 t.y > 0.1 * worldDimensions.y && t.y < 0.9 * worldDimensions.y;
         };
         const farFromOthers = (v: Vector): boolean => this.industrialCentres.every(c => c.distanceTo(v) > 2.2 * R);
+        const awayFromWater = (v: Vector): boolean => waterfront.every(w => w.length < 2 || PolygonUtil.distanceToPolyline(v, w) > 1.3 * R);
         const shuffle = <T>(arr: T[]): T[] => {
             const a = arr.slice();
             for (let i = a.length - 1; i > 0; i--) {
@@ -251,26 +254,22 @@ export default class Zoning {
             return a;
         };
 
-        // Port first, if there is a waterfront
-        const waterPoints = shuffle(([] as Vector[]).concat(...waterfront).filter(inner));
-        const interchangePoints = shuffle(interchanges.filter(inner));
-        const highwayPoints = shuffle(([] as Vector[]).concat(...this.highways).filter(inner));
+        if (portCentre && this.params.numIndustrialZones > 0) this.industrialCentres.push(portCentre.clone());
 
         const candidates: Vector[] = [];
-        if (waterPoints.length > 0) candidates.push(waterPoints[0]);
-        candidates.push(...interchangePoints);
-        candidates.push(...waterPoints.slice(1, 20));
-        candidates.push(...highwayPoints.slice(0, 50));
+        candidates.push(...shuffle(interchanges.filter(inner)));
+        candidates.push(...shuffle(([] as Vector[]).concat(...this.highways).filter(inner)).slice(0, 60));
 
+        const accept = (c: Vector): boolean => this.tensorField.onLand(c) && farFromOthers(c) && awayFromWater(c);
         for (const c of candidates) {
             if (this.industrialCentres.length >= this.params.numIndustrialZones) break;
-            if (this.tensorField.onLand(c) && farFromOthers(c)) this.industrialCentres.push(c);
+            if (accept(c)) this.industrialCentres.push(c);
         }
 
-        // No highways or water, fall back to anywhere
-        for (let i = 0; i < 50 && this.industrialCentres.length < this.params.numIndustrialZones; i++) {
+        // No highways, fall back to anywhere
+        for (let i = 0; i < 100 && this.industrialCentres.length < this.params.numIndustrialZones; i++) {
             const c = new Vector(Math.random(), Math.random()).multiply(worldDimensions).add(origin);
-            if (inner(c) && this.tensorField.onLand(c) && farFromOthers(c)) this.industrialCentres.push(c);
+            if (inner(c) && accept(c)) this.industrialCentres.push(c);
         }
     }
 

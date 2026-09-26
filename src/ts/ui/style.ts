@@ -42,6 +42,9 @@ export interface ColourScheme {
     industrialBuildingColour?: string;
     lowIncomeColour?: string;  // Land use tint
     lowIncomeBuildingColour?: string;
+    industrialYardColour?: string;  // Paved, fenced parcels
+    industrialFenceColour?: string;
+    quayColour?: string;  // Port land
 }
 
 /**
@@ -64,6 +67,9 @@ export default abstract class Style {
     public industrialLots: Vector[][] = [];
     public lowIncomeAreas: Vector[][] = [];
     public industrialAreas: Vector[][] = [];
+    public industrialYards: Vector[][] = [];
+    public portLand: Vector[][] = [];
+    public portWater: Vector[][] = [];
 
     // Polylines
     public coastline: Vector[] = [];
@@ -76,6 +82,7 @@ export default abstract class Style {
     public highways: Vector[][] = [];
     public frontageRoads: Vector[][] = [];
     public ramps: Vector[][] = [];
+    public industrialRoads: Vector[][] = [];
     public showFrame: boolean;
     public showZones = true;
 
@@ -112,6 +119,9 @@ export default abstract class Style {
         if (!colourScheme.lowIncomeColour) colourScheme.lowIncomeColour = Util.mixColours(colourScheme.bgColour, 'rgb(200,140,90)', 0.12);
         if (!colourScheme.industrialBuildingColour) colourScheme.industrialBuildingColour = Util.mixColours(colourScheme.buildingColour, 'rgb(120,130,160)', 0.3);
         if (!colourScheme.lowIncomeBuildingColour) colourScheme.lowIncomeBuildingColour = colourScheme.buildingColour;
+        if (!colourScheme.industrialYardColour) colourScheme.industrialYardColour = Util.mixColours(colourScheme.industrialColour, 'rgb(150,150,155)', 0.3);
+        if (!colourScheme.industrialFenceColour) colourScheme.industrialFenceColour = Util.mixColours(colourScheme.industrialYardColour, 'rgb(40,40,40)', 0.35);
+        if (!colourScheme.quayColour) colourScheme.quayColour = Util.mixColours(colourScheme.bgColour, 'rgb(150,150,155)', 0.35);
 
         if (!colourScheme.buildingSideColour) {
             const parsedRgb = Util.parseCSSColor(colourScheme.buildingColour).map(v => Math.max(0, v - 40));
@@ -187,6 +197,16 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(30 * this.domainController.zoom);
         canvas.drawPolyline(this.coastline);
 
+        // Port, built out over the sea
+        const quayColour = this.heightmap ? bgColour : this.colourScheme.quayColour;
+        canvas.setFillStyle(quayColour);
+        canvas.setStrokeStyle(quayColour);
+        canvas.setLineWidth(1);
+        for (const p of this.portLand) canvas.drawPolygon(p);
+        canvas.setFillStyle(this.colourScheme.seaColour);
+        canvas.setStrokeStyle(this.colourScheme.seaColour);
+        for (const p of this.portWater) canvas.drawPolygon(p);
+
         // Parks
         canvas.setLineWidth(1);
         canvas.setFillStyle(this.colourScheme.grassColour);
@@ -208,11 +228,20 @@ export class DefaultStyle extends Style {
             for (const p of this.industrialAreas) canvas.drawPolygon(p);
         }
 
+        // Fenced industrial yards
+        if (!this.heightmap) {
+            canvas.setFillStyle(this.colourScheme.industrialYardColour);
+            canvas.setStrokeStyle(this.colourScheme.industrialFenceColour);
+            canvas.setLineWidth(Math.max(0.5, 0.4 * this.domainController.zoom));
+            for (const p of this.industrialYards) canvas.drawPolygon(p);
+        }
+
         // Road outline
         canvas.setStrokeStyle(this.colourScheme.minorRoadOutline);
         canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.minorWidth * this.domainController.zoom);
         for (const s of this.minorRoads) canvas.drawPolyline(s);
         for (const s of this.frontageRoads) canvas.drawPolyline(s);
+        for (const s of this.industrialRoads) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadOutline);
         canvas.setLineWidth(this.colourScheme.outlineSize + this.colourScheme.majorWidth * this.domainController.zoom);
@@ -229,6 +258,7 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
         for (const s of this.minorRoads) canvas.drawPolyline(s);
         for (const s of this.frontageRoads) canvas.drawPolyline(s);
+        for (const s of this.industrialRoads) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
@@ -370,6 +400,16 @@ export class RoughStyle extends Style {
 
         canvas.drawPolygon(this.river);
 
+        // Port
+        canvas.setOptions({
+            fill: this.colourScheme.quayColour,
+        });
+        this.portLand.forEach(p => canvas.drawPolygon(p));
+        canvas.setOptions({
+            fill: this.colourScheme.seaColour,
+        });
+        this.portWater.forEach(p => canvas.drawPolygon(p));
+
         // Parks
         canvas.setOptions({
             fill: this.colourScheme.grassColour,
@@ -387,6 +427,10 @@ export class RoughStyle extends Style {
             });
             this.industrialAreas.forEach(p => canvas.drawPolygon(p));
         }
+        canvas.setOptions({
+            fill: this.colourScheme.industrialYardColour,
+        });
+        this.industrialYards.forEach(p => canvas.drawPolygon(p));
 
         // Roads
         canvas.setOptions({
@@ -397,6 +441,7 @@ export class RoughStyle extends Style {
 
         this.minorRoads.forEach(s => canvas.drawPolyline(s));
         this.frontageRoads.forEach(s => canvas.drawPolyline(s));
+        this.industrialRoads.forEach(s => canvas.drawPolyline(s));
 
         canvas.setOptions({
             strokeWidth: 2,
