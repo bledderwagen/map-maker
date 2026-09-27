@@ -77,6 +77,8 @@ export default abstract class Style {
     public industrialAreas: Vector[][] = [];
     public portLand: Vector[][] = [];
     public portWater: Vector[][] = [];
+    public pools: Vector[][] = [];
+    public districts: {polygon: Vector[]; income: number}[] = [];
 
     // Polylines
     public coastline: Vector[] = [];
@@ -92,6 +94,10 @@ export default abstract class Style {
     public industrialRoads: Vector[][] = [];
     public showFrame: boolean;
     public showZones = true;
+    public showDistricts = false;
+
+    // Income from low to wealthy, mixed into the background for the district tint
+    private static readonly INCOME_RAMP = ['rgb(205,70,50)', 'rgb(235,150,60)', 'rgb(230,210,110)', 'rgb(120,185,110)', 'rgb(50,130,175)'];
 
     constructor(protected dragController: DragController, protected colourScheme: ColourScheme) {
         if (!colourScheme.bgColour) log.error("ColourScheme Error - bgColour not defined");
@@ -174,6 +180,13 @@ export default abstract class Style {
         }
         this.woodTile = tile;
         return tile;
+    }
+
+    protected districtColour(income: number, strength: number): string {
+        const ramp = Style.INCOME_RAMP;
+        const x = Math.max(0, Math.min(ramp.length - 1, income * (ramp.length - 1)));
+        const i = Math.min(ramp.length - 2, Math.floor(x));
+        return Util.mixColours(this.colourScheme.bgColour, Util.mixColours(ramp[i], ramp[i + 1], x - i), strength);
     }
 
     protected roofColour(zone: Zone): string {
@@ -286,6 +299,15 @@ export class DefaultStyle extends Style {
             canvas.setLineWidth(1);
         }
 
+        // Districts, tinted by income
+        if (this.showDistricts && !this.heightmap) {
+            for (const d of this.districts) {
+                canvas.setFillStyle(this.districtColour(d.income, 0.35));
+                canvas.setStrokeStyle(this.districtColour(d.income, 0.35));
+                canvas.drawPolygon(d.polygon);
+            }
+        }
+
         // Land use
         if (this.showZones && !this.heightmap) {
             canvas.setFillStyle(this.colourScheme.lowIncomeColour);
@@ -364,6 +386,12 @@ export class DefaultStyle extends Style {
         } else {
             // Buildings
             if (!this.colourScheme.zoomBuildings || this.domainController.zoom >= 2) {
+                canvas.setFillStyle(this.colourScheme.seaColour);
+                canvas.setStrokeStyle(this.colourScheme.seaColour);
+                canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
+                for (const p of this.pools) canvas.drawPolygon(p);
+                canvas.setLineWidth(1);
+
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.lots) canvas.drawPolygon(b);
@@ -512,6 +540,16 @@ export class RoughStyle extends Style {
             strokeWidth: 1,
         });
 
+        // Districts, tinted by income
+        if (this.showDistricts) {
+            for (const d of this.districts) {
+                canvas.setOptions({
+                    fill: this.districtColour(d.income, 0.35),
+                });
+                canvas.drawPolygon(d.polygon);
+            }
+        }
+
         // Land use
         if (this.showZones) {
             canvas.setOptions({
@@ -581,6 +619,12 @@ export class RoughStyle extends Style {
                     strokeWidth: 0.4,
                 });
                 for (const f of this.fences) canvas.drawPolyline(f);
+                canvas.setOptions({
+                    roughness: 0.5,
+                    stroke: 'none',
+                    fill: this.colourScheme.seaColour,
+                });
+                for (const p of this.pools) canvas.drawPolygon(p);
             }
 
             // Pseudo-3D

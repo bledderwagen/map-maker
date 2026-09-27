@@ -8,7 +8,7 @@ import {PolygonParams} from '../impl/polygon_finder';
 import PolygonUtil from '../impl/polygon_util';
 import Zoning, {Zone} from '../impl/zoning';
 import IndustrialLayout, {IndustrialParams} from '../impl/industrial_layout';
-import YardHouseLayout from '../impl/yard_houses';
+import YardHouseLayout, {YardHouses} from '../impl/yard_houses';
 import * as SimplexNoise from 'simplex-noise';
 import BuildingCleanup, {RoadClearance} from '../impl/building_cleanup';
 
@@ -112,6 +112,7 @@ export default class Buildings {
     private _models: BuildingModels = new BuildingModels([], []);
     private _blocks: Vector[][] = [];
     private zoneBlocks: Vector[][][] = [[], [], []];  // Indexed by Zone, world space
+    private blockIncomes: number[][] = [[], [], []];  // Income of each block in zoneBlocks, 0-1
     private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
@@ -124,7 +125,11 @@ export default class Buildings {
     private _waterfrontParks: Vector[][] = [];
     private lowIncomeHouses: Vector[][] = [];
     private lowIncomeFences: Vector[][] = [];
+    private yardFences: Vector[][] = [];  // Chain link round working class yards
+    private pools: Vector[][] = [];
     private zoning: Zoning = null;
+    // Blocks within this much income of the low income line may fall either side of it
+    private readonly INCOME_SPREAD = 0.08;
 
     private buildingParams: PolygonParams = {
         maxLength: 20,
@@ -203,8 +208,12 @@ export default class Buildings {
         return this.toScreen(this.lowIncomeHouses);
     }
 
-    get lowIncomeFenceLines(): Vector[][] {
-        return this.toScreen(this.lowIncomeFences);
+    get fenceLines(): Vector[][] {
+        return this.toScreen(this.lowIncomeFences.concat(this.yardFences));
+    }
+
+    get swimmingPools(): Vector[][] {
+        return this.toScreen(this.pools);
     }
 
     get industrialLots(): Vector[][] {
@@ -274,6 +283,7 @@ export default class Buildings {
     reset(): void {
         for (const f of this.polygonFinders) f.reset();
         this.zoneBlocks = [[], [], []];
+        this.blockIncomes = [[], [], []];
         this.industrialBuildings = [];
         this.industrialRoads = [];
         this.residentialHouses = [];
@@ -281,6 +291,8 @@ export default class Buildings {
         this.waterfrontNoise = new SimplexNoise();
         this.lowIncomeHouses = [];
         this.lowIncomeFences = [];
+        this.yardFences = [];
+        this.pools = [];
         this._models = new BuildingModels([], []);
     }
 
@@ -305,7 +317,7 @@ export default class Buildings {
         const blockFinder = new PolygonFinder(g.nodes, blockParams, this.tensorField);
         blockFinder.findPolygons();
 
-        this.zoneBlocks = this.zoneAndClipBlocks(blockFinder.polygons);
+        this.zoneAndClipBlocks(blockFinder.polygons);
         this.polygonFinders = this.createPolygonFinders();
         for (const zone of [Zone.Residential, Zone.LowIncome]) {
             this.polygonFinders[zone].setPolygons(this.zoneBlocks[zone]);
@@ -315,10 +327,14 @@ export default class Buildings {
         await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
         this.layoutIndustry();
         // Houses sit in rows of lots along each block, like a real street grid
-        this.residentialHouses = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.Residential), YardHouseLayout.TIDY).houses;
-        const yards = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.LowIncome), YardHouseLayout.RUN_DOWN);
-        this.lowIncomeHouses = yards.houses;
-        this.lowIncomeFences = yards.fences;
+        // Lot size, house size, fences and pools follow the block's income
+        const residential = this.layoutHouses(Zone.Residential);
+        this.residentialHouses = residential.houses;
+        this.yardFences = residential.fences;
+        const lowIncome = this.layoutHouses(Zone.LowIncome);
+        this.lowIncomeHouses = lowIncome.houses;
+        this.lowIncomeFences = lowIncome.fences;
+        this.pools = residential.pools.concat(lowIncome.pools);
 
         // Nothing on the roads, and overlapping buildings either merged or removed
         const roads = this.roadClearance.concat(this.industrialRoads.map(line => ({line, halfWidth: 2.25})));
@@ -345,11 +361,28 @@ export default class Buildings {
         this.postGenerateCallback();
     }
 
+    private layoutHouses(zone: Zone): YardHouses {
+        const out: YardHouses = {houses: [], fences: [], pools: []};
+        const incomes = this.blockIncomes[zone];
+        this.zoneBlocks[zone].forEach((block, i) => {
+            const shrunk = this.shrink(block);
+            if (shrunk === null) return;
+            const style = YardHouseLayout.forIncome(incomes[i]);
+            // Low income yards are always fenced, working class ones sometimes
+            if (zone === Zone.LowIncome) style.fenceChance = 1;
+            else style.fenceChance = Math.min(style.fenceChance, 0.5);
+            YardHouseLayout.layoutBlocks([shrunk], style, out);
+        });
+        return out;
+    }
+
     /**
      * Cuts highway verges and interchanges out of blocks, then sorts blocks by zone
+     * Each residential block gets an income from its district, which decides whether it is low income
      */
-    private zoneAndClipBlocks(blocks: Vector[][]): Vector[][][] {
+    private zoneAndClipBlocks(blocks: Vector[][]): void {
         const out: Vector[][][] = [[], [], []];
+        const incomes: number[][] = [[], [], []];
         const zoned = this.zoning !== null && this.zoning.enabled;
 
         // Blocks are only tested for water at their centre, so cut away any water they overlap
@@ -362,15 +395,25 @@ export default class Buildings {
             const holes = exclusions.filter((e, i) => PolygonUtil.boundingBoxesOverlap(box, exclusionBoxes[i]));
             const pieces = holes.length === 0 ? [block] : PolygonUtil.subtractPolygons(block, holes, this.lowIncomeParams.minArea);
             for (const piece of pieces) {
-                const zone = zoned ? this.zoning.zoneAt(PolygonUtil.averagePoint(piece)) : Zone.Residential;
+                const centre = PolygonUtil.averagePoint(piece);
+                let zone = zoned ? this.zoning.zoneAt(centre) : Zone.Residential;
                 if (zone !== Zone.Industrial && this.becomesWaterfrontPark(piece)) {
                     this._waterfrontParks.push(piece);
                     continue;
                 }
+                let income = 0.5;
+                if (zone !== Zone.Industrial) {
+                    income = zoned ? this.zoning.incomeAt(centre) : 0.5;
+                    // Near the line it's down to chance, so poorer districts fray at the edges
+                    income = Math.max(0, Math.min(1, income + this.INCOME_SPREAD * 2 * (Math.random() - 0.5)));
+                    zone = income < Zoning.LOW_INCOME_LINE ? Zone.LowIncome : Zone.Residential;
+                }
                 out[zone].push(piece);
+                incomes[zone].push(income);
             }
         }
-        return out;
+        this.zoneBlocks = out;
+        this.blockIncomes = incomes;
     }
 
     /**
@@ -399,14 +442,10 @@ export default class Buildings {
         return beach > 6 ? stretch > -0.4 : stretch > 0.35;
     }
 
-    private shrunkBlocks(zone: Zone): Vector[][] {
-        const out: Vector[][] = [];
-        for (const block of this.zoneBlocks[zone]) {
-            const shrunk = PolygonUtil.resizeGeometry(block, -this.buildingParams.shrinkSpacing);
-            if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
-            if (shrunk.length >= 3) out.push(shrunk);
-        }
-        return out;
+    private shrink(block: Vector[]): Vector[] {
+        const shrunk = PolygonUtil.resizeGeometry(block, -this.buildingParams.shrinkSpacing);
+        if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
+        return shrunk.length >= 3 ? shrunk : null;
     }
 
     /**

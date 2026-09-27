@@ -62,12 +62,32 @@ Highways, industry and low income neighbourhoods are generated together, because
 ![A port with equal length piers next to fenced industrial parcels](docs/images/port.png)
 ![Industrial parcels with setbacks, yards and service roads](docs/images/industrial-parcels.png)
 
-* **Low income neighbourhoods** sit on one side of the main freeway, the side with the industry: the freeway divides the city. They surround the industry and run in a wide band along the highway. Each house is a small, slightly crooked building in its own fenced yard, sizes and positions vary, some have a shed out back and a few lots stand empty.
+* **Districts and income**: the areas enclosed by highways, main and major roads are the city's districts, roughly the size of real neighbourhoods. Each district is assigned an income level, and housing shades gradually from low income to wealthy across the city, as it does in real life, rather than switching between two kinds of neighbourhood. A district's income comes from how desirable its land is:
+  * industry drags it down strongly, and highways a little;
+  * the main freeway divides the city, and the side with the industry is the poorer one;
+  * water views lift it;
+  * one side of town, as far from industry as the city allows and preferably by the water, is the well-off side (Hoyt's sector model);
+  * slow noise makes some areas simply more or less fashionable, and each district gets a little character of its own.
 
+  Districts are ranked by this score, weighted by area, and the ranking sets their income. Each block's income is mostly its district's, shading towards the local value near district edges. Near the low income line it's down to chance which side a block falls on, so poorer districts fray at the edges instead of ending at a hard line. `lowIncomeAmount` sets the share of residential land that is low income.
+* **Housing follows income**, blending between five styles:
+
+  | | Lots | Houses | Yards |
+  |---|---|---|---|
+  | Low income | 15 m wide | small, a little crooked, some lots empty | chain link fences, some sheds |
+  | Working class | 14 m | small and plain | some blocks fenced |
+  | Middle | 14 m | neat, square to the street | sheds and garages |
+  | Upper middle | 20 m | bigger, further back, some L shaped | garages, some pools |
+  | Wealthy | 30 m | big, well back from the street, often L shaped | many pools |
+
+  Style → `showDistricts` tints each district by income, from red (low) through yellow (middle) to blue (wealthy).
+
+![Districts tinted by income, from low income by the freeway and industry to wealthy by the water](docs/images/districts.png)
+![Housing grading from small fenced lots by the freeway to large houses with pools](docs/images/income-gradient.png)
 ![Low income houses in fenced yards](docs/images/low-income-yards.png)
 
 * **Zoning controls**: `numIndustrialZones`, `industrialSize`, `lowIncomeAmount` and `portChance`; Buildings has `lowIncomeLotArea`, `industrialParcelWidth` and `industrialSetback`. `Regenerate` picks new industrial sites and rebuilds side streets and buildings without touching the main road network.
-* **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour`, `lowIncomeBuildingColour`, `sandColour` and `pathColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
+* **Map colours**: industry, ports and low income housing use the colour scheme's normal colours and are recognisable by their shapes. Highways have their own colour. Style → `showZones` adds an optional tint showing land use, and `showDistricts` one showing income. Pools use the scheme's `seaColour`. Each colour scheme can set `highwayColour`, `highwayOutline`, `highwayWidth`, `rampWidth`, `industrialColour`, `industrialBuildingColour`, `lowIncomeColour`, `lowIncomeBuildingColour`, `sandColour` and `pathColour` in `src/colour_schemes.json`; anything left out is derived from the scheme's other colours.
 * **Rivers shaped by erosion**: rivers are grown with the Howard & Knutson meander model. Outer banks erode fastest a little past each bend's apex, so bends grow and drift downstream, and when a loop's neck narrows to the channel width the river cuts through and leaves an oxbow lake. Rivers widen towards the mouth, flow into the sea where they reach it, and have sand bars on the inside of tight bends. The meander belt is a partly wooded riverside park with paths along both banks; bridges cross it in a straight line; the bank roads run outside it, sometimes right by the water, sometimes well back.
 * **Coasts shaped by waves**: the shoreline is evolved with the one-line (CERC) model used in coastal engineering. Waves arriving at an angle carry sand along the shore, and soft rock is cut back while hard rock survives, giving rocky headlands with smooth curved bays and beaches between them.
 * **Waterfronts**: the coast road runs behind the waterfront instead of on the water's edge. In places it's a promenade just behind the beach, elsewhere a row of waterfront houses or a park sits between the road and the water. Waterfront blocks with a beach are usually parks with a promenade.

@@ -740,7 +740,12 @@ export default class MainGUI {
         style.paths = this.coastline.riversidePaths.concat(this.toScreen(this.parkPaths)).concat(this.toScreen(this.waterfrontPaths));
         style.lots = this.buildings.lots;
         style.lowIncomeLots = this.buildings.lowIncomeLots;
-        style.fences = this.buildings.lowIncomeFenceLines;
+        style.fences = this.buildings.fenceLines;
+        style.pools = this.buildings.swimmingPools;
+        style.districts = this.zoning.districts.filter(d => !d.industrial).map(d => ({
+            polygon: d.polygon.map(v => this.domainController.worldToScreen(v.clone())),
+            income: d.income,
+        }));
         style.industrialLots = this.buildings.industrialLots;
         style.lowIncomeAreas = this.buildings.lowIncomeBlocks;
         style.industrialAreas = this.buildings.industrialBlocks;

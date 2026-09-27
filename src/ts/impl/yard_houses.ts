@@ -6,6 +6,7 @@ import * as simplify from 'simplify-js';
 export interface YardHouses {
     houses: Vector[][];  // World space
     fences: Vector[][];  // Closed polylines around each lot
+    pools: Vector[][];
 }
 
 export interface YardStyle {
@@ -13,45 +14,126 @@ export interface YardStyle {
     wander: number;  // 0-1, how far houses stray from where they should be
     vacantChance: number;
     shedChance: number;
-    fences: boolean;
+    fenceChance: number;  // Chance a block has chain link fences round its yards
     frontage: number;  // Typical lot width along the street, world units (1 unit = 2 m)
     maxDepth: number;  // Deepest a lot gets before the block is split into two rows
+    houseWidth: number;  // Fraction of the lot width, give or take 0.1
+    houseAspect: number;  // Depth over width, give or take a quarter
+    setback: number;  // From the street
+    wingChance: number;  // Chance of an L shaped house
+    poolChance: number;
 }
 
 /**
  * Detached houses, each in its own yard
  */
 export default class YardHouseLayout {
-    // Neat houses square to the street
-    static readonly TIDY: YardStyle = {
-        crookedness: 0.03,
-        wander: 0.3,
-        vacantChance: 0.01,
-        shedChance: 0.5,
-        fences: false,
-        frontage: 7,  // 14 m, measured lots are 8-15 m wide
-        maxDepth: 25,
-    };
-
     // Houses sitting a little crookedly behind chain link fences, some lots empty
     static readonly RUN_DOWN: YardStyle = {
         crookedness: 0.25,
         wander: 0.6,
         vacantChance: 0.18,
         shedChance: 0.3,
-        fences: true,
+        fenceChance: 1,
         frontage: 7.5,
         maxDepth: 25,
+        houseWidth: 0.65,
+        houseAspect: 1.65,
+        setback: 3,
+        wingChance: 0,
+        poolChance: 0,
     };
+
+    // Small, plain houses, kept up
+    static readonly WORKING_CLASS: YardStyle = {
+        crookedness: 0.1,
+        wander: 0.4,
+        vacantChance: 0.04,
+        shedChance: 0.45,
+        fenceChance: 0.4,
+        frontage: 7,
+        maxDepth: 24,
+        houseWidth: 0.65,
+        houseAspect: 1.65,
+        setback: 3,
+        wingChance: 0.05,
+        poolChance: 0,
+    };
+
+    // Neat houses square to the street
+    static readonly TIDY: YardStyle = {
+        crookedness: 0.03,
+        wander: 0.3,
+        vacantChance: 0.01,
+        shedChance: 0.5,
+        fenceChance: 0,
+        frontage: 7,  // 14 m, measured lots are 8-15 m wide
+        maxDepth: 25,
+        houseWidth: 0.65,
+        houseAspect: 1.65,
+        setback: 3.5,
+        wingChance: 0.1,
+        poolChance: 0.03,
+    };
+
+    // Wider lots, bigger houses further back, garages and a few pools
+    static readonly COMFORTABLE: YardStyle = {
+        crookedness: 0.02,
+        wander: 0.3,
+        vacantChance: 0.005,
+        shedChance: 0.6,
+        fenceChance: 0,
+        frontage: 10,
+        maxDepth: 30,
+        houseWidth: 0.6,
+        houseAspect: 1.3,
+        setback: 5,
+        wingChance: 0.3,
+        poolChance: 0.2,
+    };
+
+    // Big houses well back from the street on deep lots, many with pools
+    static readonly WEALTHY: YardStyle = {
+        crookedness: 0.03,
+        wander: 0.45,
+        vacantChance: 0.01,
+        shedChance: 0.45,
+        fenceChance: 0,
+        frontage: 15,  // 30 m
+        maxDepth: 40,
+        houseWidth: 0.52,
+        houseAspect: 1.05,
+        setback: 8,
+        wingChance: 0.55,
+        poolChance: 0.6,
+    };
+
+    /**
+     * Housing along the income gradient, blended between the styles either side of income
+     * @param income 0 poorest to 1 richest
+     */
+    static forIncome(income: number): YardStyle {
+        const styles = [YardHouseLayout.RUN_DOWN, YardHouseLayout.WORKING_CLASS, YardHouseLayout.TIDY,
+            YardHouseLayout.COMFORTABLE, YardHouseLayout.WEALTHY];
+        // Styles sit in the middle of each income band
+        const x = Math.max(0, Math.min(styles.length - 1, income * styles.length - 0.5));
+        const i = Math.min(styles.length - 2, Math.floor(x));
+        const t = x - i;
+        const a = styles[i] as any;
+        const b = styles[i + 1] as any;
+        const out: any = {};
+        for (const key of Object.keys(a)) out[key] = a[key] * (1 - t) + b[key] * t;
+        return out as YardStyle;
+    }
 
     /**
      * Lines each side of every block with lots facing the street, like a real street grid,
      * with back yards meeting in the middle, and puts a house near the front of each lot
      */
-    static layoutBlocks(blocks: Vector[][], style: YardStyle): YardHouses {
-        const out: YardHouses = {houses: [], fences: []};
+    static layoutBlocks(blocks: Vector[][], style: YardStyle, out: YardHouses = {houses: [], fences: [], pools: []}): YardHouses {
         for (const raw of blocks) {
             if (raw.length < 3) continue;
+            const blockStyle = Object.assign({}, style, {fenceChance: Math.random() < style.fenceChance ? 1 : 0});
             // Straighten out small wiggles so curved blocks still get long edges
             let block: Vector[] = simplify(raw.map(v => ({x: v.x, y: v.y})), 1.5, true).map((p: {x: number; y: number}) => new Vector(p.x, p.y));
             if (block.length > 3 && block[0].equals(block[block.length - 1])) block.pop();
@@ -67,20 +149,20 @@ export default class YardHouseLayout {
                 const a = block[i];
                 const b = block[(i + 1) % block.length];
                 const length = a.distanceTo(b);
-                if (length < 0.8 * style.frontage) continue;
+                if (length < 0.8 * blockStyle.frontage) continue;
                 const t = b.clone().sub(a).divideScalar(length);
                 const n = clockwise ? new Vector(t.y, -t.x) : new Vector(-t.y, t.x);  // Inwards
                 const frame = new LocalFrame(a, t, n);
 
                 const across = YardHouseLayout.distanceAcross(block, frame.toWorld(length / 2, 0.1), n);
-                const depth = Math.min(style.maxDepth, across / 2);
+                const depth = Math.min(blockStyle.maxDepth, across / 2);
                 if (depth < 5) continue;
 
                 // Lots of slightly varied width filling the edge exactly
                 const widths: number[] = [];
                 let total = 0;
-                while (total < length - 0.5 * style.frontage) {
-                    const w = style.frontage * (0.8 + 0.5 * Math.random());
+                while (total < length - 0.5 * blockStyle.frontage) {
+                    const w = blockStyle.frontage * (0.8 + 0.5 * Math.random());
                     widths.push(w);
                     total += w;
                 }
@@ -91,7 +173,7 @@ export default class YardHouseLayout {
                     const front = frame.toWorld(u + w / 2, 2);
                     // Corners are already taken by the lots of a longer edge
                     if (!lots.some(l => PolygonUtil.insidePolygon(front, l))) {
-                        const lot = YardHouseLayout.addLot(out, block, frame, u, u + w, depth, style, lots);
+                        const lot = YardHouseLayout.addLot(out, block, frame, u, u + w, depth, blockStyle, lots);
                         if (lot !== null) lots.push(lot);
                     }
                     u += w;
@@ -142,7 +224,7 @@ export default class YardHouseLayout {
         const W = u1 - u0;
         const D = v1 - v0;
         if (W < 3 || D < 5) return;
-        if (style.fences) {
+        if (style.fenceChance >= 1) {
             const fence = lot.slice();
             fence.push(lot[0]);
             out.fences.push(fence);
@@ -161,86 +243,67 @@ export default class YardHouseLayout {
         };
         const inside = (polygon: Vector[]): boolean => polygon.every(p => PolygonUtil.insidePolygon(p, lot));
 
-        const houseWidth = W * (0.55 + 0.2 * Math.random());
+        const houseWidth = W * (style.houseWidth - 0.1 + 0.2 * Math.random());
         // Houses on narrow lots are deep rather than wide, as in the measured neighbourhoods
-        const houseDepth = Math.min(D * 0.6, houseWidth * (1.3 + 0.7 * Math.random()));
-        const setback = Math.min(D * 0.25, 2.5 + 2 * Math.random() + style.wander * 3 * Math.random());
+        const houseDepth = Math.min(D * 0.6, houseWidth * style.houseAspect * (0.8 + 0.4 * Math.random()));
+        const setback = Math.min(D * 0.25, style.setback * (0.7 + 0.6 * Math.random()) + style.wander * 3 * Math.random());
         const offset = (W - houseWidth) / 2 + (Math.random() - 0.5) * (W - houseWidth) * style.wander;
 
         for (let attempt = 0; attempt < 3; attempt++) {
             const scale = 1 - 0.15 * attempt;
             const a0 = offset + houseWidth * (1 - scale) / 2;
-            const house = rect(a0, a0 + houseWidth * scale, setback, setback + houseDepth * scale);
+            const a1 = a0 + houseWidth * scale;
+            const back = setback + houseDepth * scale;
+            const house = rect(a0, a1, setback, back);
             if (!inside(house)) continue;
             out.houses.push(house);
 
+            if (Math.random() < style.wingChance) {
+                // A wing off the back half of one side, merged into an L shaped house later
+                const onLeft = Math.random() < 0.5;
+                const free = onLeft ? a0 : W - a1;
+                const w = Math.min(houseWidth * scale * (0.35 + 0.2 * Math.random()), free - 1.2);
+                if (w > 2) {
+                    const d0 = setback + houseDepth * scale * (0.3 + 0.25 * Math.random());
+                    const wing = onLeft ? rect(a0 - w, a0 + 0.3, d0, back) : rect(a1 - 0.3, a1 + w, d0, back);
+                    if (inside(wing)) out.houses.push(wing);
+                }
+            }
+
+            // The shed takes one back corner, a pool goes beside it if there is room
+            let freeA0 = 1, freeA1 = W - 1;
             if (Math.random() < style.shedChance) {
                 // Garage or shed at the back of the lot
                 const s = Math.min(W * 0.45, 3 + Math.random() * 1.5);
                 const onLeft = Math.random() < 0.5;
                 const sa0 = onLeft ? 1 : W - 1 - s;
                 const shed = rect(sa0, sa0 + s, D - 1.5 - s, D - 1.5);
-                if (inside(shed)) out.houses.push(shed);
+                if (inside(shed)) {
+                    out.houses.push(shed);
+                    if (onLeft) freeA0 = sa0 + s + 1; else freeA1 = sa0 - 1;
+                }
+            }
+
+            if (Math.random() < style.poolChance) {
+                // Pools are about 4-6 x 8-11 m, set in the back yard
+                const short = 2 + Math.random();
+                const long = 4 + 1.5 * Math.random();
+                const d0 = back + 1.5;
+                const d1 = D - 1.5;
+                const room = freeA1 - freeA0;
+                let pool: Vector[] = null;
+                if (room >= long && d1 - d0 >= short) {
+                    const pa = freeA0 + (room - long) * Math.random();
+                    const pd = d0 + (d1 - d0 - short) * (0.3 + 0.4 * Math.random());
+                    pool = rect(pa, pa + long, pd, pd + short);
+                } else if (room >= short && d1 - d0 >= long) {
+                    const pa = freeA0 + (room - short) * Math.random();
+                    const pd = d0 + (d1 - d0 - long) * 0.5;
+                    pool = rect(pa, pa + short, pd, pd + long);
+                }
+                if (pool !== null && inside(pool)) out.pools.push(pool);
             }
             return;
         }
-    }
-
-    static layout(lots: Vector[][], style: YardStyle): YardHouses {
-        const out: YardHouses = {houses: [], fences: []};
-        for (const lot of lots) {
-            if (lot.length < 3) continue;
-            if (style.fences) {
-                const fence = lot.slice();
-                fence.push(lot[0]);
-                out.fences.push(fence);
-            }
-            if (Math.random() < style.vacantChance) continue;
-            out.houses.push(...YardHouseLayout.housesFor(lot, style));
-        }
-        return out;
-    }
-
-    private static housesFor(lot: Vector[], style: YardStyle): Vector[][] {
-        const bounds = LocalFrame.orientedBounds(lot);
-        if (bounds === null) return [];
-        const {umin, umax, vmin, vmax} = bounds;
-        const W = umax - umin;
-        const D = vmax - vmin;
-        if (W < 4 || D < 4) return [];
-
-        const inside = (polygon: Vector[]): boolean => polygon.every(p => PolygonUtil.insidePolygon(p, lot));
-
-        const angle = (Math.random() - 0.5) * 2 * style.crookedness;
-        const t = bounds.frame.t;
-        const rt = new Vector(t.x * Math.cos(angle) - t.y * Math.sin(angle), t.x * Math.sin(angle) + t.y * Math.cos(angle));
-        const centre = bounds.frame.toWorld((umin + umax) / 2, (vmin + vmax) / 2);
-
-        // Houses take up roughly a quarter of the lot
-        const w = W * (0.45 + 0.2 * Math.random());
-        const d = D * (0.4 + 0.2 * Math.random());
-        const cu = (Math.random() - 0.5) * (W - w) * style.wander;
-        const cv = (Math.random() - 0.5) * (D - d) * style.wander;
-
-        for (let attempt = 0; attempt < 4; attempt++) {
-            const scale = 1 - 0.15 * attempt;
-            const frame = new LocalFrame(centre, rt, new Vector(-rt.y, rt.x));
-            const hw = w * scale / 2;
-            const hd = d * scale / 2;
-            const house = frame.rect(cu * scale - hw, cu * scale + hw, cv * scale - hd, cv * scale + hd);
-            if (!inside(house)) continue;
-
-            const out = [house];
-            if (Math.random() < style.shedChance) {
-                // Shed or garage in a corner away from the house
-                const s = Math.min(W, D) * 0.14 + 1;
-                const su = Math.sign(-cu || 1) * (W / 2 - s - 1.5);
-                const sv = Math.sign(-cv || 1) * (D / 2 - s - 1.5);
-                const shed = frame.rect(su - s / 2, su + s / 2, sv - s / 2, sv + s / 2);
-                if (inside(shed) && !PolygonUtil.insidePolygon(PolygonUtil.averagePoint(shed), house)) out.push(shed);
-            }
-            return out;
-        }
-        return [];
     }
 }

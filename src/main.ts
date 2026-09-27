@@ -44,6 +44,7 @@ class Main {
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
     private showFrame: boolean = false;
     private showZones: boolean = false;  // Tint industrial and low income areas
+    private showDistricts: boolean = false;  // Tint each district by income
 
     // Force redraw of roads when switching from tensor vis to map vis
     private previousFrameDrawTensor = true;
@@ -100,6 +101,11 @@ class Main {
         this.styleFolder.add(this, 'showZones').onChange((val: boolean) => {
             this.previousFrameDrawTensor = true;
             this._style.showZones = val;
+        });
+
+        this.styleFolder.add(this, 'showDistricts').onChange((val: boolean) => {
+            this.previousFrameDrawTensor = true;
+            this._style.showDistricts = val;
         });
 
         this.styleFolder.add(this.domainController, 'orthographic');
@@ -160,6 +166,7 @@ class Main {
         }
         this._style.showFrame = this.showFrame;
         this._style.showZones = this.showZones;
+        this._style.showDistricts = this.showDistricts;
         this.changeCanvasScale(this.highDPI);
     }
 
