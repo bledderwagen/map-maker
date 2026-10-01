@@ -22,6 +22,33 @@
 // // Scheme name startsWith 'Heightmap' draws heightmap
 
 {
+    "OpenStreetMap": {  // Colours of the standard OpenStreetMap map (OpenStreetMap Carto)
+        "bgColour": "#f2efe9",
+        "buildingColour": "#d9d0c9",
+        "buildingStroke": "#c4b6ab",
+        "seaColour": "#aad3df",
+        "grassColour": "#c8facc",
+        "treeColour": "#add19e",
+        "sandColour": "#fff1ba",
+        "residentialColour": "#e0dfdf",
+        "industrialColour": "#ebdbe8",
+        "minorRoadColour": "#ffffff",
+        "minorRoadOutline": "#bbbbbb",
+        "tertiaryRoadColour": "#ffffff",
+        "tertiaryRoadOutline": "#8f8f8f",
+        "majorRoadColour": "#f7fabf",
+        "majorRoadOutline": "#707d05",
+        "mainRoadColour": "#fcd6a4",
+        "mainRoadOutline": "#a06b00",
+        "highwayColour": "#e892a2",
+        "highwayOutline": "#dc2a67",
+        "minorWidth": 6,
+        "majorWidth": 8.5,
+        "mainWidth": 9.5,
+        "highwayWidth": 15,
+        "rampWidth": 5.5,
+        "outlineSize": 1,
+    },
     "Default": {
         "bgColour": "rgb(236,229,219)",
         "buildingStroke": "#282828",

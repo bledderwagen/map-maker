@@ -41,6 +41,7 @@ export default class WaterGenerator extends StreamlineGenerator {
     private _lakes: Vector[][] = [];  // Oxbow lakes
     private _sandBars: Vector[][] = [];
     private _riversidePaths: Vector[][] = [];
+    private _riverCentreline: Vector[] = [];  // For labelling
     private noise = new SimplexNoise();
 
     constructor(integrator: FieldIntegrator,
@@ -105,6 +106,10 @@ export default class WaterGenerator extends StreamlineGenerator {
 
     get riversidePaths(): Vector[][] {
         return this._riversidePaths;
+    }
+
+    get riverCentreline(): Vector[] {
+        return this._riverCentreline;
     }
 
     createCoast(): void {
@@ -353,6 +358,7 @@ export default class WaterGenerator extends StreamlineGenerator {
             fixed: v => PolygonUtil.insidePolygon(v, this._seaPolygon),
         });
         this._riverPolygon = meander.channel;
+        this._riverCentreline = meander.centreline;
         const onLand = (polygon: Vector[]): boolean => !PolygonUtil.insidePolygon(PolygonUtil.averagePoint(polygon), this._seaPolygon);
         this._sandBars = meander.pointBars.filter(onLand);
         this._lakes = meander.oxbows.map(o => PolygonUtil.resizeGeometry(o, 0.35 * width, false)).filter(l => l.length >= 3 && onLand(l));

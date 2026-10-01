@@ -11,6 +11,9 @@ import DomainController from './domain_controller';
 import Vector from '../vector';
 import {BuildingModel} from './buildings';
 import {Zone} from '../impl/zoning';
+import {StreetNameSets} from '../impl/place_names';
+import Labeller, {LabelStyle} from './labeller';
+import PointsOfInterest from '../impl/points_of_interest';
 
 export interface ColourScheme {
     bgColour: string;
@@ -45,6 +48,35 @@ export interface ColourScheme {
     sandColour?: string;  // Beaches and sand bars
     pathColour?: string;  // Footpaths in parks
     treeColour?: string;
+    // Used by the OpenStreetMap style
+    residentialColour?: string;  // Land use under houses
+    tertiaryRoadColour?: string;
+    tertiaryRoadOutline?: string;
+    serviceRoadColour?: string;
+    serviceRoadOutline?: string;
+    footwayColour?: string;
+    pitchColour?: string;
+    pitchOutline?: string;
+    bridgeOutline?: string;
+    labelColour?: string;
+    waterLabelColour?: string;
+    parkLabelColour?: string;
+    placeLabelColour?: string;
+    shieldColour?: string;
+    shieldOutline?: string;
+    fontFamily?: string;
+    retailColour?: string;
+    retailOutline?: string;
+    parkingColour?: string;
+    parkingOutline?: string;
+    poolOutline?: string;
+    shopLabelColour?: string;
+}
+
+export interface PlaceLabel {
+    text: string;
+    at: Vector;  // Screen space
+    kind: 'neighbourhood' | 'park' | 'mall' | 'apartments';
 }
 
 /**
@@ -77,6 +109,23 @@ export default abstract class Style {
     public industrialAreas: Vector[][] = [];
     public portLand: Vector[][] = [];
     public portWater: Vector[][] = [];
+    public residentialAreas: Vector[][] = [];
+    public pitches: Vector[][] = [];  // Closed outlines of sports pitches
+    public pitchMarkings: Vector[][] = [];  // Pitch lines, drawn like paths
+    public railways: Vector[][] = [];
+    public corridors: Vector[][] = [];  // Highway verges and interchanges
+    public retailAreas: Vector[][] = [];
+    public parkingLots: Vector[][] = [];
+    public parkingAisles: Vector[][] = [];
+    public pools: Vector[][] = [];
+    public largeBuildings: Vector[][] = [];  // Malls, shops and apartment blocks
+
+    // Names, only drawn by styles that label the map
+    public names: StreetNameSets = null;
+    public riverCentreline: Vector[] = [];
+    public riverName = '';
+    public seaName = '';
+    public placeLabels: PlaceLabel[] = [];
 
     // Polylines
     public coastline: Vector[] = [];
@@ -283,6 +332,7 @@ export class DefaultStyle extends Style {
             canvas.setStrokeStyle(this.colourScheme.pathColour);
             canvas.setLineWidth(Math.max(0.6, 1.3 * this.domainController.zoom));
             for (const p of this.paths) canvas.drawPolyline(p);
+            for (const p of this.pitchMarkings) canvas.drawPolyline(p);
             canvas.setLineWidth(1);
         }
 
@@ -319,6 +369,8 @@ export class DefaultStyle extends Style {
         for (const s of this.minorRoads) canvas.drawPolyline(s);
         for (const s of this.frontageRoads) canvas.drawPolyline(s);
         for (const s of this.industrialRoads) canvas.drawPolyline(s);
+        canvas.setLineWidth(0.4 * this.colourScheme.minorWidth * this.domainController.zoom);
+        for (const s of this.parkingAisles) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
@@ -329,6 +381,11 @@ export class DefaultStyle extends Style {
         canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
         for (const s of this.mainRoads) canvas.drawPolyline(s);
         for (const s of this.coastlineRoads) canvas.drawPolyline(s);
+
+        // Railways
+        canvas.setStrokeStyle(this.colourScheme.minorRoadOutline);
+        canvas.setLineWidth(1.5 * this.domainController.zoom);
+        for (const r of this.railways) canvas.drawPolyline(r);
 
         // Highways go over everything else
         const zoom = this.domainController.zoom;
@@ -367,6 +424,7 @@ export class DefaultStyle extends Style {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.lots) canvas.drawPolygon(b);
+                for (const b of this.largeBuildings) canvas.drawPolygon(b);
                 canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
                 for (const f of this.fences) canvas.drawPolyline(f);
                 canvas.setLineWidth(1);
@@ -507,6 +565,7 @@ export class RoughStyle extends Style {
             fill: 'none',
         });
         this.paths.forEach(p => canvas.drawPolyline(p));
+        this.pitchMarkings.forEach(p => canvas.drawPolyline(p));
         canvas.setOptions({
             stroke: 'none',
             strokeWidth: 1,
@@ -575,6 +634,7 @@ export class RoughStyle extends Style {
                     fill: '',
                 });
                 for (const b of this.lots) canvas.drawPolygon(b);
+                for (const b of this.largeBuildings) canvas.drawPolygon(b);
                 for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
                 for (const b of this.industrialLots) canvas.drawPolygon(b);
                 canvas.setOptions({
@@ -615,5 +675,347 @@ export class RoughStyle extends Style {
                 for (const b of this.buildingModels) canvas.drawPolygon(b.roof);
             }
         }
+    }
+}
+
+/**
+ * Looks like the standard OpenStreetMap map (OpenStreetMap Carto): its colours, road classes,
+ * land use fills, dashed footpaths, bridges and labels.
+ * At zoom 1 (1 world unit = 2 m per pixel) widths and text sizes match OSM zoom 16
+ */
+export class OsmStyle extends DefaultStyle {
+    constructor(c: HTMLCanvasElement, dragController: DragController, colourScheme: ColourScheme) {
+        super(c, dragController, colourScheme);
+        const cs = this.colourScheme;
+        if (!cs.residentialColour) cs.residentialColour = '#e0dfdf';
+        if (!cs.tertiaryRoadColour) cs.tertiaryRoadColour = '#ffffff';
+        if (!cs.tertiaryRoadOutline) cs.tertiaryRoadOutline = '#8f8f8f';
+        if (!cs.serviceRoadColour) cs.serviceRoadColour = '#ffffff';
+        if (!cs.serviceRoadOutline) cs.serviceRoadOutline = '#bbbbbb';
+        if (!cs.footwayColour) cs.footwayColour = '#fa8072';
+        if (!cs.pitchColour) cs.pitchColour = '#aae0cb';
+        if (!cs.pitchOutline) cs.pitchOutline = '#88cfb0';
+        if (!cs.bridgeOutline) cs.bridgeOutline = '#000000';
+        if (!cs.labelColour) cs.labelColour = '#222222';
+        if (!cs.waterLabelColour) cs.waterLabelColour = '#4d80b3';
+        if (!cs.parkLabelColour) cs.parkLabelColour = '#3c7a43';
+        if (!cs.placeLabelColour) cs.placeLabelColour = '#666666';
+        if (!cs.shieldColour) cs.shieldColour = '#f3c4ce';
+        if (!cs.shieldOutline) cs.shieldOutline = '#c2406a';
+        if (!cs.retailColour) cs.retailColour = '#ffd6d1';
+        if (!cs.retailOutline) cs.retailOutline = '#d99c95';
+        if (!cs.parkingColour) cs.parkingColour = '#eeeeee';
+        if (!cs.parkingOutline) cs.parkingOutline = '#d4d4d4';
+        if (!cs.poolOutline) cs.poolOutline = '#78bed2';
+        if (!cs.shopLabelColour) cs.shopLabelColour = '#ac39ac';
+        if (!cs.fontFamily) cs.fontFamily = '"Noto Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif';
+    }
+
+    /**
+     * Pixel mask of the river and lakes, to find where roads become bridges
+     */
+    private waterMask(width: number, height: number): (p: Vector) => boolean {
+        const c = document.createElement('canvas');
+        c.width = Math.ceil(width);
+        c.height = Math.ceil(height);
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#000';
+        for (const poly of [this.river].concat(this.lakes)) {
+            if (poly.length < 3) continue;
+            ctx.beginPath();
+            ctx.moveTo(poly[0].x, poly[0].y);
+            for (const v of poly) ctx.lineTo(v.x, v.y);
+            ctx.closePath();
+            ctx.fill();
+        }
+        const data = ctx.getImageData(0, 0, c.width, c.height).data;
+        return (p: Vector): boolean => {
+            const x = Math.round(p.x);
+            const y = Math.round(p.y);
+            if (x < 0 || y < 0 || x >= c.width || y >= c.height) return false;
+            return data[4 * (y * c.width + x) + 3] > 128;
+        };
+    }
+
+    /**
+     * Stretches of road over water, with a little margin onto the banks
+     */
+    private static bridgeRuns(line: Vector[], wet: (p: Vector) => boolean): Vector[][] {
+        const runs: Vector[][] = [];
+        const STEP = 2;
+        const pts: Vector[] = [];
+        for (let i = 0; i < line.length - 1; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            const n = Math.max(1, Math.ceil(a.distanceTo(b) / STEP));
+            for (let k = 0; k < n; k++) pts.push(a.clone().add(b.clone().sub(a).multiplyScalar(k / n)));
+        }
+        if (line.length > 0) pts.push(line[line.length - 1]);
+        let i = 0;
+        while (i < pts.length) {
+            if (!wet(pts[i])) {
+                i++;
+                continue;
+            }
+            let j = i;
+            while (j < pts.length && wet(pts[j])) j++;
+            const from = Math.max(0, i - 3);
+            const to = Math.min(pts.length - 1, j + 2);
+            if (to - from >= 2) runs.push(pts.slice(from, to + 1));
+            i = j;
+        }
+        return runs;
+    }
+
+    private strokeAll(canvas: DefaultCanvasWrapper, lines: Vector[][], colour: string, width: number): void {
+        canvas.setStrokeStyle(colour);
+        canvas.setLineWidth(width);
+        for (const l of lines) canvas.drawPolyline(l);
+    }
+
+    public draw(canvas=this.canvas as DefaultCanvasWrapper): void {
+        const cs = this.colourScheme;
+        const zoom = this.domainController.zoom;
+        canvas.setRoundLines(false);
+        canvas.setLineDash([]);
+
+        canvas.setFillStyle(cs.bgColour);
+        canvas.clearCanvas();
+
+        const fillAll = (polygons: Vector[][], colour: string, stroke = colour, width = 1): void => {
+            canvas.setFillStyle(colour);
+            canvas.setStrokeStyle(stroke);
+            canvas.setLineWidth(width);
+            for (const p of polygons) if (p.length >= 3) canvas.drawPolygon(p);
+        };
+
+        // Land use. Like OpenStreetMap's residential areas, it covers whole neighbourhoods,
+        // streets included, but not the land along the freeways
+        const screen = this.domainController.screenDimensions;
+        fillAll([[new Vector(-50, -50), new Vector(screen.x + 50, -50), new Vector(screen.x + 50, screen.y + 50), new Vector(-50, screen.y + 50)]],
+            cs.residentialColour);
+        fillAll(this.corridors, cs.bgColour);
+        fillAll(this.residentialAreas, cs.residentialColour);
+        fillAll(this.industrialAreas, cs.industrialColour);
+        fillAll(this.retailAreas, cs.retailColour, cs.retailOutline, 0.8);
+        fillAll(this.parkingLots, cs.parkingColour, cs.parkingOutline, 0.8);
+
+        // Green spaces
+        fillAll([this.floodplain], cs.grassColour);
+        fillAll(this.parks, cs.grassColour);
+        fillAll(this.pitches, cs.pitchColour, cs.pitchOutline, 0.8);
+        canvas.setFillPattern(this.woodPattern());
+        canvas.setStrokeStyle(cs.treeColour);
+        canvas.setLineWidth(1);
+        for (const w of this.woods) canvas.drawPolygon(w);
+
+        // Water
+        fillAll([this.seaPolygon], cs.seaColour, cs.seaColour, 0.5);
+        // Port quays are built out over the sea
+        fillAll(this.portLand, cs.industrialColour);
+        fillAll(this.portWater, cs.seaColour);
+        fillAll(this.beaches, cs.sandColour);
+        fillAll([this.river], cs.seaColour);
+        fillAll(this.lakes, cs.seaColour);
+        fillAll(this.sandBars, cs.sandColour);
+
+        // Buildings sit under the roads, as on OpenStreetMap
+        const buildings = this.lots.concat(this.lowIncomeLots);
+        fillAll(buildings, cs.buildingColour, cs.buildingStroke, 0.6);
+        fillAll(this.industrialLots, cs.industrialBuildingColour, cs.buildingStroke, 0.6);
+        fillAll(this.largeBuildings, cs.buildingColour, cs.buildingStroke, 0.6);
+        fillAll(this.pools, cs.seaColour, cs.poolOutline, 0.8);
+
+        // Footpaths: a faint light casing under a dashed salmon line
+        canvas.setRoundLines(true);
+        this.strokeAll(canvas, this.paths, 'rgba(255,255,255,0.55)', 3 * Math.max(0.7, zoom));
+        canvas.setLineDash([2.5, 2]);
+        this.strokeAll(canvas, this.paths, cs.footwayColour, 1.3 * Math.max(0.7, zoom));
+        canvas.setLineDash([]);
+
+        // Road classes, from least to most important
+        const names = this.names;
+        const primary: Vector[][] = this.mainRoads.slice();
+        const secondary: Vector[][] = [];
+        const tertiary: Vector[][] = [];
+        this.majorRoads.forEach((r, i) => {
+            const c = names ? names.majorClass[i] : 'tertiary';
+            (c === 'primary' ? primary : c === 'secondary' ? secondary : tertiary).push(r);
+        });
+        if (this.secondaryRiver.length >= 2) secondary.push(this.secondaryRiver);
+        secondary.push(...this.coastlineRoads);
+        secondary.push(...this.frontageRoads);
+
+        const w = (width: number): number => width * zoom;
+        const classes: {lines: Vector[][]; fill: string; casing: string; width: number; casingWidth: number}[] = [
+            {lines: this.parkingAisles, fill: cs.serviceRoadColour, casing: cs.serviceRoadOutline, width: w(0.35 * cs.minorWidth), casingWidth: 0.8},
+            {lines: this.industrialRoads, fill: cs.serviceRoadColour, casing: cs.serviceRoadOutline, width: w(0.6 * cs.minorWidth), casingWidth: 1},
+            {lines: this.minorRoads, fill: cs.minorRoadColour, casing: cs.minorRoadOutline, width: w(cs.minorWidth), casingWidth: 1.2},
+            {lines: tertiary, fill: cs.tertiaryRoadColour, casing: cs.tertiaryRoadOutline, width: w(cs.majorWidth * 0.9), casingWidth: 1.4},
+            {lines: secondary, fill: cs.majorRoadColour, casing: cs.majorRoadOutline, width: w(cs.majorWidth), casingWidth: 1.6},
+            {lines: primary, fill: cs.mainRoadColour, casing: cs.mainRoadOutline, width: w(cs.mainWidth), casingWidth: 1.6},
+            {lines: this.ramps, fill: cs.highwayColour, casing: cs.highwayOutline, width: w(cs.rampWidth), casingWidth: 1.6},
+        ];
+        for (const c of classes) this.strokeAll(canvas, c.lines, c.casing, c.width + c.casingWidth);
+        for (const c of classes) this.strokeAll(canvas, c.lines, c.fill, c.width);
+
+        // Railway: grey with white dashes, over the smaller roads it crosses
+        const wet = this.waterMask(this.domainController.screenDimensions.x, this.domainController.screenDimensions.y);
+        const railBridges: Vector[][] = [];
+        for (const r of this.railways) railBridges.push(...OsmStyle.bridgeRuns(r, wet));
+        this.strokeAll(canvas, railBridges, cs.bridgeOutline, 6.5);
+        this.strokeAll(canvas, railBridges, cs.bgColour, 5);
+        this.strokeAll(canvas, this.railways, '#707070', 3);
+        canvas.setLineDash([8, 8]);
+        this.strokeAll(canvas, this.railways, '#ffffff', 1);
+        canvas.setLineDash([]);
+
+        // Freeways: two carriageways side by side
+        const hw = w(cs.highwayWidth);
+        this.strokeAll(canvas, this.highways, cs.highwayOutline, hw + 2);
+        this.strokeAll(canvas, this.highways, cs.highwayColour, hw);
+        this.strokeAll(canvas, this.highways, cs.highwayOutline, Math.max(1.5, 0.16 * hw));
+        this.strokeAll(canvas, this.highways, cs.bgColour, Math.max(0.6, 0.07 * hw));
+
+        // Bridges over the river, with the black casing OpenStreetMap gives bridges
+        classes.push({lines: this.highways, fill: cs.highwayColour, casing: cs.highwayOutline, width: hw, casingWidth: 2});
+        canvas.setRoundLines(false);
+        for (const c of classes) {
+            const runs: Vector[][] = [];
+            for (const l of c.lines) runs.push(...OsmStyle.bridgeRuns(l, wet));
+            if (runs.length === 0) continue;
+            this.strokeAll(canvas, runs, cs.bridgeOutline, c.width + c.casingWidth + 1.6);
+            this.strokeAll(canvas, runs, c.casing, c.width + c.casingWidth);
+            this.strokeAll(canvas, runs, c.fill, c.width);
+            if (c.lines === this.highways) {
+                this.strokeAll(canvas, runs, cs.highwayOutline, Math.max(1.5, 0.16 * hw));
+            }
+        }
+        canvas.setRoundLines(false);
+
+        this.drawLabels(canvas);
+    }
+
+    /**
+     * Furthest point of open water from the shore, for the name of the sea
+     */
+    private seaLabelPoint(width: number, height: number): Vector {
+        if (this.seaPolygon.length < 3) return null;
+        const shore = this.seaPolygon.filter((_, i) => i % 2 === 0);
+        let best: Vector = null;
+        let bestD = 0;
+        for (let x = 60; x < width - 60; x += 24) {
+            for (let y = 40; y < height - 40; y += 24) {
+                const p = new Vector(x, y);
+                if (!PolygonUtil.insidePolygon(p, this.seaPolygon)) continue;
+                if (this.portLand.some(l => PolygonUtil.insidePolygon(p, l))) continue;
+                let d = Infinity;
+                for (const v of shore) {
+                    // Edges of the screen count as shore, so the label stays in view
+                    if (v.x < 0 || v.y < 0 || v.x > width || v.y > height) continue;
+                    d = Math.min(d, v.distanceToSquared(p));
+                }
+                d = Math.min(d, (x - 0) ** 2, (width - x) ** 2, (y - 0) ** 2, (height - y) ** 2);
+                if (d > bestD) {
+                    bestD = d;
+                    best = p;
+                }
+            }
+        }
+        return best;
+    }
+
+    private drawLabels(canvas: DefaultCanvasWrapper): void {
+        const names = this.names;
+        if (!names) return;
+        const cs = this.colourScheme;
+        const screen = this.domainController.screenDimensions;
+        const labeller = new Labeller(canvas, screen.x, screen.y);
+        const font = (size: number, extra = ''): string => `${extra} ${size}px ${cs.fontFamily}`.trim();
+        const halo = 'rgba(255,255,255,0.8)';
+        const style = (size: number, fill: string, extra = '', repeat = 420, haloWidth = 1.2): LabelStyle =>
+            ({font: font(size, extra), size, fill, halo, haloWidth, repeat});
+
+        // Sea
+        if (this.seaName) {
+            const p = this.seaLabelPoint(screen.x, screen.y);
+            if (p) labeller.labelPoint(p, this.seaName, style(17, cs.waterLabelColour, 'italic', 0, 1), 30);
+        }
+
+        // Freeway numbers, then names
+        this.highways.forEach((h, i) => {
+            labeller.shieldLine(h, names.highwayRefs[i], style(10, '#000000', 'bold', 520, 0), cs.shieldColour, cs.shieldOutline);
+        });
+        this.highways.forEach((h, i) => labeller.labelLine(h, names.highways[i], style(11, cs.labelColour, '', 520)));
+
+        // The mall and its car park
+        for (const l of this.placeLabels) {
+            if (l.kind === 'mall') labeller.labelPoint(l.at, l.text, style(11.5, cs.shopLabelColour, 'bold', 0, 1.5), 16);
+        }
+        const parkingStyle: LabelStyle = {font: font(13, 'bold'), size: 13, fill: '#0092da', halo: halo, haloWidth: 1};
+        for (const lot of this.parkingLots) {
+            if (PolygonUtil.calcPolygonArea(lot) < 3000) continue;
+            // In the open part of the car park, towards the street
+            const c = PolygonUtil.averagePoint(lot);
+            for (const p of lot.filter((_, i) => i % Math.max(1, Math.floor(lot.length / 6)) === 0)) {
+                const at = c.clone().add(p.clone().sub(c).multiplyScalar(0.6));
+                if (labeller.labelPoint(at, 'P', parkingStyle)) break;
+            }
+        }
+
+        // Neighbourhoods
+        for (const l of this.placeLabels) {
+            if (l.kind === 'neighbourhood') {
+                labeller.labelPoint(l.at, l.text, style(13, cs.placeLabelColour, '', 0, 1.5), 12);
+            }
+        }
+
+        // River
+        if (this.riverName && this.riverCentreline.length >= 2) {
+            labeller.labelLine(this.riverCentreline, this.riverName,
+                Object.assign(style(11.5, cs.waterLabelColour, 'italic', 560), {maxBend: 0.5}));
+        }
+
+        // Roads, most important first
+        this.mainRoads.forEach((r, i) => labeller.labelLine(r, names.main[i], style(11, cs.labelColour)));
+        this.coastlineRoads.forEach((r, i) => labeller.labelLine(r, names.coast[i], style(10.5, cs.labelColour)));
+        if (this.secondaryRiver.length >= 2) {
+            labeller.labelLine(this.secondaryRiver, names.coast[names.coast.length - 1], style(10.5, cs.labelColour));
+        }
+        this.majorRoads.forEach((r, i) => labeller.labelLine(r, names.major[i], style(10.5, cs.labelColour)));
+        this.frontageRoads.forEach((r, i) => labeller.labelLine(r, names.frontage[i], style(10, cs.labelColour, '', 460)));
+        this.minorRoads.forEach((r, i) => labeller.labelLine(r, names.minor[i], style(10, cs.labelColour, '', 360)));
+
+        // Parks
+        for (const l of this.placeLabels) {
+            if (l.kind === 'park') labeller.labelPoint(l.at, l.text, style(11, cs.parkLabelColour, '', 0, 1.2), 14);
+        }
+        for (const l of this.placeLabels) {
+            if (l.kind === 'apartments') labeller.labelPoint(l.at, l.text, style(10, '#555555', '', 0, 1.2), 16);
+        }
+
+        this.drawPointsOfInterest(canvas, labeller);
+    }
+
+    /**
+     * A sprinkling of map symbols: churches among the houses, car parks by the warehouses
+     */
+    private drawPointsOfInterest(canvas: DefaultCanvasWrapper, labeller: Labeller): void {
+        const zoom = this.domainController.zoom;
+        const poi = PointsOfInterest.select(this.residentialAreas, this.lots, this.industrialAreas, 60 * zoom);
+
+        // Places of worship: a black cross on the church
+        for (const church of poi.churches) {
+            const at = PolygonUtil.averagePoint(church);
+            if (!labeller.reserve(at, 5, 7)) continue;
+            canvas.setStrokeStyle('#000000');
+            canvas.setLineWidth(1.5);
+            canvas.drawPolyline([new Vector(at.x, at.y - 5.5), new Vector(at.x, at.y + 5.5)]);
+            canvas.drawPolyline([new Vector(at.x - 3.5, at.y - 2), new Vector(at.x + 3.5, at.y - 2)]);
+        }
+
+        // Car parks: a blue P
+        const parking: LabelStyle = {font: `bold 13px ${this.colourScheme.fontFamily}`, size: 13, fill: '#0092da', halo: 'rgba(255,255,255,0.8)', haloWidth: 1};
+        for (const p of poi.parking) labeller.labelPoint(p, 'P', parking);
     }
 }

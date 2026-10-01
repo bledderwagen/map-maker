@@ -49,6 +49,19 @@
 
 ## What's new in map-maker
 
+![A generated city drawn in the OpenStreetMap style, with street names, a river, a port and freeways](docs/images/osm-style-map.png)
+
+* **OpenStreetMap style** (now the default colour scheme, Style → `colourScheme`): maps are drawn the way the standard OpenStreetMap map (OpenStreetMap Carto) draws real cities, checked side by side against OSM tiles of Houston. At zoom 1 (2 m per pixel) widths and text sizes match OSM zoom 16.
+  * Carto colours for land use (residential grey covering whole neighbourhoods, beige freeway corridors, purple industry and port quays), parks, woods with tree symbols, sports pitches, water, beaches and buildings with outlines.
+  * Road classes: freeways as twin pink carriageways with numbered shields, primary (orange), secondary (yellow), tertiary, residential and service roads, each with its casing. Bridges over the river get OSM's black bridge casing. Footpaths are dashed salmon lines.
+  * **Railway**: a freight line across the city in long straights and gentle curves, routed through industry where it can and clear of highways, with buildings cleared along it. Drawn grey with white dashes, bridged over the river.
+  * **Labels**: street names follow their road, repeat along long roads and never overlap. East-west side streets are numbered (West 14th Street), the rest are named, and pieces of the same street share a name. Freeways have names and frontage roads are named after them; also river, bay, park and neighbourhood names, church symbols and car parks.
+* **Shopping mall and apartments**: a regional mall takes a whole superblock by a freeway interchange, with no side streets through it, the way industry does. It has anchor department stores at the ends of a covered concourse, a food court wing, restaurants on pads by the street, a ring road and a car park full of aisles. If the site is too narrow it becomes a strip mall or a power centre of big box stores. Garden apartment complexes take blocks near the mall and along main roads: rows of three storey blocks, car parks between some rows, and courtyards with pools between others. Mall, shops and complexes are named on the map. Map → Zoning → `mall` turns the mall off.
+
+![A mall in its car park next to apartment complexes and industry](docs/images/mall-apartments.png)
+
+* **Blender export** (Download → Blender): the city as a `.geojson` scene in metres, every building, road, railway, path, area and label tagged with a class id and attributes (heights, widths, lanes, bridges) for a Blender Geometry Nodes importer. See [docs/blender-export.md](docs/blender-export.md) and the sample [docs/blender/sample-map.geojson](docs/blender/sample-map.geojson).
+
 ![Highways, a waterfront industrial district and low income housing](docs/images/highways-industry.png)
 
 Highways, industry and low income neighbourhoods are generated together, because in real cities each one shapes the others:

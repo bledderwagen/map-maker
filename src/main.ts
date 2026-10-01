@@ -8,7 +8,7 @@ import Util from './ts/util';
 import DragController from './ts/ui/drag_controller';
 import DomainController from './ts/ui/domain_controller';
 import Style from './ts/ui/style';
-import {ColourScheme, DefaultStyle, RoughStyle} from './ts/ui/style';
+import {ColourScheme, DefaultStyle, OsmStyle, RoughStyle} from './ts/ui/style';
 import * as ColourSchemes from './colour_schemes.json';
 import Vector from './ts/vector';
 import { SVG } from '@svgdotjs/svg.js';
@@ -39,7 +39,7 @@ class Main {
     private canvas: HTMLCanvasElement;
     private tensorCanvas: DefaultCanvasWrapper;
     private _style: Style;
-    private colourScheme: string = "Default";  // See colour_schemes.json
+    private colourScheme: string = "OpenStreetMap";  // See colour_schemes.json
     private zoomBuildings: boolean = false;  // Show buildings only when zoomed in?
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
     private showFrame: boolean = false;
@@ -126,6 +126,7 @@ class Main {
         this.downloadsFolder.add({"SVG": () => this.downloadSVG()}, 'SVG');
         this.downloadsFolder.add({"STL": () => this.downloadSTL()}, 'STL');
         this.downloadsFolder.add({"Heightmap": () => this.downloadHeightmap()}, 'Heightmap');
+        this.downloadsFolder.add({"Blender": () => this.downloadScene()}, 'Blender');
 
         this.changeColourScheme(this.colourScheme);
         this.tensorField.setRecommended();
@@ -153,7 +154,9 @@ class Main {
         this.zoomBuildings = colourScheme.zoomBuildings;
         this.buildingModels = colourScheme.buildingModels;
         Util.updateGui(this.styleFolder);
-        if (scheme.startsWith("Drawn")) {
+        if (scheme.startsWith("OpenStreetMap")) {
+            this._style = new OsmStyle(this.canvas, this.dragController, Object.assign({}, colourScheme));
+        } else if (scheme.startsWith("Drawn")) {
             this._style = new RoughStyle(this.canvas, this.dragController, Object.assign({}, colourScheme));
         } else {
             this._style = new DefaultStyle(this.canvas, this.dragController, Object.assign({}, colourScheme), scheme.startsWith("Heightmap"));
@@ -204,6 +207,14 @@ class Main {
 
             this.modelGenerator.getSTL().then(blob => this.downloadFile('model.zip', blob));
         });
+    }
+
+    /**
+     * Scene for Blender Geometry Nodes, see docs/blender-export.md
+     */
+    downloadScene(): void {
+        const scene = this.mainGui.exportScene();
+        this.downloadFile('map.geojson', new Blob([JSON.stringify(scene)], {type: 'application/geo+json'}));
     }
 
     private downloadFile(filename: string, file: any): void {

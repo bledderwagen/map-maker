@@ -146,6 +146,10 @@ export default class WaterGUI extends RoadGUI {
         return this.streamlines.sandBars;
     }
 
+    get riverCentrelineWorld(): Vector[] {
+        return this.streamlines.riverCentreline;
+    }
+
     get riverWorld(): Vector[] {
         return this.streamlines.riverPolygon;
     }
