@@ -23,28 +23,21 @@ export interface BuildingModel {
 }
 
 /**
- * Building height range for each zone
- */
-const HEIGHTS: {[zone: number]: {min: number; max: number}} = {
-    // World units, 1 unit = 2 m
-    [Zone.Residential]: {min: 3.5, max: 6},
-    [Zone.LowIncome]: {min: 3, max: 4.5},
-    [Zone.Industrial]: {min: 4.5, max: 7},
-};
-
-/**
  * Pseudo 3D buildings
  */
 class BuildingModels {
-    private static readonly HEIGHT_EXAGGERATION = 5;
+    private static readonly HEIGHT_EXAGGERATION = 2;
+    private static readonly STOREY = 1.5;  // World units, 1 unit = 2 m
+    private static readonly ROOF = 0.75;
     private domainController = DomainController.getInstance();
     private _buildingModels: BuildingModel[] = [];
+    // Some neighbourhoods are built up more than others
+    private densityNoise = new SimplexNoise();
 
     constructor(lots: Vector[][], zones: Zone[]) {  // Lots in world space
         for (let i = 0; i < lots.length; i++) {
-            const range = HEIGHTS[zones[i]];
             this._buildingModels.push({
-                height: Math.random() * (range.max - range.min) + range.min,
+                height: this.buildingHeight(lots[i], zones[i]),
                 lotWorld: lots[i],
                 lotScreen: [],
                 roof: [],
@@ -57,6 +50,35 @@ class BuildingModels {
 
     get buildingModels(): BuildingModel[] {
         return this._buildingModels;
+    }
+
+    /**
+     * World space height from storeys: mostly one or two storey houses, built up more in denser
+     * neighbourhoods and on bigger footprints, with the odd tall block. Sheds are a single tall storey.
+     */
+    private buildingHeight(lot: Vector[], zone: Zone): number {
+        const area = PolygonUtil.calcPolygonArea(lot);
+        const c = PolygonUtil.averagePoint(lot);
+        const density = (this.densityNoise.noise2D(c.x / 700, c.y / 700) + 1) / 2;
+        const storeys = (n: number): number => n * BuildingModels.STOREY + BuildingModels.ROOF * Math.random();
+
+        if (zone === Zone.Industrial) {
+            // Tanks and huts are low, big sheds a little taller
+            if (area < 60) return 1.5 + 1.5 * Math.random();
+            return 3 + Math.min(2, area / 500) + Math.random();
+        }
+
+        if (zone === Zone.LowIncome) return storeys(Math.random() < 0.75 ? 1 : 2);
+
+        // Apartment blocks and the odd tower where the neighbourhood is dense
+        // House footprints are mostly 20-60 units, merged neighbours up to about 100
+        const dense = Math.max(0, density - 0.5) / 0.5;
+        if (area > 40 && Math.random() < 0.04 * dense) return storeys(6 + Math.floor(Math.random() * 9));
+        if (area > 55) return storeys(2 + Math.floor(Math.random() * (1 + 3 * density)));
+
+        let n = Math.random() < 0.6 ? 2 : 1;
+        if (Math.random() < density * density) n++;
+        return storeys(n);
     }
 
     /**

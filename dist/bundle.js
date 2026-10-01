@@ -139945,8 +139945,6 @@ var __spread = void 0 && (void 0).__spread || function () {
   return ar;
 };
 
-var _a;
-
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
@@ -139967,43 +139965,22 @@ var SimplexNoise = require("simplex-noise");
 
 var building_cleanup_1 = require("../impl/building_cleanup");
 /**
- * Building height range for each zone
- */
-
-
-var HEIGHTS = (_a = {}, // World units, 1 unit = 2 m
-_a[0
-/* Residential */
-] = {
-  min: 3.5,
-  max: 6
-}, _a[1
-/* LowIncome */
-] = {
-  min: 3,
-  max: 4.5
-}, _a[2
-/* Industrial */
-] = {
-  min: 4.5,
-  max: 7
-}, _a);
-/**
  * Pseudo 3D buildings
  */
+
 
 var BuildingModels =
 /** @class */
 function () {
   function BuildingModels(lots, zones) {
     this.domainController = domain_controller_1["default"].getInstance();
-    this._buildingModels = [];
+    this._buildingModels = []; // Some neighbourhoods are built up more than others
+
+    this.densityNoise = new SimplexNoise();
 
     for (var i = 0; i < lots.length; i++) {
-      var range = HEIGHTS[zones[i]];
-
       this._buildingModels.push({
-        height: Math.random() * (range.max - range.min) + range.min,
+        height: this.buildingHeight(lots[i], zones[i]),
         lotWorld: lots[i],
         lotScreen: [],
         roof: [],
@@ -140025,8 +140002,43 @@ function () {
     configurable: true
   });
   /**
+   * World space height from storeys: mostly one or two storey houses, built up more in denser
+   * neighbourhoods and on bigger footprints, with the odd tall block. Sheds are a single tall storey.
+   */
+
+  BuildingModels.prototype.buildingHeight = function (lot, zone) {
+    var area = polygon_util_1["default"].calcPolygonArea(lot);
+    var c = polygon_util_1["default"].averagePoint(lot);
+    var density = (this.densityNoise.noise2D(c.x / 700, c.y / 700) + 1) / 2;
+
+    var storeys = function storeys(n) {
+      return n * BuildingModels.STOREY + BuildingModels.ROOF * Math.random();
+    };
+
+    if (zone === 2
+    /* Industrial */
+    ) {
+        // Tanks and huts are low, big sheds a little taller
+        if (area < 60) return 1.5 + 1.5 * Math.random();
+        return 3 + Math.min(2, area / 500) + Math.random();
+      }
+
+    if (zone === 1
+    /* LowIncome */
+    ) return storeys(Math.random() < 0.75 ? 1 : 2); // Apartment blocks and the odd tower where the neighbourhood is dense
+    // House footprints are mostly 20-60 units, merged neighbours up to about 100
+
+    var dense = Math.max(0, density - 0.5) / 0.5;
+    if (area > 40 && Math.random() < 0.04 * dense) return storeys(6 + Math.floor(Math.random() * 9));
+    if (area > 55) return storeys(2 + Math.floor(Math.random() * (1 + 3 * density)));
+    var n = Math.random() < 0.6 ? 2 : 1;
+    if (Math.random() < density * density) n++;
+    return storeys(n);
+  };
+  /**
    * Recalculated when the camera moves
    */
+
 
   BuildingModels.prototype.setBuildingProjections = function () {
     var e_1, _a;
@@ -140094,7 +140106,10 @@ function () {
     return polygons;
   };
 
-  BuildingModels.HEIGHT_EXAGGERATION = 5;
+  BuildingModels.HEIGHT_EXAGGERATION = 2;
+  BuildingModels.STOREY = 1.5; // World units, 1 unit = 2 m
+
+  BuildingModels.ROOF = 0.75;
   return BuildingModels;
 }();
 /**
