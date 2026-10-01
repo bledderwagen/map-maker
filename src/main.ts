@@ -288,7 +288,20 @@ class Main {
         } else {
             const imgCanvas = this._style.createCanvasWrapper(c, 1, false);
             imgCanvas.createSVG(svgElement);
-            this.mainGui.draw(this._style, true, imgCanvas);
+            // Every street is named and every building given an address, for use outside the generator
+            const addresses = this.mainGui.addresses();
+            this.mainGui.draw(this._style, true, imgCanvas, addresses.svgInfo);
+            const metadata = document.createElementNS('http://www.w3.org/2000/svg', 'metadata');
+            metadata.setAttribute('id', 'map-addresses');
+            metadata.setAttribute('data-format', 'application/json');
+            const json = JSON.stringify(addresses.metadata);
+            try {
+                // HTML documents can't make CDATA sections, XML ones can
+                metadata.appendChild(document.implementation.createDocument(null, null, null).createCDATASection(json));
+            } catch (e) {
+                metadata.appendChild(document.createTextNode(json));
+            }
+            svgElement.insertBefore(metadata, svgElement.firstChild);
         }
 
         const serializer = new XMLSerializer();

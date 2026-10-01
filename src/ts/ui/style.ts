@@ -2,7 +2,7 @@ import * as log from 'loglevel';
 import * as dat from 'dat.gui';
 import TensorFieldGUI from './tensor_field_gui';
 import {NoiseParams} from '../impl/tensor_field';
-import CanvasWrapper from './canvas_wrapper';
+import CanvasWrapper, {SvgInfo} from './canvas_wrapper';
 import {DefaultCanvasWrapper, RoughCanvasWrapper} from './canvas_wrapper';
 import Util from '../util';
 import PolygonUtil from '../impl/polygon_util';
@@ -14,6 +14,26 @@ import {Zone} from '../impl/zoning';
 import {StreetNameSets} from '../impl/place_names';
 import Labeller, {LabelStyle} from './labeller';
 import PointsOfInterest from '../impl/points_of_interest';
+
+/**
+ * Names and addresses for the SVG export, each list matches the drawn list of the same name
+ */
+export interface MapSvgInfo {
+    lots: SvgInfo[];
+    lowIncomeLots: SvgInfo[];
+    industrialLots: SvgInfo[];
+    largeBuildings: SvgInfo[];
+    buildingModels: Map<Vector[], SvgInfo>;  // Keyed by BuildingModel.lotWorld
+    minorRoads: SvgInfo[];
+    majorRoads: SvgInfo[];
+    mainRoads: SvgInfo[];
+    coastlineRoads: SvgInfo[];
+    secondaryRiver: SvgInfo;
+    highways: SvgInfo[];
+    frontageRoads: SvgInfo[];
+    ramps: SvgInfo[];
+    industrialRoads: SvgInfo[];
+}
 
 export interface ColourScheme {
     bgColour: string;
@@ -157,6 +177,8 @@ export default abstract class Style {
     public industrialRoads: Vector[][] = [];
     public showFrame: boolean;
     public showZones = true;
+    private _svgInfo: MapSvgInfo = null;
+    private shapeInfo = new Map<Vector[], SvgInfo>();
 
     constructor(protected dragController: DragController, protected colourScheme: ColourScheme) {
         if (!colourScheme.bgColour) log.error("ColourScheme Error - bgColour not defined");
@@ -239,6 +261,39 @@ export default abstract class Style {
         }
         this.woodTile = tile;
         return tile;
+    }
+
+    /**
+     * Set after the shapes to draw, so each drawn shape can be matched with its names and addresses
+     */
+    public set svgInfo(info: MapSvgInfo) {
+        this._svgInfo = info;
+        this.shapeInfo.clear();
+        if (info === null) return;
+        const lists: (keyof MapSvgInfo & keyof Style)[] = ['lots', 'lowIncomeLots', 'industrialLots', 'largeBuildings',
+            'minorRoads', 'majorRoads', 'mainRoads', 'coastlineRoads', 'highways', 'frontageRoads', 'ramps', 'industrialRoads'];
+        for (const key of lists) {
+            const infos = info[key] as SvgInfo[];
+            (this[key] as Vector[][]).forEach((shape, i) => {
+                if (infos[i]) this.shapeInfo.set(shape, infos[i]);
+            });
+        }
+        if (info.secondaryRiver) this.shapeInfo.set(this.secondaryRiver, info.secondaryRiver);
+    }
+
+    /**
+     * SVG names and addresses of a drawn shape, if there are any
+     */
+    protected info(shape: Vector[]): SvgInfo {
+        return this.shapeInfo.get(shape);
+    }
+
+    protected modelInfo(b: BuildingModel, roof: boolean): SvgInfo {
+        if (this._svgInfo === null) return undefined;
+        const info = this._svgInfo.buildingModels.get(b.lotWorld);
+        // The footprint has the id, the roof refers to it
+        if (!info || !roof) return info;
+        return {className: info.className, title: info.title, data: Object.assign({building: info.id}, info.data)};
     }
 
     protected roofColour(zone: Zone): string {
@@ -430,24 +485,24 @@ export class DefaultStyle extends Style {
         for (const s of this.mainRoads) canvas.drawPolyline(s);
         for (const s of this.coastlineRoads) canvas.drawPolyline(s);
 
-        // Road inline
+        // Road inline, carries the street names in an SVG
         canvas.setStrokeStyle(this.colourScheme.minorRoadColour);
         canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
-        for (const s of this.minorRoads) canvas.drawPolyline(s);
-        for (const s of this.frontageRoads) canvas.drawPolyline(s);
-        for (const s of this.industrialRoads) canvas.drawPolyline(s);
+        for (const s of this.minorRoads) canvas.drawPolyline(s, this.info(s));
+        for (const s of this.frontageRoads) canvas.drawPolyline(s, this.info(s));
+        for (const s of this.industrialRoads) canvas.drawPolyline(s, this.info(s));
         canvas.setLineWidth(0.4 * this.colourScheme.minorWidth * this.domainController.zoom);
         for (const s of this.parkingAisles) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
-        for (const s of this.majorRoads) canvas.drawPolyline(s);
-        canvas.drawPolyline(this.secondaryRiver);
+        for (const s of this.majorRoads) canvas.drawPolyline(s, this.info(s));
+        canvas.drawPolyline(this.secondaryRiver, this.info(this.secondaryRiver));
 
         canvas.setStrokeStyle(this.colourScheme.mainRoadColour);
         canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
-        for (const s of this.mainRoads) canvas.drawPolyline(s);
-        for (const s of this.coastlineRoads) canvas.drawPolyline(s);
+        for (const s of this.mainRoads) canvas.drawPolyline(s, this.info(s));
+        for (const s of this.coastlineRoads) canvas.drawPolyline(s, this.info(s));
 
         // Railways
         canvas.setStrokeStyle(this.colourScheme.minorRoadOutline);
@@ -461,14 +516,14 @@ export class DefaultStyle extends Style {
         for (const s of this.ramps) canvas.drawPolyline(s);
         canvas.setStrokeStyle(this.colourScheme.highwayColour);
         canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
-        for (const s of this.ramps) canvas.drawPolyline(s);
+        for (const s of this.ramps) canvas.drawPolyline(s, this.info(s));
 
         canvas.setStrokeStyle(this.colourScheme.highwayOutline);
         canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
         for (const s of this.highways) canvas.drawPolyline(s);
         canvas.setStrokeStyle(this.colourScheme.highwayColour);
         canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
-        for (const s of this.highways) canvas.drawPolyline(s);
+        for (const s of this.highways) canvas.drawPolyline(s, this.info(s));
         // Central reservation of a dual carriageway
         canvas.setStrokeStyle(this.colourScheme.highwayOutline);
         canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
@@ -483,22 +538,22 @@ export class DefaultStyle extends Style {
                 const parsedRgb = Util.parseCSSColor(this.colourScheme.bgColour).map(v => Math.min(255, v + (b.height * 18)));
                 canvas.setFillStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
                 canvas.setStrokeStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
-                canvas.drawPolygon(b.lotScreen);
+                canvas.drawPolygon(b.lotScreen, this.modelInfo(b, false));
             }
         } else {
             // Buildings
             if (!this.colourScheme.zoomBuildings || this.domainController.zoom >= 2) {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
-                for (const b of this.lots) canvas.drawPolygon(b);
-                for (const b of this.largeBuildings) canvas.drawPolygon(b);
+                for (const b of this.lots) canvas.drawPolygon(b, this.info(b));
+                for (const b of this.largeBuildings) canvas.drawPolygon(b, this.info(b));
                 canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
                 for (const f of this.fences) canvas.drawPolyline(f);
                 canvas.setLineWidth(1);
                 canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
-                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
+                for (const b of this.lowIncomeLots) canvas.drawPolygon(b, this.info(b));
                 canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
-                for (const b of this.industrialLots) canvas.drawPolygon(b);
+                for (const b of this.industrialLots) canvas.drawPolygon(b, this.info(b));
             }
 
             // Pseudo-3D
@@ -514,7 +569,7 @@ export class DefaultStyle extends Style {
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.buildingModels) {
                     canvas.setFillStyle(this.roofColour(b.zone));
-                    canvas.drawPolygon(b.roof);
+                    canvas.drawPolygon(b.roof, this.modelInfo(b, true));
                 }
             }
 
@@ -659,37 +714,37 @@ export class RoughStyle extends Style {
             fill: 'none',
         });
 
-        this.minorRoads.forEach(s => canvas.drawPolyline(s));
-        this.frontageRoads.forEach(s => canvas.drawPolyline(s));
-        this.industrialRoads.forEach(s => canvas.drawPolyline(s));
+        this.minorRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
+        this.frontageRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
+        this.industrialRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
 
         canvas.setOptions({
             strokeWidth: 2,
             stroke: this.colourScheme.majorRoadColour,
         });
 
-        this.majorRoads.forEach(s => canvas.drawPolyline(s));
-        canvas.drawPolyline(this.secondaryRiver);
+        this.majorRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
+        canvas.drawPolyline(this.secondaryRiver, this.info(this.secondaryRiver));
 
         canvas.setOptions({
             strokeWidth: 3,
             stroke: this.colourScheme.mainRoadColour,
         });
 
-        this.mainRoads.forEach(s => canvas.drawPolyline(s));
-        this.coastlineRoads.forEach(s => canvas.drawPolyline(s));
+        this.mainRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
+        this.coastlineRoads.forEach(s => canvas.drawPolyline(s, this.info(s)));
 
         canvas.setOptions({
             strokeWidth: 2,
             stroke: this.colourScheme.highwayColour,
         });
-        this.ramps.forEach(s => canvas.drawPolyline(s));
+        this.ramps.forEach(s => canvas.drawPolyline(s, this.info(s)));
 
         canvas.setOptions({
             strokeWidth: 5,
             stroke: this.colourScheme.highwayColour,
         });
-        this.highways.forEach(s => canvas.drawPolyline(s));
+        this.highways.forEach(s => canvas.drawPolyline(s, this.info(s)));
 
         // Buildings
         if (!this.dragging) {
@@ -702,10 +757,10 @@ export class RoughStyle extends Style {
                     strokeWidth: 1,
                     fill: '',
                 });
-                for (const b of this.lots) canvas.drawPolygon(b);
-                for (const b of this.largeBuildings) canvas.drawPolygon(b);
-                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
-                for (const b of this.industrialLots) canvas.drawPolygon(b);
+                for (const b of this.lots) canvas.drawPolygon(b, this.info(b));
+                for (const b of this.largeBuildings) canvas.drawPolygon(b, this.info(b));
+                for (const b of this.lowIncomeLots) canvas.drawPolygon(b, this.info(b));
+                for (const b of this.industrialLots) canvas.drawPolygon(b, this.info(b));
                 canvas.setOptions({
                     strokeWidth: 0.4,
                 });
@@ -741,7 +796,7 @@ export class RoughStyle extends Style {
                     fill: this.colourScheme.buildingColour,
                 });
 
-                for (const b of this.buildingModels) canvas.drawPolygon(b.roof);
+                for (const b of this.buildingModels) canvas.drawPolygon(b.roof, this.modelInfo(b, true));
             }
         }
     }
@@ -836,10 +891,13 @@ export class OsmStyle extends DefaultStyle {
         return runs;
     }
 
-    private strokeAll(canvas: DefaultCanvasWrapper, lines: Vector[][], colour: string, width: number): void {
+    /**
+     * @param tag write street names onto the lines of an SVG, done on one pass of each road
+     */
+    private strokeAll(canvas: DefaultCanvasWrapper, lines: Vector[][], colour: string, width: number, tag = false): void {
         canvas.setStrokeStyle(colour);
         canvas.setLineWidth(width);
-        for (const l of lines) canvas.drawPolyline(l);
+        for (const l of lines) canvas.drawPolyline(l, tag ? this.info(l) : undefined);
     }
 
     public draw(canvas=this.canvas as DefaultCanvasWrapper): void {
@@ -855,7 +913,8 @@ export class OsmStyle extends DefaultStyle {
             canvas.setFillStyle(colour);
             canvas.setStrokeStyle(stroke);
             canvas.setLineWidth(width);
-            for (const p of polygons) if (p.length >= 3) canvas.drawPolygon(p);
+            // Buildings carry their addresses in an SVG
+            for (const p of polygons) if (p.length >= 3) canvas.drawPolygon(p, this.info(p));
         };
 
         // Land use. Like OpenStreetMap's residential areas, it covers whole neighbourhoods,
@@ -926,7 +985,7 @@ export class OsmStyle extends DefaultStyle {
             {lines: this.ramps, fill: cs.highwayColour, casing: cs.highwayOutline, width: w(cs.rampWidth), casingWidth: 1.6},
         ];
         for (const c of classes) this.strokeAll(canvas, c.lines, c.casing, c.width + c.casingWidth);
-        for (const c of classes) this.strokeAll(canvas, c.lines, c.fill, c.width);
+        for (const c of classes) this.strokeAll(canvas, c.lines, c.fill, c.width, true);
 
         // Railway: grey with white dashes, over the smaller roads it crosses
         const wet = this.waterMask(this.domainController.screenDimensions.x, this.domainController.screenDimensions.y);
@@ -942,7 +1001,7 @@ export class OsmStyle extends DefaultStyle {
         // Freeways: two carriageways side by side
         const hw = w(cs.highwayWidth);
         this.strokeAll(canvas, this.highways, cs.highwayOutline, hw + 2);
-        this.strokeAll(canvas, this.highways, cs.highwayColour, hw);
+        this.strokeAll(canvas, this.highways, cs.highwayColour, hw, true);
         this.strokeAll(canvas, this.highways, cs.highwayOutline, Math.max(1.5, 0.16 * hw));
         this.strokeAll(canvas, this.highways, cs.bgColour, Math.max(0.6, 0.07 * hw));
 

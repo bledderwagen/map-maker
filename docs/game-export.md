@@ -58,6 +58,19 @@ Rules the network follows:
 
 Roads are two-way, and a motorway is one centreline for both carriageways. For a route, run A* or Dijkstra over the nodes with `length` (or `length / speed` per class) as the cost. `examples/webgl/game.js` has a 40-line version.
 
+## Addresses
+
+Every building has a US-style street address on the street it faces. Numbers go up along the street, odd on the left and even on the right. The street names are the map's, so they match the road features' `name`.
+
+| property | type | meaning |
+|---|---|---|
+| `address` | string | e.g. `273 East 14th Street` |
+| `housenumber` | int | `273` |
+| `street` | string | `East 14th Street`, the `name` of a road feature |
+| `svg_id` | string | `building-N`, the id the same building has in an SVG export of the same map |
+
+The top-level `streets` list has every street name once, with its `kind` and the `cross_streets` it meets. Clicking a building in the game gives you its address: raycast, read the feature id, look up the feature.
+
 ## Labels
 
 Label features (`neighbourhood_label`, `park_label`, `mall_label`, `apartments_label`, `river_label`) have a `hover_height` in metres. That's where the map maker's floating labels hover, at real building scale. Multiply it by `pseudo_3d.height_exaggeration` if you draw buildings as tall as the map maker does.

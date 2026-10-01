@@ -20,6 +20,16 @@ export interface RoughOptions {
 }
 
 /**
+ * Extra information written onto an SVG element, ignored when drawing to a canvas
+ */
+export interface SvgInfo {
+    id?: string;
+    className?: string;
+    title?: string;  // Shown as a tooltip by most SVG viewers
+    data?: {[key: string]: string | number};  // Written as data-* attributes
+}
+
+/**
  * Thin wrapper around HTML canvas, abstracts drawing functions so we can use the RoughJS canvas or the default one
  */
 export default abstract class CanvasWrapper {
@@ -48,6 +58,23 @@ export default abstract class CanvasWrapper {
     createSVG(svgElement: any): void {
         this.svgNode = svgElement;
     }
+
+    protected tagSvgElement(element: Element, info?: SvgInfo): void {
+        if (!info || !element) return;
+        if (info.id) element.setAttribute('id', info.id);
+        if (info.className) element.setAttribute('class', info.className);
+        if (info.data) {
+            for (const key of Object.keys(info.data)) element.setAttribute(`data-${key}`, String(info.data[key]));
+        }
+        if (info.title) {
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            title.textContent = info.title;
+            element.insertBefore(title, element.firstChild);
+        }
+    }
+
+    abstract drawPolygon(polygon: Vector[], info?: SvgInfo): void;
+    abstract drawPolyline(line: Vector[], info?: SvgInfo): void;
 
     abstract drawFrame(left: number, right: number, up: number, down: number): void;
 
@@ -186,7 +213,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
         }
     }
 
-    drawPolygon(polygon: Vector[]): void {
+    drawPolygon(polygon: Vector[], info?: SvgInfo): void {
         if (polygon.length === 0) {
             return;
         }
@@ -206,12 +233,13 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
         if (this.svg) {
             const vectorArray = polygon.map(v => [v.x, v.y]);
             vectorArray.push(vectorArray[0]);
-            this.svg.polyline(vectorArray).attr({
+            const element = this.svg.polyline(vectorArray).attr({
                 fill: this.svgFillValue(),
                 'fill-opacity': 1,
                 stroke: this.ctx.strokeStyle,
                 'stroke-width': this.ctx.lineWidth,
             });
+            this.tagSvgElement(element.node, info);
         }
     }
 
@@ -336,7 +364,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
         }
     }
 
-    drawPolyline(line: Vector[]): void {
+    drawPolyline(line: Vector[], info?: SvgInfo): void {
         if (line.length < 2) {
             return;
         }
@@ -355,7 +383,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
         if (this.svg) {
             const vectorArray = line.map(v => [v.x, v.y]);
             const dash = this.ctx.getLineDash();
-            this.svg.polyline(vectorArray).attr({
+            const element = this.svg.polyline(vectorArray).attr({
                 'fill-opacity': 0,
                 stroke: this.ctx.strokeStyle,
                 'stroke-width': this.ctx.lineWidth,
@@ -363,6 +391,7 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
                 'stroke-linejoin': this.ctx.lineJoin,
                 'stroke-dasharray': dash.length > 0 ? dash.join(' ') : 'none',
             });
+            this.tagSvgElement(element.node, info);
         }
     }
 }
@@ -422,7 +451,7 @@ export class RoughCanvasWrapper extends CanvasWrapper {
         this.appendSvgNode(this.rc.rectangle(x, y, width, height, this.options));
     }
 
-    drawPolygon(polygon: Vector[]): void {
+    drawPolygon(polygon: Vector[], info?: SvgInfo): void {
         if (polygon.length === 0) {
             return;
         }
@@ -431,7 +460,9 @@ export class RoughCanvasWrapper extends CanvasWrapper {
             polygon = polygon.map(v => v.clone().multiplyScalar(this._scale));
         }
 
-        this.appendSvgNode(this.rc.polygon(polygon.map(v => [v.x, v.y]), this.options));
+        const node = this.rc.polygon(polygon.map(v => [v.x, v.y]), this.options);
+        if (this.svgNode) this.tagSvgElement(node, info);
+        this.appendSvgNode(node);
     }
 
     drawSquare(centre: Vector, radius: number): void {
@@ -441,7 +472,7 @@ export class RoughCanvasWrapper extends CanvasWrapper {
         this.options.stroke = prevStroke;
     }
 
-    drawPolyline(line: Vector[]): void {
+    drawPolyline(line: Vector[], info?: SvgInfo): void {
         if (line.length < 2) {
             return;
         }
@@ -450,6 +481,8 @@ export class RoughCanvasWrapper extends CanvasWrapper {
             line = line.map(v => v.clone().multiplyScalar(this._scale));
         }
 
-        this.appendSvgNode(this.rc.linearPath(line.map(v => [v.x, v.y]), this.options));
+        const node = this.rc.linearPath(line.map(v => [v.x, v.y]), this.options);
+        if (this.svgNode) this.tagSvgElement(node, info);
+        this.appendSvgNode(node);
     }
 }

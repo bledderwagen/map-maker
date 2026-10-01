@@ -29,7 +29,34 @@ import PlaceNames, {StreetNameSets} from '../impl/place_names';
 import Railway from '../impl/railway';
 import SceneExport, {SceneRoad} from '../impl/scene_export';
 import PointsOfInterest from '../impl/points_of_interest';
-import {PlaceLabel, FLOATING_LABEL_HEIGHT} from './style';
+import {PlaceLabel, FLOATING_LABEL_HEIGHT, MapSvgInfo} from './style';
+import {SvgInfo} from './canvas_wrapper';
+import Addressing, {AddressBook} from '../impl/addressing';
+
+/**
+ * A building's address, and the id it has in an exported SVG
+ */
+export interface BuildingAddress {
+    id: string;
+    address: string;
+    number: number;
+    street: string;
+    zone: string;
+}
+
+/**
+ * Street names and building addresses for the SVG export
+ */
+export interface MapAddresses {
+    svgInfo: MapSvgInfo;
+    metadata: {
+        metresPerUnit: number;
+        streets: {name: string; kind: string; crossStreets: string[]}[];
+        buildings: {id: string; address: string; number: number; street: string; zone: string; x: number; y: number}[];
+    };
+    byBuilding: Map<Vector[], BuildingAddress>;  // Keyed by world space footprint
+    roadNames: {[kind: string]: string[]};  // Street name of each road line, by kind, including roads the map leaves unlabelled
+}
 
 /**
  * Handles Map folder, glues together impl
@@ -773,7 +800,117 @@ export default class MainGUI {
         this.redraw = this.redraw || continueUpdate;
     }
 
-    draw(style: Style, forceDraw=false, customCanvas?: CanvasWrapper): void {
+    /**
+     * Gives every building an address on the street it faces, and every road its street name, for exports.
+     * Streets keep the names the map labels them with. Coordinates are in screen space, as drawn in an exported SVG
+     */
+    addresses(): MapAddresses {
+        this.updateNames();
+        const names = this.streetNames;
+        const coast = this.coastline.allStreamlines;
+        const secondary = this.coastline.streamlinesWithSecondaryRoad;
+        const sites = this.buildings.siteBuildingsWorld;
+        const book: AddressBook = Addressing.build({
+            highway: this.highways.highwaysWorld,
+            ramp: this.highways.rampsWorld,
+            main: this.mainRoads.allStreamlines,
+            major: this.majorRoads.allStreamlines,
+            minor: this.minorRoads.allStreamlines,
+            coast,
+            riverside: [secondary[secondary.length - 1] || []],
+            frontage: this.highways.frontageRoadsWorld,
+            service: this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []),
+        }, {
+            highway: names.highways,
+            main: names.main,
+            major: names.major,
+            minor: names.minor,
+            coast: names.coast.slice(0, coast.length),
+            riverside: [names.coast[secondary.length - 1]],
+            frontage: names.frontage,
+        }, {
+            residential: this.buildings.lotsWorld,
+            lowIncome: this.buildings.lowIncomeLotsWorld,
+            industrial: this.buildings.industrialLotsWorld,
+            sites: sites.map(b => b.polygon),
+        }, ['sites']);
+
+        const roadInfo = (kind: string): SvgInfo[] => book.roadNames[kind].map(name => name === null ? undefined : {
+            className: `road ${kind}`,
+            title: name,
+            data: {street: name, kind},
+        });
+
+        const zoneNames: {[group: string]: string} = {residential: 'residential', lowIncome: 'low-income', industrial: 'industrial'};
+        const buildingModels = new Map<Vector[], SvgInfo>();
+        const byBuilding = new Map<Vector[], BuildingAddress>();
+        const buildings: MapAddresses['metadata']['buildings'] = [];
+        let count = 0;
+        const buildingInfo = (group: string, polygons: Vector[][]): SvgInfo[] => polygons.map((polygon, i) => {
+            const address = book.addresses[group][i];
+            const id = `building-${++count}`;
+            // Malls and shops are commercial, apartment blocks residential
+            const zone = group === 'sites' ? (sites[i].kind === 'apartments' ? 'residential' : 'commercial') : zoneNames[group];
+            const info: SvgInfo = {id, className: `building ${zone}`, title: address ? address.address : 'No address', data: {zone}};
+            if (group === 'sites') info.data.kind = sites[i].kind;
+            if (address) Object.assign(info.data, {address: address.address, number: address.number, street: address.street});
+            buildingModels.set(polygon, info);
+            byBuilding.set(polygon, {id, zone, address: address ? address.address : null,
+                number: address ? address.number : null, street: address ? address.street : null});
+            const centre = this.domainController.worldToScreen(PolygonUtil.averagePoint(polygon));
+            buildings.push({
+                id,
+                address: address ? address.address : null,
+                number: address ? address.number : null,
+                street: address ? address.street : null,
+                zone,
+                x: Math.round(centre.x * 10) / 10,
+                y: Math.round(centre.y * 10) / 10,
+            });
+            return info;
+        });
+
+        // Ramps and frontage pieces share a name, list each name once
+        const streets = new Map<string, {name: string; kind: string; crossStreets: string[]}>();
+        for (const s of book.streets) {
+            const existing = streets.get(s.name);
+            if (existing) {
+                existing.crossStreets = Array.from(new Set(existing.crossStreets.concat(s.crossStreets))).sort();
+            } else {
+                streets.set(s.name, {name: s.name, kind: s.kind, crossStreets: s.crossStreets.slice()});
+            }
+        }
+
+        const svgInfo: MapSvgInfo = {
+            lots: buildingInfo('residential', this.buildings.lotsWorld),
+            lowIncomeLots: buildingInfo('lowIncome', this.buildings.lowIncomeLotsWorld),
+            industrialLots: buildingInfo('industrial', this.buildings.industrialLotsWorld),
+            largeBuildings: buildingInfo('sites', sites.map(b => b.polygon)),
+            buildingModels,
+            minorRoads: roadInfo('minor'),
+            majorRoads: roadInfo('major'),
+            mainRoads: roadInfo('main'),
+            coastlineRoads: roadInfo('coast'),
+            secondaryRiver: roadInfo('riverside')[0],
+            highways: roadInfo('highway'),
+            frontageRoads: roadInfo('frontage'),
+            ramps: roadInfo('ramp'),
+            industrialRoads: roadInfo('service'),
+        };
+
+        return {
+            svgInfo,
+            metadata: {
+                metresPerUnit: 2 / this.domainController.zoom,  // 1 world unit = 2 m
+                streets: Array.from(streets.values()),
+                buildings,
+            },
+            byBuilding,
+            roadNames: book.roadNames,
+        };
+    }
+
+    draw(style: Style, forceDraw=false, customCanvas?: CanvasWrapper, svgInfo: MapSvgInfo=null): void {
         if (!style.needsUpdate && !forceDraw && !this.redraw && !this.domainController.moved) {
             return;
         }
@@ -834,7 +971,10 @@ export default class MainGUI {
         style.seaName = this.seaName;
         style.riverCentreline = this.toScreen([this.coastline.riverCentrelineWorld])[0];
         style.placeLabels = this.worldPlaceLabels.map(l => ({text: l.text, kind: l.kind, at: this.domainController.worldToScreen(l.at.clone())}) as PlaceLabel);
+        // Set last, it matches names and addresses to the shapes just set
+        style.svgInfo = svgInfo;
         style.draw(customCanvas);
+        style.svgInfo = null;
 
         // Drawing an export shouldn't stop the screen from catching up
         if (customCanvas) this.redraw = true;
@@ -848,7 +988,7 @@ export default class MainGUI {
      * The whole city as a scene for Blender Geometry Nodes, see docs/blender-export.md
      */
     exportScene(): any {
-        this.updateNames();
+        const addresses = this.addresses();
         const names = this.streetNames;
         const b = this.buildings.exportData;
 
@@ -859,13 +999,14 @@ export default class MainGUI {
         };
         addRoads(this.highways.highwaysWorld, () => 'motorway', i => names.highways[i]);
         roads.forEach((r, i) => r.ref = names.highwayRefs[i]);
-        addRoads(this.highways.rampsWorld, () => 'motorway_link');
+        addRoads(this.highways.rampsWorld, () => 'motorway_link', i => addresses.roadNames.ramp[i] || undefined);
         addRoads(this.mainRoads.allStreamlines, () => 'primary', i => names.main[i]);
         addRoads(this.majorRoads.allStreamlines, i => names.majorClass[i], i => names.major[i]);
         addRoads(this.coastline.streamlinesWithSecondaryRoad, () => 'secondary', i => names.coast[i]);
         addRoads(this.highways.frontageRoadsWorld, () => 'secondary', i => names.frontage[i], {frontage: true});
         addRoads(this.minorRoads.allStreamlines, () => 'residential', i => names.minor[i]);
-        addRoads(this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []), () => 'service');
+        addRoads(this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []), () => 'service',
+            i => addresses.roadNames.service[i] || undefined);
         addRoads([].concat(...b.sites.map(site => site.aisles)), () => 'parking_aisle');
 
         const areas: {polygon: Vector[]; cls: string; name?: string}[] = [];
@@ -911,6 +1052,8 @@ export default class MainGUI {
         const land = sea.length >= 3 ? PolygonUtil.subtractPolygons(rectangle, [sea], 100) : [rectangle];
 
         return SceneExport.build({
+            addresses: addresses.byBuilding,
+            streets: addresses.metadata.streets,
             viewOrigin: origin,
             viewSize: size,
             generationOrigin: area.origin,

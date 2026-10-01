@@ -122,6 +122,9 @@ export interface SceneRoad {
  * Everything in world space (1 unit = 2 m, y down)
  */
 export interface SceneInput {
+    // Street addresses by world space footprint, with each building's id in an exported SVG
+    addresses: Map<Vector[], {id: string; address: string; number: number; street: string}>;
+    streets: {name: string; kind: string; crossStreets: string[]}[];
     viewOrigin: Vector;
     viewSize: Vector;
     generationOrigin: Vector;  // Where the map was generated, also the origin of the scene
@@ -293,16 +296,23 @@ export default class SceneExport {
         const height = (b: Vector[], fallback: number): number =>
             Math.round((input.heights.has(b) ? input.heights.get(b) * WORLD_UNIT_M : fallback) * 10) / 10;
         // Houses have storeys of about 3 m under a pitched roof, sheds and tanks are one tall storey
+        const address = (b: Vector[]): {[k: string]: any} => {
+            const a = input.addresses.get(b);
+            if (!a) return {};
+            const out: {[k: string]: any} = {svg_id: a.id};
+            if (a.address) Object.assign(out, {address: a.address, housenumber: a.number, street: a.street});
+            return out;
+        };
         const building = (cls: string, b: Vector[], h: number, roof: string): void => {
             const maxLevels = cls === 'apartments' ? 3 : 2;
             // Too tall for a pitched roof house: an apartment or office block with a flat roof
             if (roof === 'gabled' && h > 3 * maxLevels + 4) {
-                this.addPolygon(cls, b, {height: h, eave_height: h, levels: Math.round(h / 3), roof: 'flat'});
+                this.addPolygon(cls, b, Object.assign({height: h, eave_height: h, levels: Math.round(h / 3), roof: 'flat'}, address(b)));
                 return;
             }
             const levels = roof === 'gabled' ? Math.max(1, Math.min(maxLevels, Math.floor((h - 2.5) / 3))) : (cls === 'industrial_office' || cls === 'mall' ? 2 : 1);
             const eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
-            this.addPolygon(cls, b, {height: h, eave_height: Math.round(eave * 10) / 10, levels, roof});
+            this.addPolygon(cls, b, Object.assign({height: h, eave_height: Math.round(eave * 10) / 10, levels, roof}, address(b)));
         };
         for (const b of input.houses) {
             const area = SceneExport.areaM2(b);
@@ -431,6 +441,8 @@ export default class SceneExport {
             features: this.features,
             // Where roads meet. Each road feature is one edge between two nodes (from_node, to_node)
             road_network: {nodes},
+            // Every street name once, with the streets it meets
+            streets: input.streets.map(st => ({name: st.name, kind: st.kind, cross_streets: st.crossStreets})),
         };
     }
 }

@@ -80,6 +80,10 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
 | `eave_height` | float, m | ground to the eaves. Equal to `height` for flat roofs |
 | `levels` | int | storeys |
 | `roof` | string | `gabled`, `flat` or `dome` (tanks) |
+| `address` | string | street address, e.g. `273 East 14th Street` |
+| `housenumber` | int | the number in the address |
+| `street` | string | the street in the address, the `name` of a road feature |
+| `svg_id` | string | `building-N`, the building's id in an SVG export of the same map |
 
 Gabled roofs can run along the longest side of the footprint. Most footprints are rectangles or L shapes.
 
