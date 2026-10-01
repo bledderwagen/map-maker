@@ -213,6 +213,24 @@ export default class PlaceNames {
         return `${this.pick(SURNAMES)} Green`;
     }
 
+    /**
+     * @param big a regional mall rather than a strip mall
+     */
+    mallName(big: boolean): string {
+        const name = Math.random() < 0.5 ? this.pick(SURNAMES) : this.pick(NEIGHBOURHOOD_FIRST);
+        if (big) return `${name} ${['Mall', 'Galleria', 'Town Center', 'Mall', 'Square'][Math.floor(Math.random() * 5)]}`;
+        return `${name} ${['Plaza', 'Shopping Center', 'Village Shops', 'Marketplace'][Math.floor(Math.random() * 4)]}`;
+    }
+
+    apartmentName(): string {
+        const r = Math.random();
+        const place = Math.random() < 0.5 ? this.pick(TREES) : this.pick(SURNAMES);
+        if (r < 0.35) return `The Reserve at ${place}`;
+        if (r < 0.6) return `${place} ${['Place', 'Park', 'Village', 'Commons'][Math.floor(Math.random() * 4)]} Apartments`;
+        if (r < 0.8) return `${place} Crossing`;
+        return `The ${place}`;
+    }
+
     neighbourhoodName(): string {
         for (let i = 0; i < 20; i++) {
             const first = NEIGHBOURHOOD_FIRST[Math.floor(Math.random() * NEIGHBOURHOOD_FIRST.length)];

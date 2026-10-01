@@ -6,6 +6,7 @@ export interface RailwayContext {
     size: Vector;  // World area to cover
     onLand: (p: Vector) => boolean;
     industrial: (p: Vector) => boolean;
+    avoid: (p: Vector) => boolean;  // Land a railway shouldn't cut through, such as the mall
     highways: Vector[][];
     parks: Vector[][];
 }
@@ -62,6 +63,7 @@ export default class Railway {
         for (let i = 0; i < line.length; i += 2) {
             const p = line[i];
             if (ctx.industrial(p)) score += 2;
+            if (ctx.avoid(p)) score -= 20;
             if (ctx.parks.some(park => PolygonUtil.insidePolygon(p, park))) score -= 3;
             // Running alongside a highway looks like a mistake, crossing one is fine
             for (const h of ctx.highways) {

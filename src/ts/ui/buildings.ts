@@ -11,6 +11,7 @@ import IndustrialLayout, {IndustrialParams} from '../impl/industrial_layout';
 import YardHouseLayout from '../impl/yard_houses';
 import * as SimplexNoise from 'simplex-noise';
 import BuildingCleanup, {RoadClearance} from '../impl/building_cleanup';
+import CommercialLayout, {SiteBuildingKind, SiteLayout} from '../impl/commercial_layout';
 
 
 export interface BuildingModel {
@@ -30,7 +31,10 @@ const HEIGHTS: {[zone: number]: {min: number; max: number}} = {
     [Zone.Residential]: {min: 3.5, max: 6},
     [Zone.LowIncome]: {min: 3, max: 4.5},
     [Zone.Industrial]: {min: 4.5, max: 7},
+    [Zone.Commercial]: {min: 5, max: 7},
 };
+const APARTMENT_HEIGHT = {min: 5.5, max: 6.8};  // Three storeys
+const RETAIL_HEIGHT = {min: 2.8, max: 3.5};
 
 /**
  * Pseudo 3D buildings
@@ -40,9 +44,13 @@ class BuildingModels {
     private domainController = DomainController.getInstance();
     private _buildingModels: BuildingModel[] = [];
 
-    constructor(lots: Vector[][], zones: Zone[]) {  // Lots in world space
+    /**
+     * @param lots world space
+     * @param ranges height range of each lot, else the zone's
+     */
+    constructor(lots: Vector[][], zones: Zone[], ranges: {min: number; max: number}[] = []) {
         for (let i = 0; i < lots.length; i++) {
-            const range = HEIGHTS[zones[i]];
+            const range = ranges[i] || HEIGHTS[zones[i]];
             this._buildingModels.push({
                 height: Math.random() * (range.max - range.min) + range.min,
                 lotWorld: lots[i],
@@ -111,7 +119,11 @@ export default class Buildings {
     private postGenerateCallback: () => any = () => {};
     private _models: BuildingModels = new BuildingModels([], []);
     private _blocks: Vector[][] = [];
-    private zoneBlocks: Vector[][][] = [[], [], []];  // Indexed by Zone, world space
+    private zoneBlocks: Vector[][][] = [[], [], [], []];  // Indexed by Zone, world space
+    private apartmentBlocks: Vector[][] = [];
+    private sites: SiteLayout[] = [];  // Mall and apartment complexes
+    private siteBuildings: {polygon: Vector[]; kind: SiteBuildingKind}[] = [];
+    private arterials: Vector[][] = [];  // Main and major roads, apartments line them
     private industrialBuildings: Vector[][] = [];  // Warehouses, tanks and port buildings
     private industrialRoads: Vector[][] = [];  // Service roads through industrial blocks
     private portBuildings: Vector[][] = [];
@@ -276,6 +288,8 @@ export default class Buildings {
         houses: Vector[][]; lowIncomeHouses: Vector[][]; industrial: Vector[][]; port: Set<Vector[]>;
         residentialBlocks: Vector[][]; lowIncomeBlocks: Vector[][]; industrialBlocks: Vector[][];
         heights: Map<Vector[], number>;  // World units
+        siteBuildings: {polygon: Vector[]; kind: SiteBuildingKind}[]; sites: SiteLayout[];
+        retailBlocks: Vector[][]; apartmentBlocks: Vector[][];
     } {
         const heights = new Map<Vector[], number>();
         for (const m of this._models.buildingModels) heights.set(m.lotWorld, m.height);
@@ -288,6 +302,10 @@ export default class Buildings {
             lowIncomeBlocks: this.zoneBlocks[Zone.LowIncome],
             industrialBlocks: this.zoneBlocks[Zone.Industrial],
             heights,
+            siteBuildings: this.siteBuildings,
+            sites: this.sites,
+            retailBlocks: this.zoneBlocks[Zone.Commercial],
+            apartmentBlocks: this.apartmentBlocks,
         };
     }
 
@@ -302,7 +320,10 @@ export default class Buildings {
 
     reset(): void {
         for (const f of this.polygonFinders) f.reset();
-        this.zoneBlocks = [[], [], []];
+        this.zoneBlocks = [[], [], [], []];
+        this.apartmentBlocks = [];
+        this.sites = [];
+        this.siteBuildings = [];
         this.industrialBuildings = [];
         this.industrialRoads = [];
         this.residentialHouses = [];
@@ -335,6 +356,7 @@ export default class Buildings {
         blockFinder.findPolygons();
 
         this.zoneBlocks = this.zoneAndClipBlocks(blockFinder.polygons);
+        this.pickApartmentBlocks();
         this.polygonFinders = this.createPolygonFinders();
         for (const zone of [Zone.Residential, Zone.LowIncome]) {
             this.polygonFinders[zone].setPolygons(this.zoneBlocks[zone]);
@@ -343,6 +365,7 @@ export default class Buildings {
         await Promise.all(this.polygonFinders.map(f => f.shrink(animate)));
         await Promise.all(this.polygonFinders.map(f => f.divide(animate)));
         this.layoutIndustry();
+        this.layoutSites();
         // Houses sit in rows of lots along each block, like a real street grid
         this.residentialHouses = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.Residential), YardHouseLayout.TIDY).houses;
         const yards = YardHouseLayout.layoutBlocks(this.shrunkBlocks(Zone.LowIncome), YardHouseLayout.RUN_DOWN);
@@ -358,6 +381,8 @@ export default class Buildings {
         const port = new Set(this.portBuildings);
         this.industrialBuildings = this.portBuildings.concat(
             tidy(this.industrialBuildings.filter(b => !port.has(b))));
+        const kept = new Set(BuildingCleanup.clearRoads(this.siteBuildings.map(b => b.polygon), roads));
+        this.siteBuildings = this.siteBuildings.filter(b => kept.has(b.polygon));
         this.redraw();
 
         const lots: Vector[][] = [];
@@ -369,7 +394,13 @@ export default class Buildings {
         addLots(this.residentialHouses, Zone.Residential);
         addLots(this.lowIncomeHouses, Zone.LowIncome);
         addLots(this.industrialBuildings, Zone.Industrial);
-        this._models = new BuildingModels(lots, zones);
+        const ranges: {min: number; max: number}[] = [];
+        for (const b of this.siteBuildings) {
+            ranges[lots.length] = b.kind === 'apartments' ? APARTMENT_HEIGHT : b.kind === 'retail' ? RETAIL_HEIGHT : HEIGHTS[Zone.Commercial];
+            lots.push(b.polygon);
+            zones.push(b.kind === 'apartments' ? Zone.Residential : Zone.Commercial);
+        }
+        this._models = new BuildingModels(lots, zones, ranges);
 
         this.postGenerateCallback();
     }
@@ -378,7 +409,7 @@ export default class Buildings {
      * Cuts highway verges and interchanges out of blocks, then sorts blocks by zone
      */
     private zoneAndClipBlocks(blocks: Vector[][]): Vector[][][] {
-        const out: Vector[][][] = [[], [], []];
+        const out: Vector[][][] = [[], [], [], []];
         const zoned = this.zoning !== null && this.zoning.enabled;
 
         // Blocks are only tested for water at their centre, so cut away any water they overlap
@@ -392,7 +423,7 @@ export default class Buildings {
             const pieces = holes.length === 0 ? [block] : PolygonUtil.subtractPolygons(block, holes, this.lowIncomeParams.minArea);
             for (const piece of pieces) {
                 const zone = zoned ? this.zoning.zoneAt(PolygonUtil.averagePoint(piece)) : Zone.Residential;
-                if (zone !== Zone.Industrial && this.becomesWaterfrontPark(piece)) {
+                if (zone !== Zone.Industrial && zone !== Zone.Commercial && this.becomesWaterfrontPark(piece)) {
                     this._waterfrontParks.push(piece);
                     continue;
                 }
@@ -454,6 +485,83 @@ export default class Buildings {
             this.industrialBuildings.push(...layout.buildings);
             this.industrialRoads.push(...layout.roads);
         }
+    }
+
+    /**
+     * Main and major roads, apartment complexes go along them
+     */
+    setArterials(lines: Vector[][]): void {
+        this.arterials = lines;
+    }
+
+    /**
+     * Some housing blocks become apartment complexes: most of those near the mall,
+     * some along the main roads. Only blocks of a sensible size for one development
+     */
+    private pickApartmentBlocks(): void {
+        const mall = this.zoning !== null && this.zoning.enabled ? this.zoning.commercialCentre : null;
+        const keep: Vector[][] = [];
+        for (const block of this.zoneBlocks[Zone.Residential]) {
+            const area = PolygonUtil.calcPolygonArea(block);
+            const c = PolygonUtil.averagePoint(block);
+            let chance = 0;
+            if (area > 1800 && area < 14000) {
+                const nearMall = mall !== null && c.distanceTo(mall) < 520;
+                const halfWidth = Math.sqrt(area) / 2;
+                const onArterial = this.arterials.some(l => l.length >= 2 && PolygonUtil.distanceToPolyline(c, l) < halfWidth + 10);
+                if (nearMall) chance = 0.35;
+                else if (onArterial) chance = 0.08;
+            }
+            if (Math.random() < chance) this.apartmentBlocks.push(block);
+            else keep.push(block);
+        }
+        this.zoneBlocks[Zone.Residential] = keep;
+    }
+
+    /**
+     * The mall goes on the biggest commercial block, strip malls on any others
+     */
+    private layoutSites(): void {
+        this.sites = [];
+        const commercial = this.zoneBlocks[Zone.Commercial].slice()
+            .sort((a, b) => PolygonUtil.calcPolygonArea(b) - PolygonUtil.calcPolygonArea(a));
+        for (const block of commercial) this.sites.push(CommercialLayout.mall(block));
+        for (const block of this.apartmentBlocks) this.sites.push(CommercialLayout.apartments(block));
+        this.siteBuildings = [];
+        for (const site of this.sites) this.siteBuildings.push(...site.buildings);
+    }
+
+    get siteLots(): Vector[][] {
+        return this.toScreen(this.siteBuildings.map(b => b.polygon));
+    }
+
+    get parkingLots(): Vector[][] {
+        return this.toScreen([].concat(...this.sites.map(s => s.parking)));
+    }
+
+    get parkingAisles(): Vector[][] {
+        return this.toScreen([].concat(...this.sites.map(s => s.aisles)));
+    }
+
+    get pools(): Vector[][] {
+        return this.toScreen([].concat(...this.sites.map(s => s.pools)));
+    }
+
+    get retailBlocks(): Vector[][] {
+        return this.toScreen(this.zoneBlocks[Zone.Commercial]);
+    }
+
+    get apartmentAreas(): Vector[][] {
+        return this.toScreen(this.apartmentBlocks);
+    }
+
+    /**
+     * World space centre of each site and whether it's the mall, for names
+     */
+    get siteCentres(): {at: Vector; kind: SiteLayout['kind']}[] {
+        // Only complexes big enough to be worth naming
+        return this.sites.filter(s => s.kind === 'mall' || s.kind === 'strip_mall' || s.buildings.length >= 5)
+            .map(s => ({at: s.centre, kind: s.kind}));
     }
 
     setPreGenerateCallback(callback: () => any): void {

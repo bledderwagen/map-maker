@@ -65,12 +65,18 @@ export interface ColourScheme {
     shieldColour?: string;
     shieldOutline?: string;
     fontFamily?: string;
+    retailColour?: string;
+    retailOutline?: string;
+    parkingColour?: string;
+    parkingOutline?: string;
+    poolOutline?: string;
+    shopLabelColour?: string;
 }
 
 export interface PlaceLabel {
     text: string;
     at: Vector;  // Screen space
-    kind: 'neighbourhood' | 'park';
+    kind: 'neighbourhood' | 'park' | 'mall' | 'apartments';
 }
 
 /**
@@ -108,6 +114,11 @@ export default abstract class Style {
     public pitchMarkings: Vector[][] = [];  // Pitch lines, drawn like paths
     public railways: Vector[][] = [];
     public corridors: Vector[][] = [];  // Highway verges and interchanges
+    public retailAreas: Vector[][] = [];
+    public parkingLots: Vector[][] = [];
+    public parkingAisles: Vector[][] = [];
+    public pools: Vector[][] = [];
+    public largeBuildings: Vector[][] = [];  // Malls, shops and apartment blocks
 
     // Names, only drawn by styles that label the map
     public names: StreetNameSets = null;
@@ -358,6 +369,8 @@ export class DefaultStyle extends Style {
         for (const s of this.minorRoads) canvas.drawPolyline(s);
         for (const s of this.frontageRoads) canvas.drawPolyline(s);
         for (const s of this.industrialRoads) canvas.drawPolyline(s);
+        canvas.setLineWidth(0.4 * this.colourScheme.minorWidth * this.domainController.zoom);
+        for (const s of this.parkingAisles) canvas.drawPolyline(s);
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
@@ -411,6 +424,7 @@ export class DefaultStyle extends Style {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.lots) canvas.drawPolygon(b);
+                for (const b of this.largeBuildings) canvas.drawPolygon(b);
                 canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
                 for (const f of this.fences) canvas.drawPolyline(f);
                 canvas.setLineWidth(1);
@@ -620,6 +634,7 @@ export class RoughStyle extends Style {
                     fill: '',
                 });
                 for (const b of this.lots) canvas.drawPolygon(b);
+                for (const b of this.largeBuildings) canvas.drawPolygon(b);
                 for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
                 for (const b of this.industrialLots) canvas.drawPolygon(b);
                 canvas.setOptions({
@@ -687,6 +702,12 @@ export class OsmStyle extends DefaultStyle {
         if (!cs.placeLabelColour) cs.placeLabelColour = '#666666';
         if (!cs.shieldColour) cs.shieldColour = '#f3c4ce';
         if (!cs.shieldOutline) cs.shieldOutline = '#c2406a';
+        if (!cs.retailColour) cs.retailColour = '#ffd6d1';
+        if (!cs.retailOutline) cs.retailOutline = '#d99c95';
+        if (!cs.parkingColour) cs.parkingColour = '#eeeeee';
+        if (!cs.parkingOutline) cs.parkingOutline = '#d4d4d4';
+        if (!cs.poolOutline) cs.poolOutline = '#78bed2';
+        if (!cs.shopLabelColour) cs.shopLabelColour = '#ac39ac';
         if (!cs.fontFamily) cs.fontFamily = '"Noto Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif';
     }
 
@@ -776,6 +797,8 @@ export class OsmStyle extends DefaultStyle {
         fillAll(this.corridors, cs.bgColour);
         fillAll(this.residentialAreas, cs.residentialColour);
         fillAll(this.industrialAreas, cs.industrialColour);
+        fillAll(this.retailAreas, cs.retailColour, cs.retailOutline, 0.8);
+        fillAll(this.parkingLots, cs.parkingColour, cs.parkingOutline, 0.8);
 
         // Green spaces
         fillAll([this.floodplain], cs.grassColour);
@@ -800,6 +823,8 @@ export class OsmStyle extends DefaultStyle {
         const buildings = this.lots.concat(this.lowIncomeLots);
         fillAll(buildings, cs.buildingColour, cs.buildingStroke, 0.6);
         fillAll(this.industrialLots, cs.industrialBuildingColour, cs.buildingStroke, 0.6);
+        fillAll(this.largeBuildings, cs.buildingColour, cs.buildingStroke, 0.6);
+        fillAll(this.pools, cs.seaColour, cs.poolOutline, 0.8);
 
         // Footpaths: a faint light casing under a dashed salmon line
         canvas.setRoundLines(true);
@@ -823,6 +848,7 @@ export class OsmStyle extends DefaultStyle {
 
         const w = (width: number): number => width * zoom;
         const classes: {lines: Vector[][]; fill: string; casing: string; width: number; casingWidth: number}[] = [
+            {lines: this.parkingAisles, fill: cs.serviceRoadColour, casing: cs.serviceRoadOutline, width: w(0.35 * cs.minorWidth), casingWidth: 0.8},
             {lines: this.industrialRoads, fill: cs.serviceRoadColour, casing: cs.serviceRoadOutline, width: w(0.6 * cs.minorWidth), casingWidth: 1},
             {lines: this.minorRoads, fill: cs.minorRoadColour, casing: cs.minorRoadOutline, width: w(cs.minorWidth), casingWidth: 1.2},
             {lines: tertiary, fill: cs.tertiaryRoadColour, casing: cs.tertiaryRoadOutline, width: w(cs.majorWidth * 0.9), casingWidth: 1.4},
@@ -922,6 +948,21 @@ export class OsmStyle extends DefaultStyle {
         });
         this.highways.forEach((h, i) => labeller.labelLine(h, names.highways[i], style(11, cs.labelColour, '', 520)));
 
+        // The mall and its car park
+        for (const l of this.placeLabels) {
+            if (l.kind === 'mall') labeller.labelPoint(l.at, l.text, style(11.5, cs.shopLabelColour, 'bold', 0, 1.5), 16);
+        }
+        const parkingStyle: LabelStyle = {font: font(13, 'bold'), size: 13, fill: '#0092da', halo: halo, haloWidth: 1};
+        for (const lot of this.parkingLots) {
+            if (PolygonUtil.calcPolygonArea(lot) < 3000) continue;
+            // In the open part of the car park, towards the street
+            const c = PolygonUtil.averagePoint(lot);
+            for (const p of lot.filter((_, i) => i % Math.max(1, Math.floor(lot.length / 6)) === 0)) {
+                const at = c.clone().add(p.clone().sub(c).multiplyScalar(0.6));
+                if (labeller.labelPoint(at, 'P', parkingStyle)) break;
+            }
+        }
+
         // Neighbourhoods
         for (const l of this.placeLabels) {
             if (l.kind === 'neighbourhood') {
@@ -948,6 +989,9 @@ export class OsmStyle extends DefaultStyle {
         // Parks
         for (const l of this.placeLabels) {
             if (l.kind === 'park') labeller.labelPoint(l.at, l.text, style(11, cs.parkLabelColour, '', 0, 1.2), 14);
+        }
+        for (const l of this.placeLabels) {
+            if (l.kind === 'apartments') labeller.labelPoint(l.at, l.text, style(10, '#555555', '', 0, 1.2), 16);
         }
 
         this.drawPointsOfInterest(canvas, labeller);

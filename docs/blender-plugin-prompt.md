@@ -6,10 +6,12 @@ Copy everything below the line into a new agent session on the `bledderwagen/map
 
 Build a Blender add-on that turns cities exported by map-maker into a 3D scene driven by Geometry Nodes.
 
+**Branch.** The export and these docs are on branch `claude/zen-babbage-bpdlsw` (until it's merged). Check it out, and branch from it for your work.
+
 **Context.** map-maker (this repository, TypeScript, runs in the browser) procedurally generates American-style cities. Download → *Blender* exports the city as a `.geojson` scene file. Read these first:
 
 - `docs/blender-export.md`: the file format. It covers the coordinate system, the layers, every class with its stable `class_id`, and the per-layer attributes (`height`, `eave_height`, `levels`, `roof`, `width`, `lanes`, `bridge`, `level`, `deck_height`, `z_order`, names). It also has a suggested Blender mapping. Treat the format as fixed. If something you need is missing, write it down rather than working around it silently.
-- `docs/blender/sample-map.geojson`: a real export (about 7,200 features: houses, warehouses, a port, freeways with a cloverleaf, a river with bridges, a railway, parks and woods). It's the city shown in `docs/images/osm-style-map.png`, so compare against that image.
+- `docs/blender/sample-map.geojson`: a real export (about 6,400 features: houses, apartment complexes, a shopping mall in a big car park, warehouses, a port, freeways with a cloverleaf, a river with bridges, a railway, parks and woods). It's the city shown in `docs/images/osm-style-map.png`, so compare against that image.
 - `src/ts/impl/scene_export.ts`: the exporter, in case the doc is unclear.
 
 **What to build.** Put it in a new `blender/` folder:
@@ -32,7 +34,7 @@ Build a Blender add-on that turns cities exported by map-maker into a 3D scene d
 3. **Packaging**: target Blender 4.2 LTS or newer and package it as a Blender extension (`blender_manifest.toml`), installable as a zip. Add a short `blender/README.md` covering install and use.
 
 **Check your work.**
-- If Blender is available (`blender -b`), import the sample headless with a script, render a top-down or oblique preview image, and check it against `docs/images/osm-style-map.png`: coast on the left, the meandering river, bridges, the cloverleaf on the right, the port.
+- If Blender is available (`blender -b`), import the sample headless with a script, render a top-down or oblique preview image, and check it against `docs/images/osm-style-map.png`: coast on the left, the meandering river, bridges, the cloverleaf on the right, the port, the mall at the bottom.
 - Commit the preview as `docs/images/blender-preview.png`.
 - If Blender isn't available, test the parsing and mesh-building logic with plain Python against the sample file, and say clearly what could not be verified.
 

@@ -36,6 +36,9 @@ export const CLASSES: {[name: string]: ClassInfo} = {
     port_shed: {id: 7, layer: 'buildings', geometry: 'Polygon', description: 'Transit shed on a pier'},
     container_stack: {id: 8, layer: 'buildings', geometry: 'Polygon', description: 'Stack of shipping containers'},
     church: {id: 9, layer: 'buildings', geometry: 'Polygon', description: 'Place of worship'},
+    apartments: {id: 10, layer: 'buildings', geometry: 'Polygon', description: 'Three storey block in a garden apartment complex'},
+    mall: {id: 11, layer: 'buildings', geometry: 'Polygon', description: 'Part of a shopping mall: concourse, anchor store or food court'},
+    retail: {id: 12, layer: 'buildings', geometry: 'Polygon', description: 'Shop: strip mall unit, big box store or restaurant on a pad'},
 
     // Roads, centrelines to sweep a profile along
     motorway: {id: 20, layer: 'roads', geometry: 'LineString', description: 'Freeway, both carriageways on one centreline'},
@@ -45,6 +48,7 @@ export const CLASSES: {[name: string]: ClassInfo} = {
     tertiary: {id: 24, layer: 'roads', geometry: 'LineString', description: 'Minor through road'},
     residential: {id: 25, layer: 'roads', geometry: 'LineString', description: 'Side street'},
     service: {id: 26, layer: 'roads', geometry: 'LineString', description: 'Service road in industry or the port'},
+    parking_aisle: {id: 27, layer: 'roads', geometry: 'LineString', description: 'Aisle or drive in a car park, may be a closed loop'},
 
     rail: {id: 30, layer: 'railways', geometry: 'LineString', description: 'Railway track'},
 
@@ -68,6 +72,10 @@ export const CLASSES: {[name: string]: ClassInfo} = {
     river: {id: 62, layer: 'areas', geometry: 'Polygon', description: 'River channel'},
     lake: {id: 63, layer: 'areas', geometry: 'Polygon', description: 'Oxbow lake or park pond'},
     sand_bar: {id: 64, layer: 'areas', geometry: 'Polygon', description: 'Sand bar on the inside of a river bend'},
+    retail_area: {id: 65, layer: 'areas', geometry: 'Polygon', description: 'Shopping mall or strip mall site'},
+    parking_lot: {id: 66, layer: 'areas', geometry: 'Polygon', description: 'Car park surface'},
+    swimming_pool: {id: 67, layer: 'areas', geometry: 'Polygon', description: 'Pool in an apartment courtyard'},
+    apartment_area: {id: 68, layer: 'areas', geometry: 'Polygon', description: 'Garden apartment complex'},
 
     // Points
     place_of_worship: {id: 80, layer: 'points', geometry: 'Point', description: 'Church, also exported as a church building'},
@@ -75,13 +83,16 @@ export const CLASSES: {[name: string]: ClassInfo} = {
 
     neighbourhood_label: {id: 90, layer: 'labels', geometry: 'Point', description: 'Neighbourhood name'},
     park_label: {id: 91, layer: 'labels', geometry: 'Point', description: 'Park name'},
+    mall_label: {id: 92, layer: 'labels', geometry: 'Point', description: 'Shopping mall name'},
+    apartments_label: {id: 93, layer: 'labels', geometry: 'Point', description: 'Apartment complex name'},
 };
 
 /**
  * Drawing order of areas, as the OpenStreetMap style draws them
  */
 const Z_ORDER: {[name: string]: number} = {
-    residential_area: 10, low_income_area: 10, highway_verge: 15, industrial_area: 20, floodplain: 30, park: 35,
+    residential_area: 10, low_income_area: 10, apartment_area: 10, highway_verge: 15, industrial_area: 20,
+    retail_area: 20, parking_lot: 25, floodplain: 30, park: 35, swimming_pool: 77,
     pitch: 40, wood: 45, sea: 50, port_quay: 55, port_water: 60, beach: 65, river: 70, lake: 75, sand_bar: 80,
 };
 
@@ -90,10 +101,11 @@ const Z_ORDER: {[name: string]: number} = {
  */
 const ROAD_WIDTH: {[name: string]: number} = {
     motorway: 36, motorway_link: 10, primary: 16, secondary: 13, tertiary: 11, residential: 9, service: 6,
-    rail: 4, footway: 2.5,
+    parking_aisle: 6, rail: 4, footway: 2.5,
 };
 const ROAD_LANES: {[name: string]: number} = {
     motorway: 8, motorway_link: 1, primary: 4, secondary: 4, tertiary: 2, residential: 2, service: 1,
+    parking_aisle: 2,
 };
 
 export interface SceneRoad {
@@ -115,6 +127,7 @@ export interface SceneInput {
     industrialBuildings: Vector[][];
     portBuildings: Set<Vector[]>;
     churches: Vector[][];
+    siteBuildings: {polygon: Vector[]; kind: 'mall' | 'retail' | 'apartments'}[];
     heights: Map<Vector[], number>;
     roads: SceneRoad[];
     railways: Vector[][];
@@ -266,7 +279,8 @@ export default class SceneExport {
             Math.round((input.heights.has(b) ? input.heights.get(b) * WORLD_UNIT_M : fallback) * 10) / 10;
         // Houses have storeys of about 3 m under a pitched roof, sheds and tanks are one tall storey
         const building = (cls: string, b: Vector[], h: number, roof: string): void => {
-            const levels = roof === 'gabled' ? Math.max(1, Math.min(2, Math.floor((h - 2.5) / 3))) : (cls === 'industrial_office' ? 2 : 1);
+            const maxLevels = cls === 'apartments' ? 3 : 2;
+            const levels = roof === 'gabled' ? Math.max(1, Math.min(maxLevels, Math.floor((h - 2.5) / 3))) : (cls === 'industrial_office' || cls === 'mall' ? 2 : 1);
             const eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
             this.addPolygon(cls, b, {height: h, eave_height: Math.round(eave * 10) / 10, levels, roof});
         };
@@ -292,6 +306,12 @@ export default class SceneExport {
             } else {
                 building('warehouse', b, height(b, 11), 'flat');
             }
+        }
+
+        for (const s of input.siteBuildings) {
+            if (s.kind === 'apartments') building('apartments', s.polygon, height(s.polygon, 12), 'gabled');
+            else if (s.kind === 'mall') building('mall', s.polygon, height(s.polygon, 12), 'flat');
+            else building('retail', s.polygon, height(s.polygon, 6), 'flat');
         }
 
         // Roads, railways and paths, split at bridges

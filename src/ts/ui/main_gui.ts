@@ -71,6 +71,7 @@ export default class MainGUI {
         industrialSize: 220,
         lowIncomeAmount: 0.5,
         highwayBuffer: 12,
+        mall: true,
     };
     private mainParams: StreamlineParams;
     private majorParams: StreamlineParams;
@@ -97,7 +98,7 @@ export default class MainGUI {
     private streetNames: StreetNameSets = null;
     private riverName = '';
     private seaName = '';
-    private worldPlaceLabels: {text: string; at: Vector; kind: 'neighbourhood' | 'park'}[] = [];
+    private worldPlaceLabels: {text: string; at: Vector; kind: PlaceLabel['kind']}[] = [];
 
     constructor(private guiFolder: dat.GUI, private tensorField: TensorField, private closeTensorFolder: () => void) {
         guiFolder.add(this, 'generateEverything');
@@ -176,6 +177,7 @@ export default class MainGUI {
         zoningFolder.add(this.zoningParams, 'industrialSize', 40, 400);
         zoningFolder.add(this.zoningParams, 'lowIncomeAmount', 0, 1);
         zoningFolder.add(this, 'portChance', 0, 1);
+        zoningFolder.add(this.zoningParams, 'mall');
 
         const buildingsFolder = guiFolder.addFolder('Buildings');
         this.buildings = new Buildings(tensorField, buildingsFolder, redraw, this.minorParams.dstep, this.animate);
@@ -205,6 +207,7 @@ export default class MainGUI {
             add(this.highways.rampsWorld, widths.ramp);
             add([this.railway], 6);
             this.buildings.setRoadClearance(clearance);
+            this.buildings.setArterials(this.mainRoads.allStreamlines.concat(this.majorRoads.allStreamlines));
             this.buildings.setAllStreamlines(allStreamlines);
             this.buildings.setWaterfront(this.coastline.shoreDetailedWorld, this.coastline.shoreBeachWidths, this.coastline.beachesWorld);
         });
@@ -374,6 +377,7 @@ export default class MainGUI {
             // Bridges carry it over the river, it only stops at the sea
             onLand: p => !PolygonUtil.insidePolygon(p, this.tensorField.sea),
             industrial: p => this.zoning.enabled && this.zoning.zoneAt(p) === Zone.Industrial,
+            avoid: p => this.zoning.enabled && this.zoning.zoneAt(p) === Zone.Commercial,
             highways: this.highways.highwaysWorld,
             parks: this.bigParks.concat(floodplain && floodplain.length >= 3 ? [floodplain] : []),
         });
@@ -451,7 +455,7 @@ export default class MainGUI {
         if (!this.zoning.enabled) return false;
         const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
         return this.zoning.approxHighwayDistance(p) < trimDistance - 6
-            || this.zoning.zoneAt(p) === Zone.Industrial
+            || this.zoning.isSuperblock(this.zoning.zoneAt(p))
             || this.zoning.inInterchange(p);
     }
 
@@ -472,6 +476,7 @@ export default class MainGUI {
         // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
         this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
             || this.zoning.inIndustrialDistrict(p)
+            || this.zoning.inCommercialDistrict(p)
             || this.zoning.inInterchange(p)
             || this.inBigPark(p), 1);
         this.addUnderpasses(trimDistance);
@@ -582,7 +587,7 @@ export default class MainGUI {
             for (const [end, previous] of [[s[s.length - 1], s[s.length - 2]], [s[0], s[1]]]) {
                 const d = this.zoning.exactHighwayDistance(end);
                 if (d > trimDistance + 3) continue;
-                if (this.zoning.inInterchange(end) || this.zoning.inIndustrialDistrict(end)) continue;
+                if (this.zoning.inInterchange(end) || this.zoning.inIndustrialDistrict(end) || this.zoning.inCommercialDistrict(end)) continue;
                 const dir = end.clone().sub(previous);
                 if (dir.lengthSq() === 0) continue;
                 ends.push({point: end, dir: dir.normalize()});
@@ -652,8 +657,8 @@ export default class MainGUI {
                 chanceNoDivide: 1,
             }, this.tensorField);
         p.findPolygons();
-        // Nobody builds a park in the middle of an industrial estate
-        const polygons = p.polygons.filter(poly => this.zoning.zoneAt(PolygonUtil.averagePoint(poly)) !== Zone.Industrial);
+        // Nobody builds a park in the middle of an industrial estate or a mall
+        const polygons = p.polygons.filter(poly => !this.zoning.isSuperblock(this.zoning.zoneAt(PolygonUtil.averagePoint(poly))));
 
         if (this.minorRoads.allStreamlines.length === 0) {
             // Big parks
@@ -810,6 +815,11 @@ export default class MainGUI {
         style.ramps = this.highways.ramps;
         style.secondaryRiver = this.coastline.secondaryRiver;
         style.residentialAreas = this.buildings.residentialBlocks;
+        style.retailAreas = this.buildings.retailBlocks;
+        style.parkingLots = this.buildings.parkingLots;
+        style.parkingAisles = this.buildings.parkingAisles;
+        style.pools = this.buildings.pools;
+        style.largeBuildings = this.buildings.siteLots;
         style.corridors = this.zoning.enabled ? this.toScreen(this.zoning.exclusionAreas) : [];
         style.railways = this.railway.length >= 2 ? this.toScreen([this.railway]) : [];
         style.pitchMarkings = this.toScreen(this.pitchLines);
@@ -853,6 +863,7 @@ export default class MainGUI {
         addRoads(this.highways.frontageRoadsWorld, () => 'secondary', i => names.frontage[i], {frontage: true});
         addRoads(this.minorRoads.allStreamlines, () => 'residential', i => names.minor[i]);
         addRoads(this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []), () => 'service');
+        addRoads([].concat(...b.sites.map(site => site.aisles)), () => 'parking_aisle');
 
         const areas: {polygon: Vector[]; cls: string; name?: string}[] = [];
         const addAreas = (polygons: Vector[][], cls: string, name?: string): void => {
@@ -861,6 +872,10 @@ export default class MainGUI {
         addAreas(b.residentialBlocks, 'residential_area');
         addAreas(b.lowIncomeBlocks, 'low_income_area');
         addAreas(b.industrialBlocks, 'industrial_area');
+        addAreas(b.retailBlocks, 'retail_area');
+        addAreas(b.apartmentBlocks, 'apartment_area');
+        addAreas([].concat(...b.sites.map(site => site.parking)), 'parking_lot');
+        addAreas([].concat(...b.sites.map(site => site.pools)), 'swimming_pool');
         if (this.zoning.enabled) addAreas(this.zoning.exclusionAreas, 'highway_verge');
         addAreas([this.coastline.floodplainWorld], 'floodplain');
         const parkNames = new Map<Vector[], string>();
@@ -895,6 +910,7 @@ export default class MainGUI {
             industrialBuildings: b.industrial,
             portBuildings: b.port,
             churches: poi.churches,
+            siteBuildings: b.siteBuildings,
             heights: b.heights,
             roads,
             railways: this.railway.length >= 2 ? [this.railway] : [],
@@ -907,7 +923,11 @@ export default class MainGUI {
             labels: this.worldPlaceLabels.filter(l => l.kind === 'neighbourhood')
                 .map(l => ({at: l.at, cls: 'neighbourhood_label', name: l.text}))
                 .concat(this.worldPlaceLabels.filter(l => l.kind === 'park')
-                    .map(l => ({at: l.at, cls: 'park_label', name: l.text}))),
+                    .map(l => ({at: l.at, cls: 'park_label', name: l.text})))
+                .concat(this.worldPlaceLabels.filter(l => l.kind === 'mall')
+                    .map(l => ({at: l.at, cls: 'mall_label', name: l.text})))
+                .concat(this.worldPlaceLabels.filter(l => l.kind === 'apartments')
+                    .map(l => ({at: l.at, cls: 'apartments_label', name: l.text}))),
         });
     }
 
@@ -919,7 +939,7 @@ export default class MainGUI {
         const minor = this.minorRoads.allStreamlines;
         const key = [minor.length, this.majorRoads.allStreamlines.length, this.mainRoads.allStreamlines.length,
             this.highways.highwaysWorld.length, this.highways.frontageRoadsWorld.length, this.bigParks.length,
-            this.buildings.waterfrontParks.length, first(minor), first(this.mainRoads.allStreamlines),
+            this.buildings.waterfrontParks.length, this.buildings.siteCentres.length, first(minor), first(this.mainRoads.allStreamlines),
             first([this.coastline.riverWorld])].join('|');
         if (key === this.namesKey) return;
         this.namesKey = key;
@@ -944,6 +964,15 @@ export default class MainGUI {
             this.worldPlaceLabels.push({text: this.placeNames.parkName(), at: PolygonUtil.averagePoint(park), kind: 'park'});
         }
 
+        // Shops and apartment complexes
+        for (const site of this.buildings.siteCentres) {
+            if (site.kind === 'mall' || site.kind === 'strip_mall') {
+                this.worldPlaceLabels.push({text: this.placeNames.mallName(site.kind === 'mall'), at: site.at, kind: 'mall'});
+            } else {
+                this.worldPlaceLabels.push({text: this.placeNames.apartmentName(), at: site.at, kind: 'apartments'});
+            }
+        }
+
         // Neighbourhoods spread over the built up land in view
         const floodplain = this.coastline.floodplainWorld;
         const candidates: Vector[] = [];
@@ -952,7 +981,7 @@ export default class MainGUI {
             if (!this.tensorField.onLand(p)) continue;
             if (floodplain && floodplain.length >= 3 && PolygonUtil.insidePolygon(p, floodplain)) continue;
             if (parks.some(park => PolygonUtil.insidePolygon(p, park))) continue;
-            if (this.zoning.enabled && this.zoning.zoneAt(p) === Zone.Industrial) continue;
+            if (this.zoning.enabled && this.zoning.isSuperblock(this.zoning.zoneAt(p))) continue;
             candidates.push(p);
         }
         const spacing = 0.3 * Math.min(size.x, size.y) + 150;

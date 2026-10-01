@@ -64,6 +64,9 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
 | 7 | `port_shed` | long transit shed on a pier |
 | 8 | `container_stack` | stack of shipping containers on the quay |
 | 9 | `church` | place of worship, the same building the 2D map marks with a cross |
+| 10 | `apartments` | 2-3 storey block, 16 m deep, in a garden apartment complex |
+| 11 | `mall` | part of a shopping mall: concourse, anchor department store or food court. The parts touch and together make the mall |
+| 12 | `retail` | shop: strip mall unit, big box store, or restaurant on a pad in the car park |
 
 | property | type | meaning |
 |---|---|---|
@@ -85,6 +88,7 @@ Gabled roofs can run along the longest side of the footprint. Most footprints ar
 | 24 | `tertiary` | 11 | 2 |
 | 25 | `residential` | 9 | 2 |
 | 26 | `service` | 6 | 1 |
+| 27 | `parking_aisle` | 6 | 2 |
 
 | property | type | meaning |
 |---|---|---|
@@ -102,6 +106,7 @@ Gabled roofs can run along the longest side of the footprint. Most footprints ar
 Roads are split where a bridge starts or ends. The pieces share their end point, so a bridge piece meets the ground pieces either side of it. A bridge piece reaches a few metres onto each bank. That overlap is where a ramp or abutment can go.
 
 Roads cross each other at grade, except that a motorway passes over anything that crosses it.
+`parking_aisle` lines run across car parks and may be closed loops (first point equals last), such as the ring road round a mall.
 
 ### `railways` (LineString)
 
@@ -129,8 +134,11 @@ Areas overlap. Draw or stack them in increasing `z_order`, with the higher one o
 |---|---|---|---|
 | 50 | `residential_area` | 10 | a housing block, bounded by street centrelines |
 | 51 | `low_income_area` | 10 | block of small houses |
+| 68 | `apartment_area` | 10 | block taken by a garden apartment complex |
 | 53 | `highway_verge` | 15 | strips along motorways and interchange areas, no buildings |
 | 52 | `industrial_area` | 20 | industrial block |
+| 65 | `retail_area` | 20 | shopping mall or strip mall superblock |
+| 66 | `parking_lot` | 25 | car park surface. The mall's covers its whole site under the buildings; apartment car parks sit between rows of blocks |
 | 54 | `floodplain` | 30 | riverside park between the bank roads |
 | 55 | `park` | 35 | `name` when the park has one |
 | 56 | `pitch` | 40 | football pitch, about 104 x 68 m |
@@ -141,6 +149,7 @@ Areas overlap. Draw or stack them in increasing `z_order`, with the higher one o
 | 61 | `beach` | 65 | sand |
 | 62 | `river` | 70 | `name`. The river channel |
 | 63 | `lake` | 75 | oxbow lake or park pond |
+| 67 | `swimming_pool` | 77 | pool in an apartment courtyard |
 | 64 | `sand_bar` | 80 | sand on the inside of river bends |
 
 Blocks are bounded by street centrelines, so they run under half of each road. Sweep the roads on top of them.
@@ -158,6 +167,8 @@ Blocks are bounded by street centrelines, so they run under half of each road. S
 |---|---|---|
 | 90 | `neighbourhood_label` | `name` |
 | 91 | `park_label` | `name`, at the middle of its park |
+| 92 | `mall_label` | `name`, at the middle of the mall |
+| 93 | `apartments_label` | `name` of an apartment complex |
 
 Street, river and sea names are properties of their features.
 

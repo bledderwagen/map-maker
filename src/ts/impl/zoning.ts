@@ -8,6 +8,7 @@ export const enum Zone {
     Residential = 0,
     LowIncome = 1,
     Industrial = 2,
+    Commercial = 3,  // Shopping mall
 }
 
 export interface ZoningParams {
@@ -15,6 +16,7 @@ export interface ZoningParams {
     industrialSize: number;  // Rough radius of an industrial zone
     lowIncomeAmount: number;  // 0-1, how far low income housing spreads from industry and highways
     highwayBuffer: number;  // Distance from highway centreline where building lots are cut off
+    mall: boolean;  // A shopping mall by a freeway interchange
 }
 
 /**
@@ -22,6 +24,7 @@ export interface ZoningParams {
  *
  * Industry is placed at highway interchanges and on the waterfront (ports)
  * Low income housing surrounds industry and lines the highways
+ * A shopping mall takes a superblock by another interchange
  *
  * Zones are first picked per point, then snapped to whole districts (areas enclosed by main
  * and major roads) so that zone edges follow streets
@@ -44,10 +47,12 @@ export default class Zoning {
     private interchangeAreas: Vector[][] = [];
     private industrialDistricts: Vector[][] = [];
     private industrialDistrictBoxes: number[][] = [];
+    private commercialDistricts: Vector[][] = [];
     private districtBoxes: number[][] = [];
     private districts: Vector[][] = [];
 
     public industrialCentres: Vector[] = [];
+    public commercialCentre: Vector = null;
 
     // Low income housing is kept to one side of this highway, the 'wrong side of the freeway'
     private divider: Vector[] = null;
@@ -69,6 +74,8 @@ export default class Zoning {
         this.districtBoxes = [];
         this.industrialDistricts = [];
         this.industrialDistrictBoxes = [];
+        this.commercialDistricts = [];
+        this.commercialCentre = null;
         this.divider = null;
     }
 
@@ -92,6 +99,7 @@ export default class Zoning {
         this.computeHighwayDistances();
         this.computeInterchangeCells();
         this.pickIndustrialCentres(origin, worldDimensions, interchanges.map(i => i.centre), waterfront, portCentre);
+        if (this.params.mall) this.pickCommercialCentre(origin, worldDimensions, interchanges.map(i => i.centre), waterfront);
         this.pickDivider();
         this.rasteriseZones([]);
     }
@@ -145,6 +153,22 @@ export default class Zoning {
         }
         // Points not covered by any district use the per-point zone
         return !this.inAnyDistrict(point) && this.zoneAt(point) === Zone.Industrial;
+    }
+
+    /**
+     * Exact test against the mall's districts, for trimming streets at its edge
+     */
+    inCommercialDistrict(point: Vector): boolean {
+        if (!this.enabled || this.commercialCentre === null) return false;
+        if (this.commercialDistricts.some(d => PolygonUtil.insidePolygon(point, d))) return true;
+        return !this.inAnyDistrict(point) && this.zoneAt(point) === Zone.Commercial;
+    }
+
+    /**
+     * Industry and the mall are superblocks with their own service roads, no side streets
+     */
+    isSuperblock(zone: Zone): boolean {
+        return zone === Zone.Industrial || zone === Zone.Commercial;
     }
 
     /**
@@ -279,6 +303,50 @@ export default class Zoning {
         }
     }
 
+    private get commercialRadius(): number {
+        return 0.6 * this.params.industrialSize;
+    }
+
+    /**
+     * Malls sit just off a freeway interchange, on dry land and clear of industry
+     */
+    private pickCommercialCentre(origin: Vector, worldDimensions: Vector, interchanges: Vector[], waterfront: Vector[][]): void {
+        const R = this.commercialRadius;
+        const ok = (v: Vector): boolean => {
+            const t = v.clone().sub(origin);
+            if (t.x < 0.15 * worldDimensions.x || t.x > 0.85 * worldDimensions.x ||
+                t.y < 0.15 * worldDimensions.y || t.y > 0.85 * worldDimensions.y) return false;
+            if (!this.tensorField.onLand(v)) return false;
+            if (this.industrialCentres.some(c => c.distanceTo(v) < this.params.industrialSize + 1.6 * R)) return false;
+            if (waterfront.some(w => w.length >= 2 && PolygonUtil.distanceToPolyline(v, w) < R)) return false;
+            const i = this.cellIndex(v);
+            return i >= 0 && this.highwayDistance[i] > 0.7 * R;
+        };
+        const candidates: Vector[] = [];
+        for (const c of interchanges) {
+            const start = Math.random() * 2 * Math.PI;
+            for (let k = 0; k < 8; k++) {
+                const a = start + k * Math.PI / 4;
+                candidates.push(c.clone().add(new Vector(Math.cos(a), Math.sin(a)).multiplyScalar(1.3 * R)));
+            }
+        }
+        // No free interchange, anywhere along a highway, then anywhere
+        for (const h of this.highways) {
+            for (let i = 0; i < h.length; i += 8) {
+                for (const side of [1, -1]) {
+                    const a = h[Math.max(0, i - 1)];
+                    const b = h[Math.min(h.length - 1, i + 1)];
+                    const t = b.clone().sub(a);
+                    if (t.length() === 0) continue;
+                    t.normalize();
+                    candidates.push(h[i].clone().add(new Vector(-t.y, t.x).multiplyScalar(side * 1.3 * R)));
+                }
+            }
+        }
+        for (let i = 0; i < 50; i++) candidates.push(new Vector(Math.random(), Math.random()).multiply(worldDimensions).add(origin));
+        this.commercialCentre = candidates.find(ok) || null;
+    }
+
     /**
      * The longest highway divides the city, low income housing goes on the side with more industry
      */
@@ -322,7 +390,7 @@ export default class Zoning {
     /**
      * Zone of a single point, before snapping to districts
      */
-    private pointZone(p: Vector, highwayDistance: number): Zone {
+    private pointZone(p: Vector, highwayDistance: number, allowCommercial = true): Zone {
         const R = this.params.industrialSize;
         const amount = this.params.lowIncomeAmount;
         const wobble = 1 + 0.35 * this.noise.noise2D(p.x / 180, p.y / 180);
@@ -332,6 +400,7 @@ export default class Zoning {
             nearestIndustry = Math.min(nearestIndustry, c.distanceTo(p) / (R * wobble));
         }
         if (nearestIndustry < 1) return Zone.Industrial;
+        if (allowCommercial && this.commercialCentre !== null && this.commercialCentre.distanceTo(p) < this.commercialRadius * wobble) return Zone.Commercial;
 
         if (amount <= 0) return Zone.Residential;
 
@@ -363,7 +432,7 @@ export default class Zoning {
         for (let y = 0; y < this.rows; y++) {
             for (let x = 0; x < this.cols; x++) {
                 const i = y * this.cols + x;
-                this.zones[i] = this.pointZone(this.cellCentre(x, y), this.highwayDistance[i]);
+                this.zones[i] = this.pointZone(this.cellCentre(x, y), this.highwayDistance[i], districts.length === 0);
             }
         }
 
@@ -371,19 +440,40 @@ export default class Zoning {
         this.districtBoxes = districts.map(d => PolygonUtil.boundingBox(d));
         this.industrialDistricts = [];
         this.industrialDistrictBoxes = [];
+        this.commercialDistricts = [];
+
+        // The mall takes one whole superblock: the biggest of a sensible size near its site
+        let mallDistrict: Vector[] = null;
+        if (this.commercialCentre !== null && districts.length > 0) {
+            let bestArea = 0;
+            for (const d of districts) {
+                const area = PolygonUtil.calcPolygonArea(d);
+                const c = PolygonUtil.averagePoint(d);
+                if (area < 12000 || area > 150000 || c.distanceTo(this.commercialCentre) > 2.5 * this.commercialRadius) continue;
+                const i = this.cellIndex(c);
+                if (this.pointZone(c, i < 0 ? Infinity : this.highwayDistance[i], false) === Zone.Industrial) continue;
+                if (!this.tensorField.onLand(c) || !PolygonUtil.insidePolygon(c, d)) continue;
+                if (area > bestArea) {
+                    bestArea = area;
+                    mallDistrict = d;
+                }
+            }
+        }
 
         for (const d of districts) {
             const centre = PolygonUtil.averagePoint(d);
             const centreIndex = this.cellIndex(centre);
-            const zone = centreIndex < 0 ?
-                this.pointZone(centre, Infinity) :
-                this.pointZone(centre, this.highwayDistance[centreIndex]);
+            let zone = centreIndex < 0 ?
+                this.pointZone(centre, Infinity, false) :
+                this.pointZone(centre, this.highwayDistance[centreIndex], false);
+            if (d === mallDistrict) zone = Zone.Commercial;
 
             this.forCellsInPolygon(d, 0, i => this.zones[i] = zone);
             if (zone === Zone.Industrial) {
                 this.industrialDistricts.push(d);
                 this.industrialDistrictBoxes.push(PolygonUtil.boundingBox(d));
             }
+            if (zone === Zone.Commercial) this.commercialDistricts.push(d);
         }
         log.info(`Zoning: ${this.industrialCentres.length} industrial centres, ${this.industrialDistricts.length} industrial districts`);
     }
