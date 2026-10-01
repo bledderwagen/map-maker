@@ -126,6 +126,7 @@ class Main {
         this.downloadsFolder.add({"SVG": () => this.downloadSVG()}, 'SVG');
         this.downloadsFolder.add({"STL": () => this.downloadSTL()}, 'STL');
         this.downloadsFolder.add({"Heightmap": () => this.downloadHeightmap()}, 'Heightmap');
+        this.downloadsFolder.add({"Blender": () => this.downloadScene()}, 'Blender');
 
         this.changeColourScheme(this.colourScheme);
         this.tensorField.setRecommended();
@@ -206,6 +207,14 @@ class Main {
 
             this.modelGenerator.getSTL().then(blob => this.downloadFile('model.zip', blob));
         });
+    }
+
+    /**
+     * Scene for Blender Geometry Nodes, see docs/blender-export.md
+     */
+    downloadScene(): void {
+        const scene = this.mainGui.exportScene();
+        this.downloadFile('map.geojson', new Blob([JSON.stringify(scene)], {type: 'application/geo+json'}));
     }
 
     private downloadFile(filename: string, file: any): void {

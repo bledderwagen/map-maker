@@ -27,6 +27,8 @@ import ParkPaths from '../impl/park_paths';
 import {polylineLength, resampleEqual} from '../impl/hydrology';
 import PlaceNames, {StreetNameSets} from '../impl/place_names';
 import Railway from '../impl/railway';
+import SceneExport, {SceneRoad} from '../impl/scene_export';
+import PointsOfInterest from '../impl/points_of_interest';
 import {PlaceLabel} from './style';
 
 /**
@@ -827,6 +829,86 @@ export default class MainGUI {
 
     private toScreen(polygons: Vector[][]): Vector[][] {
         return polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
+    }
+
+    /**
+     * The whole city as a scene for Blender Geometry Nodes, see docs/blender-export.md
+     */
+    exportScene(): any {
+        this.updateNames();
+        const names = this.streetNames;
+        const b = this.buildings.exportData;
+
+        const roads: SceneRoad[] = [];
+        const addRoads = (lines: Vector[][], cls: (i: number) => string, name: (i: number) => string = () => undefined,
+                          extra: Partial<SceneRoad> = {}): void => {
+            lines.forEach((line, i) => roads.push(Object.assign({line, cls: cls(i), name: name(i)}, extra)));
+        };
+        addRoads(this.highways.highwaysWorld, () => 'motorway', i => names.highways[i]);
+        roads.forEach((r, i) => r.ref = names.highwayRefs[i]);
+        addRoads(this.highways.rampsWorld, () => 'motorway_link');
+        addRoads(this.mainRoads.allStreamlines, () => 'primary', i => names.main[i]);
+        addRoads(this.majorRoads.allStreamlines, i => names.majorClass[i], i => names.major[i]);
+        addRoads(this.coastline.streamlinesWithSecondaryRoad, () => 'secondary', i => names.coast[i]);
+        addRoads(this.highways.frontageRoadsWorld, () => 'secondary', i => names.frontage[i], {frontage: true});
+        addRoads(this.minorRoads.allStreamlines, () => 'residential', i => names.minor[i]);
+        addRoads(this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []), () => 'service');
+
+        const areas: {polygon: Vector[]; cls: string; name?: string}[] = [];
+        const addAreas = (polygons: Vector[][], cls: string, name?: string): void => {
+            for (const polygon of polygons) if (polygon && polygon.length >= 3) areas.push({polygon, cls, name});
+        };
+        addAreas(b.residentialBlocks, 'residential_area');
+        addAreas(b.lowIncomeBlocks, 'low_income_area');
+        addAreas(b.industrialBlocks, 'industrial_area');
+        if (this.zoning.enabled) addAreas(this.zoning.exclusionAreas, 'highway_verge');
+        addAreas([this.coastline.floodplainWorld], 'floodplain');
+        const parkNames = new Map<Vector[], string>();
+        const parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
+        for (const park of parks) {
+            const label = this.worldPlaceLabels.find(l => l.kind === 'park' && l.at.equals(PolygonUtil.averagePoint(park)));
+            areas.push({polygon: park, cls: 'park', name: label ? label.text : undefined});
+            if (label) parkNames.set(park, label.text);
+        }
+        addAreas(this.pitchLines.filter(l => l.length === 5).map(l => l.slice(0, 4)), 'pitch');
+        addAreas(this.trees.concat(this.waterfrontTrees), 'wood');
+        addAreas([this.coastline.seaPolygonWorld], 'sea', this.seaName || undefined);
+        addAreas(this.port ? this.port.land : [], 'port_quay');
+        addAreas(this.port ? this.port.water : [], 'port_water');
+        addAreas(this.coastline.beachesWorld, 'beach');
+        addAreas([this.coastline.riverWorld], 'river', this.riverName || undefined);
+        addAreas(this.coastline.lakesWorld.concat(this.ponds), 'lake');
+        addAreas(this.coastline.sandBarsWorld, 'sand_bar');
+
+        // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
+        const poi = PointsOfInterest.select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60);
+
+        // What the map shows right now
+        const origin = this.domainController.origin.clone();
+        const size = this.domainController.worldDimensions.clone();
+
+        return SceneExport.build({
+            viewOrigin: origin,
+            viewSize: size,
+            houses: b.houses,
+            lowIncomeHouses: b.lowIncomeHouses,
+            industrialBuildings: b.industrial,
+            portBuildings: b.port,
+            churches: poi.churches,
+            heights: b.heights,
+            roads,
+            railways: this.railway.length >= 2 ? [this.railway] : [],
+            paths: this.parkPaths.concat(this.waterfrontPaths).concat(this.coastline.riversidePathsWorld),
+            riverCentreline: this.coastline.riverCentrelineWorld,
+            riverName: this.riverName,
+            areas,
+            bridgeWater: [this.coastline.riverWorld].concat(this.coastline.lakesWorld),
+            parking: poi.parking,
+            labels: this.worldPlaceLabels.filter(l => l.kind === 'neighbourhood')
+                .map(l => ({at: l.at, cls: 'neighbourhood_label', name: l.text}))
+                .concat(this.worldPlaceLabels.filter(l => l.kind === 'park')
+                    .map(l => ({at: l.at, cls: 'park_label', name: l.text}))),
+        });
     }
 
     /**

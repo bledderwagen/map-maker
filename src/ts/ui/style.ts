@@ -13,6 +13,7 @@ import {BuildingModel} from './buildings';
 import {Zone} from '../impl/zoning';
 import {StreetNameSets} from '../impl/place_names';
 import Labeller, {LabelStyle} from './labeller';
+import PointsOfInterest from '../impl/points_of_interest';
 
 export interface ColourScheme {
     bgColour: string;
@@ -953,46 +954,24 @@ export class OsmStyle extends DefaultStyle {
     }
 
     /**
-     * A sprinkling of map symbols: churches among the houses, car parks by the warehouses.
-     * Chosen by a hash of the block so they stay put when the map is redrawn
+     * A sprinkling of map symbols: churches among the houses, car parks by the warehouses
      */
     private drawPointsOfInterest(canvas: DefaultCanvasWrapper, labeller: Labeller): void {
-        const hash = (i: number, salt: number): number => {
-            let h = Math.imul(i + 1, 2654435761) ^ Math.imul(salt, 40503);
-            h = Math.imul(h ^ (h >>> 15), 2246822507);
-            return ((h ^ (h >>> 13)) >>> 0) / 4294967296;
-        };
+        const zoom = this.domainController.zoom;
+        const poi = PointsOfInterest.select(this.residentialAreas, this.lots, this.industrialAreas, 60 * zoom);
 
-        // Places of worship: a black cross on one building of a few blocks
-        this.residentialAreas.forEach((block, i) => {
-            if (hash(i, 1) > 0.045 || block.length < 3) return;
-            const c = PolygonUtil.averagePoint(block);
-            let best: Vector[] = null;
-            let bestD = Infinity;
-            for (const b of this.lots) {
-                if (b.length === 0) continue;
-                const d = b[0].distanceToSquared(c);
-                if (d < bestD) {
-                    bestD = d;
-                    best = b;
-                }
-            }
-            if (best === null || bestD > 60 * 60) return;
-            const at = PolygonUtil.averagePoint(best);
-            if (!labeller.reserve(at, 5, 7)) return;
+        // Places of worship: a black cross on the church
+        for (const church of poi.churches) {
+            const at = PolygonUtil.averagePoint(church);
+            if (!labeller.reserve(at, 5, 7)) continue;
             canvas.setStrokeStyle('#000000');
             canvas.setLineWidth(1.5);
             canvas.drawPolyline([new Vector(at.x, at.y - 5.5), new Vector(at.x, at.y + 5.5)]);
             canvas.drawPolyline([new Vector(at.x - 3.5, at.y - 2), new Vector(at.x + 3.5, at.y - 2)]);
-        });
+        }
 
-        // Car parks: a blue P in some industrial blocks
+        // Car parks: a blue P
         const parking: LabelStyle = {font: `bold 13px ${this.colourScheme.fontFamily}`, size: 13, fill: '#0092da', halo: 'rgba(255,255,255,0.8)', haloWidth: 1};
-        this.industrialAreas.forEach((block, i) => {
-            if (hash(i, 2) > 0.45 || block.length < 3) return;
-            const c = PolygonUtil.averagePoint(block);
-            if (!PolygonUtil.insidePolygon(c, block)) return;
-            labeller.labelPoint(c, 'P', parking);
-        });
+        for (const p of poi.parking) labeller.labelPoint(p, 'P', parking);
     }
 }

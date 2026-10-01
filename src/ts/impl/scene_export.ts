@@ -1,0 +1,355 @@
+/* eslint-disable @typescript-eslint/camelcase */  // Keys are the file format, which uses snake_case
+import Vector from '../vector';
+import PolygonUtil from './polygon_util';
+
+/**
+ * Exports a generated city as a scene for 3D tools such as Blender Geometry Nodes.
+ * The file is GeoJSON shaped (a FeatureCollection) but in local metres, not longitude and latitude.
+ * Every map object is one feature with a layer, a class name, an integer class_id and numeric
+ * attributes, so an importer can turn each layer into one mesh with named attributes.
+ * The format is described in docs/blender-export.md, keep the two in step
+ */
+
+export const SCENE_FORMAT = 'map-maker-scene';
+export const SCENE_VERSION = 1;
+
+export type Layer = 'buildings' | 'roads' | 'railways' | 'paths' | 'waterways' | 'areas' | 'points' | 'labels';
+
+interface ClassInfo {
+    id: number;
+    layer: Layer;
+    geometry: 'Polygon' | 'LineString' | 'Point';
+    description: string;
+}
+
+/**
+ * Stable ids, never renumber, only add
+ */
+export const CLASSES: {[name: string]: ClassInfo} = {
+    // Buildings, footprints to extrude by height
+    house: {id: 1, layer: 'buildings', geometry: 'Polygon', description: 'Detached house'},
+    outbuilding: {id: 2, layer: 'buildings', geometry: 'Polygon', description: 'Garage or shed behind a house'},
+    small_house: {id: 3, layer: 'buildings', geometry: 'Polygon', description: 'Small house in a low income neighbourhood'},
+    warehouse: {id: 4, layer: 'buildings', geometry: 'Polygon', description: 'Industrial shed or warehouse'},
+    industrial_office: {id: 5, layer: 'buildings', geometry: 'Polygon', description: 'Office at the front of an industrial lot'},
+    storage_tank: {id: 6, layer: 'buildings', geometry: 'Polygon', description: 'Round storage tank, footprint is a 16 sided polygon'},
+    port_shed: {id: 7, layer: 'buildings', geometry: 'Polygon', description: 'Transit shed on a pier'},
+    container_stack: {id: 8, layer: 'buildings', geometry: 'Polygon', description: 'Stack of shipping containers'},
+    church: {id: 9, layer: 'buildings', geometry: 'Polygon', description: 'Place of worship'},
+
+    // Roads, centrelines to sweep a profile along
+    motorway: {id: 20, layer: 'roads', geometry: 'LineString', description: 'Freeway, both carriageways on one centreline'},
+    motorway_link: {id: 21, layer: 'roads', geometry: 'LineString', description: 'Freeway ramp'},
+    primary: {id: 22, layer: 'roads', geometry: 'LineString', description: 'Main road'},
+    secondary: {id: 23, layer: 'roads', geometry: 'LineString', description: 'Major road, frontage road or waterfront road'},
+    tertiary: {id: 24, layer: 'roads', geometry: 'LineString', description: 'Minor through road'},
+    residential: {id: 25, layer: 'roads', geometry: 'LineString', description: 'Side street'},
+    service: {id: 26, layer: 'roads', geometry: 'LineString', description: 'Service road in industry or the port'},
+
+    rail: {id: 30, layer: 'railways', geometry: 'LineString', description: 'Railway track'},
+
+    footway: {id: 40, layer: 'paths', geometry: 'LineString', description: 'Footpath in a park or along the river'},
+
+    river_centreline: {id: 45, layer: 'waterways', geometry: 'LineString', description: 'Centreline of the river channel'},
+
+    // Areas, flat polygons drawn in z_order, higher on top
+    residential_area: {id: 50, layer: 'areas', geometry: 'Polygon', description: 'Housing block'},
+    low_income_area: {id: 51, layer: 'areas', geometry: 'Polygon', description: 'Block of small houses in fenced yards'},
+    industrial_area: {id: 52, layer: 'areas', geometry: 'Polygon', description: 'Industrial block'},
+    highway_verge: {id: 53, layer: 'areas', geometry: 'Polygon', description: 'Land along freeways and inside interchanges, no buildings'},
+    floodplain: {id: 54, layer: 'areas', geometry: 'Polygon', description: 'Riverside park between the bank roads'},
+    park: {id: 55, layer: 'areas', geometry: 'Polygon', description: 'Park'},
+    pitch: {id: 56, layer: 'areas', geometry: 'Polygon', description: 'Football pitch'},
+    wood: {id: 57, layer: 'areas', geometry: 'Polygon', description: 'Trees, scatter instances inside'},
+    sea: {id: 58, layer: 'areas', geometry: 'Polygon', description: 'Sea or lake beyond the coast'},
+    port_quay: {id: 59, layer: 'areas', geometry: 'Polygon', description: 'Quays and piers built out over the sea'},
+    port_water: {id: 60, layer: 'areas', geometry: 'Polygon', description: 'Water in the slips between piers, cut out of port_quay'},
+    beach: {id: 61, layer: 'areas', geometry: 'Polygon', description: 'Sand beach along the coast'},
+    river: {id: 62, layer: 'areas', geometry: 'Polygon', description: 'River channel'},
+    lake: {id: 63, layer: 'areas', geometry: 'Polygon', description: 'Oxbow lake or park pond'},
+    sand_bar: {id: 64, layer: 'areas', geometry: 'Polygon', description: 'Sand bar on the inside of a river bend'},
+
+    // Points
+    place_of_worship: {id: 80, layer: 'points', geometry: 'Point', description: 'Church, also exported as a church building'},
+    parking: {id: 81, layer: 'points', geometry: 'Point', description: 'Car park'},
+
+    neighbourhood_label: {id: 90, layer: 'labels', geometry: 'Point', description: 'Neighbourhood name'},
+    park_label: {id: 91, layer: 'labels', geometry: 'Point', description: 'Park name'},
+};
+
+/**
+ * Drawing order of areas, as the OpenStreetMap style draws them
+ */
+const Z_ORDER: {[name: string]: number} = {
+    residential_area: 10, low_income_area: 10, highway_verge: 15, industrial_area: 20, floodplain: 30, park: 35,
+    pitch: 40, wood: 45, sea: 50, port_quay: 55, port_water: 60, beach: 65, river: 70, lake: 75, sand_bar: 80,
+};
+
+/**
+ * Real widths in metres. Roads match the clearance buildings keep from them
+ */
+const ROAD_WIDTH: {[name: string]: number} = {
+    motorway: 36, motorway_link: 10, primary: 16, secondary: 13, tertiary: 11, residential: 9, service: 6,
+    rail: 4, footway: 2.5,
+};
+const ROAD_LANES: {[name: string]: number} = {
+    motorway: 8, motorway_link: 1, primary: 4, secondary: 4, tertiary: 2, residential: 2, service: 1,
+};
+
+export interface SceneRoad {
+    line: Vector[];
+    cls: string;
+    name?: string;
+    ref?: string;
+    frontage?: boolean;
+}
+
+/**
+ * Everything in world space (1 unit = 2 m, y down)
+ */
+export interface SceneInput {
+    viewOrigin: Vector;
+    viewSize: Vector;
+    houses: Vector[][];
+    lowIncomeHouses: Vector[][];
+    industrialBuildings: Vector[][];
+    portBuildings: Set<Vector[]>;
+    churches: Vector[][];
+    heights: Map<Vector[], number>;
+    roads: SceneRoad[];
+    railways: Vector[][];
+    paths: Vector[][];
+    riverCentreline: Vector[];
+    riverName: string;
+    areas: {polygon: Vector[]; cls: string; name?: string}[];
+    bridgeWater: Vector[][];  // Polygons that roads and railways cross on bridges
+    parking: Vector[];
+    labels: {at: Vector; cls: string; name: string}[];
+}
+
+const WORLD_UNIT_M = 2;
+const BRIDGE_DECK_M = 6;  // Suggested height of a bridge deck above the ground
+
+export default class SceneExport {
+    private features: any[] = [];
+    private nextId = 1;
+    private centre: Vector;
+    private min = new Vector(Infinity, Infinity);
+    private max = new Vector(-Infinity, -Infinity);
+
+    private constructor(private input: SceneInput) {
+        this.centre = input.viewOrigin.clone().add(input.viewSize.clone().divideScalar(2));
+    }
+
+    static build(input: SceneInput): any {
+        return new SceneExport(input).run();
+    }
+
+    /**
+     * World units to metres: x east, y north, origin at the middle of the view
+     */
+    private toMetres(v: Vector): number[] {
+        const x = Math.round((v.x - this.centre.x) * WORLD_UNIT_M * 100) / 100;
+        const y = Math.round(-(v.y - this.centre.y) * WORLD_UNIT_M * 100) / 100;
+        this.min.x = Math.min(this.min.x, x);
+        this.min.y = Math.min(this.min.y, y);
+        this.max.x = Math.max(this.max.x, x);
+        this.max.y = Math.max(this.max.y, y);
+        return [x, y];
+    }
+
+    /**
+     * Closed ring, anticlockwise seen from above so faces point up
+     */
+    private ring(polygon: Vector[]): number[][] {
+        const pts = polygon.map(v => this.toMetres(v));
+        while (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+        let area = 0;
+        for (let i = 0; i < pts.length; i++) {
+            const a = pts[i];
+            const b = pts[(i + 1) % pts.length];
+            area += a[0] * b[1] - b[0] * a[1];
+        }
+        if (area < 0) pts.reverse();
+        pts.push(pts[0].slice());
+        return pts;
+    }
+
+    private add(cls: string, geometry: any, properties: {[k: string]: any}): void {
+        const info = CLASSES[cls];
+        this.features.push({
+            type: 'Feature',
+            id: this.nextId++,
+            geometry,
+            properties: Object.assign({layer: info.layer, class: cls, class_id: info.id}, properties),
+        });
+    }
+
+    private addPolygon(cls: string, polygon: Vector[], properties: {[k: string]: any}): void {
+        if (!polygon || polygon.length < 3) return;
+        const ring = this.ring(polygon);
+        if (ring.length < 4) return;
+        this.add(cls, {type: 'Polygon', coordinates: [ring]}, properties);
+    }
+
+    private addLine(cls: string, line: Vector[], properties: {[k: string]: any}): void {
+        if (!line || line.length < 2) return;
+        const coords = line.map(v => this.toMetres(v))
+            .filter((c, i, all) => i === 0 || c[0] !== all[i - 1][0] || c[1] !== all[i - 1][1]);
+        if (coords.length < 2) return;
+        this.add(cls, {type: 'LineString', coordinates: coords}, properties);
+    }
+
+    private addPoint(cls: string, at: Vector, properties: {[k: string]: any}): void {
+        this.add(cls, {type: 'Point', coordinates: this.toMetres(at)}, properties);
+    }
+
+    private static areaM2(polygon: Vector[]): number {
+        return PolygonUtil.calcPolygonArea(polygon) * WORLD_UNIT_M * WORLD_UNIT_M;
+    }
+
+    /**
+     * Splits a line into stretches on and off bridges. Neighbouring stretches share an end point
+     */
+    private bridgeStretches(line: Vector[]): {line: Vector[]; bridge: boolean}[] {
+        const water = this.input.bridgeWater.filter(w => w.length >= 3);
+        if (water.length === 0 || line.length < 2) return [{line, bridge: false}];
+        const boxes = water.map(w => PolygonUtil.boundingBox(w));
+        const wet = (p: Vector): boolean => water.some((w, i) => {
+            const b = boxes[i];
+            return p.x >= b[0] && p.y >= b[1] && p.x <= b[2] && p.y <= b[3] && PolygonUtil.insidePolygon(p, w);
+        });
+
+        // Extra points only where the line could cross water
+        const STEP = 2;
+        const pts: Vector[] = [];
+        for (let i = 0; i < line.length - 1; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            pts.push(a);
+            const near = boxes.some(box => Math.max(a.x, b.x) >= box[0] && Math.min(a.x, b.x) <= box[2]
+                && Math.max(a.y, b.y) >= box[1] && Math.min(a.y, b.y) <= box[3]);
+            if (!near) continue;
+            const n = Math.ceil(a.distanceTo(b) / STEP);
+            for (let k = 1; k < n; k++) pts.push(a.clone().add(b.clone().sub(a).multiplyScalar(k / n)));
+        }
+        pts.push(line[line.length - 1]);
+
+        const flags = pts.map(wet);
+        if (!flags.some(f => f)) return [{line, bridge: false}];
+        // Bridges reach a little way onto each bank, as abutments
+        const onBridge = flags.map((_, i) => flags.slice(Math.max(0, i - 2), i + 3).some(f => f));
+
+        const out: {line: Vector[]; bridge: boolean}[] = [];
+        let start = 0;
+        for (let i = 1; i <= pts.length; i++) {
+            if (i === pts.length || onBridge[i] !== onBridge[start]) {
+                const piece = pts.slice(start, Math.min(pts.length, i + 1));
+                if (piece.length >= 2) out.push({line: piece, bridge: onBridge[start]});
+                start = i;
+            }
+        }
+        return out;
+    }
+
+    private run(): any {
+        const input = this.input;
+
+        // Areas
+        for (const a of input.areas) {
+            this.addPolygon(a.cls, a.polygon, Object.assign({z_order: Z_ORDER[a.cls]}, a.name ? {name: a.name} : {}));
+        }
+
+        // Buildings
+        const churches = new Set(input.churches);
+        const height = (b: Vector[], fallback: number): number =>
+            Math.round((input.heights.has(b) ? input.heights.get(b) * WORLD_UNIT_M : fallback) * 10) / 10;
+        // Houses have storeys of about 3 m under a pitched roof, sheds and tanks are one tall storey
+        const building = (cls: string, b: Vector[], h: number, roof: string): void => {
+            const levels = roof === 'gabled' ? Math.max(1, Math.min(2, Math.floor((h - 2.5) / 3))) : (cls === 'industrial_office' ? 2 : 1);
+            const eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
+            this.addPolygon(cls, b, {height: h, eave_height: Math.round(eave * 10) / 10, levels, roof});
+        };
+        for (const b of input.houses) {
+            const area = SceneExport.areaM2(b);
+            if (churches.has(b)) building('church', b, 14, 'gabled');
+            else if (area < 45) building('outbuilding', b, 3, 'gabled');
+            else building('house', b, height(b, 9), 'gabled');
+        }
+        for (const b of input.lowIncomeHouses) {
+            if (SceneExport.areaM2(b) < 45) building('outbuilding', b, 3, 'gabled');
+            else building('small_house', b, height(b, 7), 'gabled');
+        }
+        for (const b of input.industrialBuildings) {
+            const area = SceneExport.areaM2(b);
+            if (input.portBuildings.has(b)) {
+                if (area < 600) building('container_stack', b, 8, 'flat');
+                else building('port_shed', b, height(b, 11), 'flat');
+            } else if (b.length === 16) {
+                building('storage_tank', b, 12, 'dome');
+            } else if (area < 400) {
+                building('industrial_office', b, 7, 'flat');
+            } else {
+                building('warehouse', b, height(b, 11), 'flat');
+            }
+        }
+
+        // Roads, railways and paths, split at bridges
+        for (const r of input.roads) {
+            for (const s of this.bridgeStretches(r.line)) {
+                const props: {[k: string]: any} = {
+                    width: ROAD_WIDTH[r.cls],
+                    lanes: ROAD_LANES[r.cls],
+                    bridge: s.bridge ? 1 : 0,
+                    level: s.bridge ? 1 : 0,
+                    deck_height: s.bridge ? BRIDGE_DECK_M : 0,
+                };
+                if (r.cls === 'motorway') {
+                    props.dual_carriageway = 1;
+                    props.median_width = 2;
+                }
+                if (r.frontage) props.frontage = 1;
+                if (r.name) props.name = r.name;
+                if (r.ref) props.ref = r.ref;
+                this.addLine(r.cls, s.line, props);
+            }
+        }
+        for (const r of input.railways) {
+            for (const s of this.bridgeStretches(r)) {
+                this.addLine('rail', s.line, {width: ROAD_WIDTH.rail, gauge: 1.435, tracks: 1,
+                    bridge: s.bridge ? 1 : 0, level: s.bridge ? 1 : 0, deck_height: s.bridge ? BRIDGE_DECK_M : 0});
+            }
+        }
+        for (const p of input.paths) this.addLine('footway', p, {width: ROAD_WIDTH.footway});
+        if (input.riverCentreline.length >= 2) {
+            this.addLine('river_centreline', input.riverCentreline, input.riverName ? {name: input.riverName} : {});
+        }
+
+        // Points and labels
+        for (const c of input.churches) this.addPoint('place_of_worship', PolygonUtil.averagePoint(c), {});
+        for (const p of input.parking) this.addPoint('parking', p, {});
+        for (const l of input.labels) this.addPoint(l.cls, l.at, {name: l.name});
+
+        const view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(v => this.toMetres(v));
+        const classes = Object.keys(CLASSES).map(name => Object.assign({name}, CLASSES[name]))
+            .sort((a, b) => a.id - b.id);
+        return {
+            type: 'FeatureCollection',
+            map_maker: {
+                format: SCENE_FORMAT,
+                version: SCENE_VERSION,
+                units: 'metres',
+                axes: 'x east, y north, z up; ground at z = 0',
+                world_unit_m: WORLD_UNIT_M,
+                // The view is what the 2D map shows, data reaches a little beyond it
+                view_bounds: [Math.min(view[0][0], view[1][0]), Math.min(view[0][1], view[1][1]),
+                    Math.max(view[0][0], view[1][0]), Math.max(view[0][1], view[1][1])],
+                data_bounds: [this.min.x, this.min.y, this.max.x, this.max.y],
+                layers: ['areas', 'waterways', 'paths', 'roads', 'railways', 'buildings', 'points', 'labels'],
+                classes,
+                feature_count: this.features.length,
+            },
+            features: this.features,
+        };
+    }
+}

@@ -269,6 +269,28 @@ export default class Buildings {
         return polygonFinder.shrink(false).then(() => polygonFinder.polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone()))));
     }
 
+    /**
+     * Everything an exporter needs, in world space
+     */
+    get exportData(): {
+        houses: Vector[][]; lowIncomeHouses: Vector[][]; industrial: Vector[][]; port: Set<Vector[]>;
+        residentialBlocks: Vector[][]; lowIncomeBlocks: Vector[][]; industrialBlocks: Vector[][];
+        heights: Map<Vector[], number>;  // World units
+    } {
+        const heights = new Map<Vector[], number>();
+        for (const m of this._models.buildingModels) heights.set(m.lotWorld, m.height);
+        return {
+            houses: this.residentialHouses,
+            lowIncomeHouses: this.lowIncomeHouses,
+            industrial: this.industrialBuildings,
+            port: new Set(this.portBuildings),
+            residentialBlocks: this.zoneBlocks[Zone.Residential],
+            lowIncomeBlocks: this.zoneBlocks[Zone.LowIncome],
+            industrialBlocks: this.zoneBlocks[Zone.Industrial],
+            heights,
+        };
+    }
+
     get models(): BuildingModel[] {
         this._models.setBuildingProjections();
         return this._models.buildingModels;

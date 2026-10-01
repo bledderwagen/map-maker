@@ -130367,6 +130367,11 @@ function () {
         return _this.downloadHeightmap();
       }
     }, 'Heightmap');
+    this.downloadsFolder.add({
+      "Blender": function Blender() {
+        return _this.downloadScene();
+      }
+    }, 'Blender');
     this.changeColourScheme(this.colourScheme);
     this.tensorField.setRecommended();
     requestAnimationFrame(function () {
@@ -130443,6 +130448,17 @@ function () {
         return _this.downloadFile('model.zip', blob);
       });
     });
+  };
+  /**
+   * Scene for Blender Geometry Nodes, see docs/blender-export.md
+   */
+
+
+  Main.prototype.downloadScene = function () {
+    var scene = this.mainGui.exportScene();
+    this.downloadFile('map.geojson', new Blob([JSON.stringify(scene)], {
+      type: 'application/geo+json'
+    }));
   };
 
   Main.prototype.downloadFile = function (filename, file) {
@@ -130576,7 +130592,7 @@ window.addEventListener('load', function () {
   window.mapGenerator = new Main();
 });
 
-},{"./colour_schemes.json":101,"./ts/model_generator":124,"./ts/ui/canvas_wrapper":126,"./ts/ui/domain_controller":127,"./ts/ui/drag_controller":128,"./ts/ui/main_gui":131,"./ts/ui/style":133,"./ts/ui/tensor_field_gui":134,"./ts/util":136,"./ts/vector":137,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
+},{"./colour_schemes.json":101,"./ts/model_generator":126,"./ts/ui/canvas_wrapper":128,"./ts/ui/domain_controller":129,"./ts/ui/drag_controller":130,"./ts/ui/main_gui":133,"./ts/ui/style":135,"./ts/ui/tensor_field_gui":136,"./ts/util":138,"./ts/vector":139,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -130794,7 +130810,7 @@ function (_super) {
 
 exports.Radial = Radial;
 
-},{"./tensor":119}],104:[function(require,module,exports){
+},{"./tensor":121}],104:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131078,7 +131094,7 @@ function () {
 
 exports["default"] = BuildingCleanup;
 
-},{"../vector":137,"./polygon_util":115,"jsts":17}],105:[function(require,module,exports){
+},{"../vector":139,"./polygon_util":116,"jsts":17}],105:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131574,7 +131590,7 @@ function () {
 
 exports["default"] = Graph;
 
-},{"../vector":137,"d3-quadtree":6,"isect":16,"loglevel":54}],106:[function(require,module,exports){
+},{"../vector":139,"d3-quadtree":6,"isect":16,"loglevel":54}],106:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131862,7 +131878,7 @@ function () {
 
 exports["default"] = GridStorage;
 
-},{"../vector":137}],107:[function(require,module,exports){
+},{"../vector":139}],107:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -132696,7 +132712,7 @@ function (_super) {
 
 exports["default"] = HighwayGenerator;
 
-},{"../vector":137,"./polygon_util":115,"./streamlines":118,"loglevel":54}],108:[function(require,module,exports){
+},{"../vector":139,"./polygon_util":116,"./streamlines":120,"loglevel":54}],108:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -133343,7 +133359,7 @@ function () {
 
 exports.ShorelineSimulator = ShorelineSimulator;
 
-},{"../vector":137,"./polygon_util":115,"simplex-noise":90}],109:[function(require,module,exports){
+},{"../vector":139,"./polygon_util":116,"simplex-noise":90}],109:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -133718,7 +133734,7 @@ function () {
 
 exports["default"] = IndustrialLayout;
 
-},{"./local_frame":111,"./polygon_util":115}],110:[function(require,module,exports){
+},{"./local_frame":111,"./polygon_util":116}],110:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -133820,7 +133836,7 @@ function (_super) {
 
 exports.RK4Integrator = RK4Integrator;
 
-},{"../vector":137}],111:[function(require,module,exports){
+},{"../vector":139}],111:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -133957,7 +133973,7 @@ function () {
 
 exports["default"] = LocalFrame;
 
-},{"../vector":137}],112:[function(require,module,exports){
+},{"../vector":139}],112:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
@@ -134452,7 +134468,7 @@ function () {
 
 exports["default"] = ParkPaths;
 
-},{"../vector":137,"./hydrology":108,"./polygon_util":115,"simplex-noise":90}],113:[function(require,module,exports){
+},{"../vector":139,"./hydrology":108,"./polygon_util":116,"simplex-noise":90}],113:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -134863,7 +134879,107 @@ function () {
 
 exports["default"] = PlaceNames;
 
-},{"../vector":137}],114:[function(require,module,exports){
+},{"../vector":139}],114:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var polygon_util_1 = require("./polygon_util");
+/**
+ * Picks a sprinkling of places of worship and car parks. Chosen by a hash of the block index so
+ * the map, redrawn every frame, and an export pick the same ones
+ */
+
+
+var PointsOfInterest =
+/** @class */
+function () {
+  function PointsOfInterest() {}
+
+  PointsOfInterest.hash = function (i, salt) {
+    var h = Math.imul(i + 1, 2654435761) ^ Math.imul(salt, 40503);
+    h = Math.imul(h ^ h >>> 15, 2246822507);
+    return ((h ^ h >>> 13) >>> 0) / 4294967296;
+  };
+  /**
+   * @param houses buildings a church can be chosen from
+   * @param maxDistance furthest a church may be from the middle of its block, same units as the inputs
+   * @return church buildings, and car park positions
+   */
+
+
+  PointsOfInterest.select = function (residentialBlocks, houses, industrialBlocks, maxDistance) {
+    var churches = [];
+    residentialBlocks.forEach(function (block, i) {
+      var e_1, _a;
+
+      if (PointsOfInterest.hash(i, 1) > 0.045 || block.length < 3) return;
+      var c = polygon_util_1["default"].averagePoint(block);
+      var best = null;
+      var bestD = Infinity;
+
+      try {
+        for (var houses_1 = __values(houses), houses_1_1 = houses_1.next(); !houses_1_1.done; houses_1_1 = houses_1.next()) {
+          var b = houses_1_1.value;
+          if (b.length === 0) continue;
+          var d = b[0].distanceToSquared(c);
+
+          if (d < bestD) {
+            bestD = d;
+            best = b;
+          }
+        }
+      } catch (e_1_1) {
+        e_1 = {
+          error: e_1_1
+        };
+      } finally {
+        try {
+          if (houses_1_1 && !houses_1_1.done && (_a = houses_1["return"])) _a.call(houses_1);
+        } finally {
+          if (e_1) throw e_1.error;
+        }
+      }
+
+      if (best !== null && bestD <= maxDistance * maxDistance) churches.push(best);
+    });
+    var parking = [];
+    industrialBlocks.forEach(function (block, i) {
+      if (PointsOfInterest.hash(i, 2) > 0.45 || block.length < 3) return;
+      var c = polygon_util_1["default"].averagePoint(block);
+      if (polygon_util_1["default"].insidePolygon(c, block)) parking.push(c);
+    });
+    return {
+      churches: churches,
+      parking: parking
+    };
+  };
+
+  return PointsOfInterest;
+}();
+
+exports["default"] = PointsOfInterest;
+
+},{"./polygon_util":116}],115:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -135484,7 +135600,7 @@ function () {
 
 exports["default"] = PolygonFinder;
 
-},{"./polygon_util":115,"loglevel":54}],115:[function(require,module,exports){
+},{"./polygon_util":116,"loglevel":54}],116:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136278,7 +136394,7 @@ function () {
 
 exports["default"] = PolygonUtil;
 
-},{"../vector":137,"jsts":17,"loglevel":54,"polyk":71}],116:[function(require,module,exports){
+},{"../vector":139,"jsts":17,"loglevel":54,"polyk":71}],117:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -136584,7 +136700,7 @@ function () {
 
 exports["default"] = PortPlanner;
 
-},{"../vector":137,"./local_frame":111,"./polygon_util":115}],117:[function(require,module,exports){
+},{"../vector":139,"./local_frame":111,"./polygon_util":116}],118:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136760,7 +136876,833 @@ function () {
 
 exports["default"] = Railway;
 
-},{"../vector":137,"./polygon_util":115}],118:[function(require,module,exports){
+},{"../vector":139,"./polygon_util":116}],119:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+/* eslint-disable @typescript-eslint/camelcase */
+// Keys are the file format, which uses snake_case
+
+var vector_1 = require("../vector");
+
+var polygon_util_1 = require("./polygon_util");
+/**
+ * Exports a generated city as a scene for 3D tools such as Blender Geometry Nodes.
+ * The file is GeoJSON shaped (a FeatureCollection) but in local metres, not longitude and latitude.
+ * Every map object is one feature with a layer, a class name, an integer class_id and numeric
+ * attributes, so an importer can turn each layer into one mesh with named attributes.
+ * The format is described in docs/blender-export.md, keep the two in step
+ */
+
+
+exports.SCENE_FORMAT = 'map-maker-scene';
+exports.SCENE_VERSION = 1;
+/**
+ * Stable ids, never renumber, only add
+ */
+
+exports.CLASSES = {
+  // Buildings, footprints to extrude by height
+  house: {
+    id: 1,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Detached house'
+  },
+  outbuilding: {
+    id: 2,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Garage or shed behind a house'
+  },
+  small_house: {
+    id: 3,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Small house in a low income neighbourhood'
+  },
+  warehouse: {
+    id: 4,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Industrial shed or warehouse'
+  },
+  industrial_office: {
+    id: 5,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Office at the front of an industrial lot'
+  },
+  storage_tank: {
+    id: 6,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Round storage tank, footprint is a 16 sided polygon'
+  },
+  port_shed: {
+    id: 7,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Transit shed on a pier'
+  },
+  container_stack: {
+    id: 8,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Stack of shipping containers'
+  },
+  church: {
+    id: 9,
+    layer: 'buildings',
+    geometry: 'Polygon',
+    description: 'Place of worship'
+  },
+  // Roads, centrelines to sweep a profile along
+  motorway: {
+    id: 20,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Freeway, both carriageways on one centreline'
+  },
+  motorway_link: {
+    id: 21,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Freeway ramp'
+  },
+  primary: {
+    id: 22,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Main road'
+  },
+  secondary: {
+    id: 23,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Major road, frontage road or waterfront road'
+  },
+  tertiary: {
+    id: 24,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Minor through road'
+  },
+  residential: {
+    id: 25,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Side street'
+  },
+  service: {
+    id: 26,
+    layer: 'roads',
+    geometry: 'LineString',
+    description: 'Service road in industry or the port'
+  },
+  rail: {
+    id: 30,
+    layer: 'railways',
+    geometry: 'LineString',
+    description: 'Railway track'
+  },
+  footway: {
+    id: 40,
+    layer: 'paths',
+    geometry: 'LineString',
+    description: 'Footpath in a park or along the river'
+  },
+  river_centreline: {
+    id: 45,
+    layer: 'waterways',
+    geometry: 'LineString',
+    description: 'Centreline of the river channel'
+  },
+  // Areas, flat polygons drawn in z_order, higher on top
+  residential_area: {
+    id: 50,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Housing block'
+  },
+  low_income_area: {
+    id: 51,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Block of small houses in fenced yards'
+  },
+  industrial_area: {
+    id: 52,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Industrial block'
+  },
+  highway_verge: {
+    id: 53,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Land along freeways and inside interchanges, no buildings'
+  },
+  floodplain: {
+    id: 54,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Riverside park between the bank roads'
+  },
+  park: {
+    id: 55,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Park'
+  },
+  pitch: {
+    id: 56,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Football pitch'
+  },
+  wood: {
+    id: 57,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Trees, scatter instances inside'
+  },
+  sea: {
+    id: 58,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Sea or lake beyond the coast'
+  },
+  port_quay: {
+    id: 59,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Quays and piers built out over the sea'
+  },
+  port_water: {
+    id: 60,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Water in the slips between piers, cut out of port_quay'
+  },
+  beach: {
+    id: 61,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Sand beach along the coast'
+  },
+  river: {
+    id: 62,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'River channel'
+  },
+  lake: {
+    id: 63,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Oxbow lake or park pond'
+  },
+  sand_bar: {
+    id: 64,
+    layer: 'areas',
+    geometry: 'Polygon',
+    description: 'Sand bar on the inside of a river bend'
+  },
+  // Points
+  place_of_worship: {
+    id: 80,
+    layer: 'points',
+    geometry: 'Point',
+    description: 'Church, also exported as a church building'
+  },
+  parking: {
+    id: 81,
+    layer: 'points',
+    geometry: 'Point',
+    description: 'Car park'
+  },
+  neighbourhood_label: {
+    id: 90,
+    layer: 'labels',
+    geometry: 'Point',
+    description: 'Neighbourhood name'
+  },
+  park_label: {
+    id: 91,
+    layer: 'labels',
+    geometry: 'Point',
+    description: 'Park name'
+  }
+};
+/**
+ * Drawing order of areas, as the OpenStreetMap style draws them
+ */
+
+var Z_ORDER = {
+  residential_area: 10,
+  low_income_area: 10,
+  highway_verge: 15,
+  industrial_area: 20,
+  floodplain: 30,
+  park: 35,
+  pitch: 40,
+  wood: 45,
+  sea: 50,
+  port_quay: 55,
+  port_water: 60,
+  beach: 65,
+  river: 70,
+  lake: 75,
+  sand_bar: 80
+};
+/**
+ * Real widths in metres. Roads match the clearance buildings keep from them
+ */
+
+var ROAD_WIDTH = {
+  motorway: 36,
+  motorway_link: 10,
+  primary: 16,
+  secondary: 13,
+  tertiary: 11,
+  residential: 9,
+  service: 6,
+  rail: 4,
+  footway: 2.5
+};
+var ROAD_LANES = {
+  motorway: 8,
+  motorway_link: 1,
+  primary: 4,
+  secondary: 4,
+  tertiary: 2,
+  residential: 2,
+  service: 1
+};
+var WORLD_UNIT_M = 2;
+var BRIDGE_DECK_M = 6; // Suggested height of a bridge deck above the ground
+
+var SceneExport =
+/** @class */
+function () {
+  function SceneExport(input) {
+    this.input = input;
+    this.features = [];
+    this.nextId = 1;
+    this.min = new vector_1["default"](Infinity, Infinity);
+    this.max = new vector_1["default"](-Infinity, -Infinity);
+    this.centre = input.viewOrigin.clone().add(input.viewSize.clone().divideScalar(2));
+  }
+
+  SceneExport.build = function (input) {
+    return new SceneExport(input).run();
+  };
+  /**
+   * World units to metres: x east, y north, origin at the middle of the view
+   */
+
+
+  SceneExport.prototype.toMetres = function (v) {
+    var x = Math.round((v.x - this.centre.x) * WORLD_UNIT_M * 100) / 100;
+    var y = Math.round(-(v.y - this.centre.y) * WORLD_UNIT_M * 100) / 100;
+    this.min.x = Math.min(this.min.x, x);
+    this.min.y = Math.min(this.min.y, y);
+    this.max.x = Math.max(this.max.x, x);
+    this.max.y = Math.max(this.max.y, y);
+    return [x, y];
+  };
+  /**
+   * Closed ring, anticlockwise seen from above so faces point up
+   */
+
+
+  SceneExport.prototype.ring = function (polygon) {
+    var _this = this;
+
+    var pts = polygon.map(function (v) {
+      return _this.toMetres(v);
+    });
+
+    while (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) {
+      pts.pop();
+    }
+
+    var area = 0;
+
+    for (var i = 0; i < pts.length; i++) {
+      var a = pts[i];
+      var b = pts[(i + 1) % pts.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+
+    if (area < 0) pts.reverse();
+    pts.push(pts[0].slice());
+    return pts;
+  };
+
+  SceneExport.prototype.add = function (cls, geometry, properties) {
+    var info = exports.CLASSES[cls];
+    this.features.push({
+      type: 'Feature',
+      id: this.nextId++,
+      geometry: geometry,
+      properties: Object.assign({
+        layer: info.layer,
+        "class": cls,
+        class_id: info.id
+      }, properties)
+    });
+  };
+
+  SceneExport.prototype.addPolygon = function (cls, polygon, properties) {
+    if (!polygon || polygon.length < 3) return;
+    var ring = this.ring(polygon);
+    if (ring.length < 4) return;
+    this.add(cls, {
+      type: 'Polygon',
+      coordinates: [ring]
+    }, properties);
+  };
+
+  SceneExport.prototype.addLine = function (cls, line, properties) {
+    var _this = this;
+
+    if (!line || line.length < 2) return;
+    var coords = line.map(function (v) {
+      return _this.toMetres(v);
+    }).filter(function (c, i, all) {
+      return i === 0 || c[0] !== all[i - 1][0] || c[1] !== all[i - 1][1];
+    });
+    if (coords.length < 2) return;
+    this.add(cls, {
+      type: 'LineString',
+      coordinates: coords
+    }, properties);
+  };
+
+  SceneExport.prototype.addPoint = function (cls, at, properties) {
+    this.add(cls, {
+      type: 'Point',
+      coordinates: this.toMetres(at)
+    }, properties);
+  };
+
+  SceneExport.areaM2 = function (polygon) {
+    return polygon_util_1["default"].calcPolygonArea(polygon) * WORLD_UNIT_M * WORLD_UNIT_M;
+  };
+  /**
+   * Splits a line into stretches on and off bridges. Neighbouring stretches share an end point
+   */
+
+
+  SceneExport.prototype.bridgeStretches = function (line) {
+    var water = this.input.bridgeWater.filter(function (w) {
+      return w.length >= 3;
+    });
+    if (water.length === 0 || line.length < 2) return [{
+      line: line,
+      bridge: false
+    }];
+    var boxes = water.map(function (w) {
+      return polygon_util_1["default"].boundingBox(w);
+    });
+
+    var wet = function wet(p) {
+      return water.some(function (w, i) {
+        var b = boxes[i];
+        return p.x >= b[0] && p.y >= b[1] && p.x <= b[2] && p.y <= b[3] && polygon_util_1["default"].insidePolygon(p, w);
+      });
+    }; // Extra points only where the line could cross water
+
+
+    var STEP = 2;
+    var pts = [];
+
+    var _loop_1 = function _loop_1(i) {
+      var a = line[i];
+      var b = line[i + 1];
+      pts.push(a);
+      var near = boxes.some(function (box) {
+        return Math.max(a.x, b.x) >= box[0] && Math.min(a.x, b.x) <= box[2] && Math.max(a.y, b.y) >= box[1] && Math.min(a.y, b.y) <= box[3];
+      });
+      if (!near) return "continue";
+      var n = Math.ceil(a.distanceTo(b) / STEP);
+
+      for (var k = 1; k < n; k++) {
+        pts.push(a.clone().add(b.clone().sub(a).multiplyScalar(k / n)));
+      }
+    };
+
+    for (var i = 0; i < line.length - 1; i++) {
+      _loop_1(i);
+    }
+
+    pts.push(line[line.length - 1]);
+    var flags = pts.map(wet);
+    if (!flags.some(function (f) {
+      return f;
+    })) return [{
+      line: line,
+      bridge: false
+    }]; // Bridges reach a little way onto each bank, as abutments
+
+    var onBridge = flags.map(function (_, i) {
+      return flags.slice(Math.max(0, i - 2), i + 3).some(function (f) {
+        return f;
+      });
+    });
+    var out = [];
+    var start = 0;
+
+    for (var i = 1; i <= pts.length; i++) {
+      if (i === pts.length || onBridge[i] !== onBridge[start]) {
+        var piece = pts.slice(start, Math.min(pts.length, i + 1));
+        if (piece.length >= 2) out.push({
+          line: piece,
+          bridge: onBridge[start]
+        });
+        start = i;
+      }
+    }
+
+    return out;
+  };
+
+  SceneExport.prototype.run = function () {
+    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m;
+
+    var _this = this;
+
+    var input = this.input;
+
+    try {
+      // Areas
+      for (var _o = __values(input.areas), _p = _o.next(); !_p.done; _p = _o.next()) {
+        var a = _p.value;
+        this.addPolygon(a.cls, a.polygon, Object.assign({
+          z_order: Z_ORDER[a.cls]
+        }, a.name ? {
+          name: a.name
+        } : {}));
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (_p && !_p.done && (_a = _o["return"])) _a.call(_o);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    } // Buildings
+
+
+    var churches = new Set(input.churches);
+
+    var height = function height(b, fallback) {
+      return Math.round((input.heights.has(b) ? input.heights.get(b) * WORLD_UNIT_M : fallback) * 10) / 10;
+    }; // Houses have storeys of about 3 m under a pitched roof, sheds and tanks are one tall storey
+
+
+    var building = function building(cls, b, h, roof) {
+      var levels = roof === 'gabled' ? Math.max(1, Math.min(2, Math.floor((h - 2.5) / 3))) : cls === 'industrial_office' ? 2 : 1;
+      var eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
+
+      _this.addPolygon(cls, b, {
+        height: h,
+        eave_height: Math.round(eave * 10) / 10,
+        levels: levels,
+        roof: roof
+      });
+    };
+
+    try {
+      for (var _q = __values(input.houses), _r = _q.next(); !_r.done; _r = _q.next()) {
+        var b = _r.value;
+        var area = SceneExport.areaM2(b);
+        if (churches.has(b)) building('church', b, 14, 'gabled');else if (area < 45) building('outbuilding', b, 3, 'gabled');else building('house', b, height(b, 9), 'gabled');
+      }
+    } catch (e_2_1) {
+      e_2 = {
+        error: e_2_1
+      };
+    } finally {
+      try {
+        if (_r && !_r.done && (_b = _q["return"])) _b.call(_q);
+      } finally {
+        if (e_2) throw e_2.error;
+      }
+    }
+
+    try {
+      for (var _s = __values(input.lowIncomeHouses), _t = _s.next(); !_t.done; _t = _s.next()) {
+        var b = _t.value;
+        if (SceneExport.areaM2(b) < 45) building('outbuilding', b, 3, 'gabled');else building('small_house', b, height(b, 7), 'gabled');
+      }
+    } catch (e_3_1) {
+      e_3 = {
+        error: e_3_1
+      };
+    } finally {
+      try {
+        if (_t && !_t.done && (_c = _s["return"])) _c.call(_s);
+      } finally {
+        if (e_3) throw e_3.error;
+      }
+    }
+
+    try {
+      for (var _u = __values(input.industrialBuildings), _v = _u.next(); !_v.done; _v = _u.next()) {
+        var b = _v.value;
+        var area = SceneExport.areaM2(b);
+
+        if (input.portBuildings.has(b)) {
+          if (area < 600) building('container_stack', b, 8, 'flat');else building('port_shed', b, height(b, 11), 'flat');
+        } else if (b.length === 16) {
+          building('storage_tank', b, 12, 'dome');
+        } else if (area < 400) {
+          building('industrial_office', b, 7, 'flat');
+        } else {
+          building('warehouse', b, height(b, 11), 'flat');
+        }
+      }
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
+      };
+    } finally {
+      try {
+        if (_v && !_v.done && (_d = _u["return"])) _d.call(_u);
+      } finally {
+        if (e_4) throw e_4.error;
+      }
+    }
+
+    try {
+      // Roads, railways and paths, split at bridges
+      for (var _w = __values(input.roads), _x = _w.next(); !_x.done; _x = _w.next()) {
+        var r = _x.value;
+
+        try {
+          for (var _y = (e_6 = void 0, __values(this.bridgeStretches(r.line))), _z = _y.next(); !_z.done; _z = _y.next()) {
+            var s = _z.value;
+            var props = {
+              width: ROAD_WIDTH[r.cls],
+              lanes: ROAD_LANES[r.cls],
+              bridge: s.bridge ? 1 : 0,
+              level: s.bridge ? 1 : 0,
+              deck_height: s.bridge ? BRIDGE_DECK_M : 0
+            };
+
+            if (r.cls === 'motorway') {
+              props.dual_carriageway = 1;
+              props.median_width = 2;
+            }
+
+            if (r.frontage) props.frontage = 1;
+            if (r.name) props.name = r.name;
+            if (r.ref) props.ref = r.ref;
+            this.addLine(r.cls, s.line, props);
+          }
+        } catch (e_6_1) {
+          e_6 = {
+            error: e_6_1
+          };
+        } finally {
+          try {
+            if (_z && !_z.done && (_f = _y["return"])) _f.call(_y);
+          } finally {
+            if (e_6) throw e_6.error;
+          }
+        }
+      }
+    } catch (e_5_1) {
+      e_5 = {
+        error: e_5_1
+      };
+    } finally {
+      try {
+        if (_x && !_x.done && (_e = _w["return"])) _e.call(_w);
+      } finally {
+        if (e_5) throw e_5.error;
+      }
+    }
+
+    try {
+      for (var _0 = __values(input.railways), _1 = _0.next(); !_1.done; _1 = _0.next()) {
+        var r = _1.value;
+
+        try {
+          for (var _2 = (e_8 = void 0, __values(this.bridgeStretches(r))), _3 = _2.next(); !_3.done; _3 = _2.next()) {
+            var s = _3.value;
+            this.addLine('rail', s.line, {
+              width: ROAD_WIDTH.rail,
+              gauge: 1.435,
+              tracks: 1,
+              bridge: s.bridge ? 1 : 0,
+              level: s.bridge ? 1 : 0,
+              deck_height: s.bridge ? BRIDGE_DECK_M : 0
+            });
+          }
+        } catch (e_8_1) {
+          e_8 = {
+            error: e_8_1
+          };
+        } finally {
+          try {
+            if (_3 && !_3.done && (_h = _2["return"])) _h.call(_2);
+          } finally {
+            if (e_8) throw e_8.error;
+          }
+        }
+      }
+    } catch (e_7_1) {
+      e_7 = {
+        error: e_7_1
+      };
+    } finally {
+      try {
+        if (_1 && !_1.done && (_g = _0["return"])) _g.call(_0);
+      } finally {
+        if (e_7) throw e_7.error;
+      }
+    }
+
+    try {
+      for (var _4 = __values(input.paths), _5 = _4.next(); !_5.done; _5 = _4.next()) {
+        var p = _5.value;
+        this.addLine('footway', p, {
+          width: ROAD_WIDTH.footway
+        });
+      }
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
+      };
+    } finally {
+      try {
+        if (_5 && !_5.done && (_j = _4["return"])) _j.call(_4);
+      } finally {
+        if (e_9) throw e_9.error;
+      }
+    }
+
+    if (input.riverCentreline.length >= 2) {
+      this.addLine('river_centreline', input.riverCentreline, input.riverName ? {
+        name: input.riverName
+      } : {});
+    }
+
+    try {
+      // Points and labels
+      for (var _6 = __values(input.churches), _7 = _6.next(); !_7.done; _7 = _6.next()) {
+        var c = _7.value;
+        this.addPoint('place_of_worship', polygon_util_1["default"].averagePoint(c), {});
+      }
+    } catch (e_10_1) {
+      e_10 = {
+        error: e_10_1
+      };
+    } finally {
+      try {
+        if (_7 && !_7.done && (_k = _6["return"])) _k.call(_6);
+      } finally {
+        if (e_10) throw e_10.error;
+      }
+    }
+
+    try {
+      for (var _8 = __values(input.parking), _9 = _8.next(); !_9.done; _9 = _8.next()) {
+        var p = _9.value;
+        this.addPoint('parking', p, {});
+      }
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
+      };
+    } finally {
+      try {
+        if (_9 && !_9.done && (_l = _8["return"])) _l.call(_8);
+      } finally {
+        if (e_11) throw e_11.error;
+      }
+    }
+
+    try {
+      for (var _10 = __values(input.labels), _11 = _10.next(); !_11.done; _11 = _10.next()) {
+        var l = _11.value;
+        this.addPoint(l.cls, l.at, {
+          name: l.name
+        });
+      }
+    } catch (e_12_1) {
+      e_12 = {
+        error: e_12_1
+      };
+    } finally {
+      try {
+        if (_11 && !_11.done && (_m = _10["return"])) _m.call(_10);
+      } finally {
+        if (e_12) throw e_12.error;
+      }
+    }
+
+    var view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(function (v) {
+      return _this.toMetres(v);
+    });
+    var classes = Object.keys(exports.CLASSES).map(function (name) {
+      return Object.assign({
+        name: name
+      }, exports.CLASSES[name]);
+    }).sort(function (a, b) {
+      return a.id - b.id;
+    });
+    return {
+      type: 'FeatureCollection',
+      map_maker: {
+        format: exports.SCENE_FORMAT,
+        version: exports.SCENE_VERSION,
+        units: 'metres',
+        axes: 'x east, y north, z up; ground at z = 0',
+        world_unit_m: WORLD_UNIT_M,
+        // The view is what the 2D map shows, data reaches a little beyond it
+        view_bounds: [Math.min(view[0][0], view[1][0]), Math.min(view[0][1], view[1][1]), Math.max(view[0][0], view[1][0]), Math.max(view[0][1], view[1][1])],
+        data_bounds: [this.min.x, this.min.y, this.max.x, this.max.y],
+        layers: ['areas', 'waterways', 'paths', 'roads', 'railways', 'buildings', 'points', 'labels'],
+        classes: classes,
+        feature_count: this.features.length
+      },
+      features: this.features
+    };
+  };
+
+  return SceneExport;
+}();
+
+exports["default"] = SceneExport;
+
+},{"../vector":139,"./polygon_util":116}],120:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -137688,7 +138630,7 @@ function () {
 
 exports["default"] = StreamlineGenerator;
 
-},{"../vector":137,"./grid_storage":106,"loglevel":54,"simplify-js":91}],119:[function(require,module,exports){
+},{"../vector":139,"./grid_storage":106,"loglevel":54,"simplify-js":91}],121:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -137857,7 +138799,7 @@ function () {
 
 exports["default"] = Tensor;
 
-},{"../vector":137}],120:[function(require,module,exports){
+},{"../vector":139}],122:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -138067,7 +139009,7 @@ function () {
 
 exports["default"] = TensorField;
 
-},{"./basis_field":103,"./polygon_util":115,"./tensor":119,"simplex-noise":90}],121:[function(require,module,exports){
+},{"./basis_field":103,"./polygon_util":116,"./tensor":121,"simplex-noise":90}],123:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -138828,7 +139770,7 @@ function (_super) {
 
 exports["default"] = WaterGenerator;
 
-},{"./hydrology":108,"./polygon_util":115,"./streamlines":118,"loglevel":54,"simplex-noise":90}],122:[function(require,module,exports){
+},{"./hydrology":108,"./polygon_util":116,"./streamlines":120,"loglevel":54,"simplex-noise":90}],124:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -139259,7 +140201,7 @@ function () {
 
 exports["default"] = YardHouseLayout;
 
-},{"../vector":137,"./local_frame":111,"./polygon_util":115,"simplify-js":91}],123:[function(require,module,exports){
+},{"../vector":139,"./local_frame":111,"./polygon_util":116,"simplify-js":91}],125:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -139942,7 +140884,7 @@ function () {
 
 exports["default"] = Zoning;
 
-},{"../vector":137,"./polygon_util":115,"loglevel":54,"simplex-noise":90}],124:[function(require,module,exports){
+},{"../vector":139,"./polygon_util":116,"loglevel":54,"simplex-noise":90}],126:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -140373,7 +141315,7 @@ function () {
 
 exports["default"] = ModelGenerator;
 
-},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],125:[function(require,module,exports){
+},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],127:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -140976,6 +141918,52 @@ function () {
     });
   };
 
+  Object.defineProperty(Buildings.prototype, "exportData", {
+    /**
+     * Everything an exporter needs, in world space
+     */
+    get: function get() {
+      var e_2, _a;
+
+      var heights = new Map();
+
+      try {
+        for (var _b = __values(this._models.buildingModels), _c = _b.next(); !_c.done; _c = _b.next()) {
+          var m = _c.value;
+          heights.set(m.lotWorld, m.height);
+        }
+      } catch (e_2_1) {
+        e_2 = {
+          error: e_2_1
+        };
+      } finally {
+        try {
+          if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+        } finally {
+          if (e_2) throw e_2.error;
+        }
+      }
+
+      return {
+        houses: this.residentialHouses,
+        lowIncomeHouses: this.lowIncomeHouses,
+        industrial: this.industrialBuildings,
+        port: new Set(this.portBuildings),
+        residentialBlocks: this.zoneBlocks[0
+        /* Residential */
+        ],
+        lowIncomeBlocks: this.zoneBlocks[1
+        /* LowIncome */
+        ],
+        industrialBlocks: this.zoneBlocks[2
+        /* Industrial */
+        ],
+        heights: heights
+      };
+    },
+    enumerable: true,
+    configurable: true
+  });
   Object.defineProperty(Buildings.prototype, "models", {
     get: function get() {
       this._models.setBuildingProjections();
@@ -140991,22 +141979,22 @@ function () {
   };
 
   Buildings.prototype.reset = function () {
-    var e_2, _a;
+    var e_3, _a;
 
     try {
       for (var _b = __values(this.polygonFinders), _c = _b.next(); !_c.done; _c = _b.next()) {
         var f = _c.value;
         f.reset();
       }
-    } catch (e_2_1) {
-      e_2 = {
-        error: e_2_1
+    } catch (e_3_1) {
+      e_3 = {
+        error: e_3_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_2) throw e_2.error;
+        if (e_3) throw e_3.error;
       }
     }
 
@@ -141022,7 +142010,7 @@ function () {
   };
 
   Buildings.prototype.update = function () {
-    var e_3, _a;
+    var e_4, _a;
 
     var changed = false;
 
@@ -141031,15 +142019,15 @@ function () {
         var f = _c.value;
         if (f.update()) changed = true;
       }
-    } catch (e_3_1) {
-      e_3 = {
-        error: e_3_1
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_3) throw e_3.error;
+        if (e_4) throw e_4.error;
       }
     }
 
@@ -141054,7 +142042,7 @@ function () {
     return __awaiter(this, void 0, void 0, function () {
       var g, blockParams, blockFinder, _a, _b, zone, yards, roads, tidy, port, lots, zones, addLots;
 
-      var e_4, _c;
+      var e_5, _c;
 
       return __generator(this, function (_d) {
         switch (_d.label) {
@@ -141078,15 +142066,15 @@ function () {
                 zone = _b.value;
                 this.polygonFinders[zone].setPolygons(this.zoneBlocks[zone]);
               }
-            } catch (e_4_1) {
-              e_4 = {
-                error: e_4_1
+            } catch (e_5_1) {
+              e_5 = {
+                error: e_5_1
               };
             } finally {
               try {
                 if (_b && !_b.done && (_c = _a["return"])) _c.call(_a);
               } finally {
-                if (e_4) throw e_4.error;
+                if (e_5) throw e_5.error;
               }
             }
 
@@ -141171,7 +142159,7 @@ function () {
 
 
   Buildings.prototype.zoneAndClipBlocks = function (blocks) {
-    var e_5, _a;
+    var e_6, _a;
 
     var out = [[], [], []];
     var zoned = this.zoning !== null && this.zoning.enabled; // Blocks are only tested for water at their centre, so cut away any water they overlap
@@ -141185,7 +142173,7 @@ function () {
     });
 
     var _loop_2 = function _loop_2(block) {
-      var e_6, _a;
+      var e_7, _a;
 
       var box = polygon_util_1["default"].boundingBox(block);
       var holes = exclusions.filter(function (e, i) {
@@ -141194,7 +142182,7 @@ function () {
       var pieces = holes.length === 0 ? [block] : polygon_util_1["default"].subtractPolygons(block, holes, this_2.lowIncomeParams.minArea);
 
       try {
-        for (var pieces_1 = (e_6 = void 0, __values(pieces)), pieces_1_1 = pieces_1.next(); !pieces_1_1.done; pieces_1_1 = pieces_1.next()) {
+        for (var pieces_1 = (e_7 = void 0, __values(pieces)), pieces_1_1 = pieces_1.next(); !pieces_1_1.done; pieces_1_1 = pieces_1.next()) {
           var piece = pieces_1_1.value;
           var zone = zoned ? this_2.zoning.zoneAt(polygon_util_1["default"].averagePoint(piece)) : 0
           /* Residential */
@@ -141210,15 +142198,15 @@ function () {
 
           out[zone].push(piece);
         }
-      } catch (e_6_1) {
-        e_6 = {
-          error: e_6_1
+      } catch (e_7_1) {
+        e_7 = {
+          error: e_7_1
         };
       } finally {
         try {
           if (pieces_1_1 && !pieces_1_1.done && (_a = pieces_1["return"])) _a.call(pieces_1);
         } finally {
-          if (e_6) throw e_6.error;
+          if (e_7) throw e_7.error;
         }
       }
     };
@@ -141231,15 +142219,15 @@ function () {
 
         _loop_2(block);
       }
-    } catch (e_5_1) {
-      e_5 = {
-        error: e_5_1
+    } catch (e_6_1) {
+      e_6 = {
+        error: e_6_1
       };
     } finally {
       try {
         if (blocks_1_1 && !blocks_1_1.done && (_a = blocks_1["return"])) _a.call(blocks_1);
       } finally {
-        if (e_5) throw e_5.error;
+        if (e_6) throw e_6.error;
       }
     }
 
@@ -141251,7 +142239,7 @@ function () {
 
 
   Buildings.prototype.becomesWaterfrontPark = function (block) {
-    var e_7, _a;
+    var e_8, _a;
 
     if (this.shore.length < 2) return false;
     var box = polygon_util_1["default"].boundingBox(block);
@@ -141263,7 +142251,7 @@ function () {
       if (p.x < box[0] - 4 || p.x > box[2] + 4 || p.y < box[1] - 4 || p.y > box[3] + 4) continue;
 
       try {
-        for (var block_1 = (e_7 = void 0, __values(block)), block_1_1 = block_1.next(); !block_1_1.done; block_1_1 = block_1.next()) {
+        for (var block_1 = (e_8 = void 0, __values(block)), block_1_1 = block_1.next(); !block_1_1.done; block_1_1 = block_1.next()) {
           var v = block_1_1.value;
 
           if (v.distanceToSquared(p) < 36) {
@@ -141272,15 +142260,15 @@ function () {
             break;
           }
         }
-      } catch (e_7_1) {
-        e_7 = {
-          error: e_7_1
+      } catch (e_8_1) {
+        e_8 = {
+          error: e_8_1
         };
       } finally {
         try {
           if (block_1_1 && !block_1_1.done && (_a = block_1["return"])) _a.call(block_1);
         } finally {
-          if (e_7) throw e_7.error;
+          if (e_8) throw e_8.error;
         }
       }
     }
@@ -141293,7 +142281,7 @@ function () {
   };
 
   Buildings.prototype.shrunkBlocks = function (zone) {
-    var e_8, _a;
+    var e_9, _a;
 
     var out = [];
 
@@ -141304,15 +142292,15 @@ function () {
         if (shrunk.length > 3 && shrunk[0].equals(shrunk[shrunk.length - 1])) shrunk.pop();
         if (shrunk.length >= 3) out.push(shrunk);
       }
-    } catch (e_8_1) {
-      e_8 = {
-        error: e_8_1
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
       };
     } finally {
       try {
         if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
       } finally {
-        if (e_8) throw e_8.error;
+        if (e_9) throw e_9.error;
       }
     }
 
@@ -141324,7 +142312,7 @@ function () {
 
 
   Buildings.prototype.layoutIndustry = function () {
-    var e_9, _a, _b, _c;
+    var e_10, _a, _b, _c;
 
     this.industrialBuildings = this.portBuildings.slice();
     this.industrialRoads = [];
@@ -141348,15 +142336,15 @@ function () {
 
         (_c = this.industrialRoads).push.apply(_c, __spread(layout.roads));
       }
-    } catch (e_9_1) {
-      e_9 = {
-        error: e_9_1
+    } catch (e_10_1) {
+      e_10 = {
+        error: e_10_1
       };
     } finally {
       try {
         if (_e && !_e.done && (_a = _d["return"])) _a.call(_d);
       } finally {
-        if (e_9) throw e_9.error;
+        if (e_10) throw e_10.error;
       }
     }
   };
@@ -141374,7 +142362,7 @@ function () {
 
 exports["default"] = Buildings;
 
-},{"../impl/building_cleanup":104,"../impl/graph":105,"../impl/industrial_layout":109,"../impl/polygon_finder":114,"../impl/polygon_util":115,"../impl/yard_houses":122,"./domain_controller":127,"simplex-noise":90}],126:[function(require,module,exports){
+},{"../impl/building_cleanup":104,"../impl/graph":105,"../impl/industrial_layout":109,"../impl/polygon_finder":115,"../impl/polygon_util":116,"../impl/yard_houses":124,"./domain_controller":129,"simplex-noise":90}],128:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -141939,7 +142927,7 @@ function (_super) {
 
 exports.RoughCanvasWrapper = RoughCanvasWrapper;
 
-},{"../util":136,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],127:[function(require,module,exports){
+},{"../util":138,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],129:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -142165,7 +143153,7 @@ function () {
 
 exports["default"] = DomainController;
 
-},{"../util":136,"../vector":137}],128:[function(require,module,exports){
+},{"../util":138,"../vector":139}],130:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -142303,7 +143291,7 @@ function () {
 
 exports["default"] = DragController;
 
-},{"../util":136,"../vector":137,"./domain_controller":127,"interactjs":14}],129:[function(require,module,exports){
+},{"../util":138,"../vector":139,"./domain_controller":129,"interactjs":14}],131:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -142740,7 +143728,7 @@ function (_super) {
 
 exports["default"] = HighwayGUI;
 
-},{"../impl/highway_generator":107,"../util":136,"./road_gui":132}],130:[function(require,module,exports){
+},{"../impl/highway_generator":107,"../util":138,"./road_gui":134}],132:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -143210,7 +144198,7 @@ function () {
 
 exports["default"] = Labeller;
 
-},{"../vector":137}],131:[function(require,module,exports){
+},{"../vector":139}],133:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -143447,6 +144435,10 @@ var hydrology_1 = require("../impl/hydrology");
 var place_names_1 = require("../impl/place_names");
 
 var railway_1 = require("../impl/railway");
+
+var scene_export_1 = require("../impl/scene_export");
+
+var points_of_interest_1 = require("../impl/points_of_interest");
 /**
  * Handles Map folder, glues together impl
  */
@@ -144585,12 +145577,207 @@ function () {
     });
   };
   /**
+   * The whole city as a scene for Blender Geometry Nodes, see docs/blender-export.md
+   */
+
+
+  MainGUI.prototype.exportScene = function () {
+    var e_9, _a;
+
+    this.updateNames();
+    var names = this.streetNames;
+    var b = this.buildings.exportData;
+    var roads = [];
+
+    var addRoads = function addRoads(lines, cls, name, extra) {
+      if (name === void 0) {
+        name = function name() {
+          return undefined;
+        };
+      }
+
+      if (extra === void 0) {
+        extra = {};
+      }
+
+      lines.forEach(function (line, i) {
+        return roads.push(Object.assign({
+          line: line,
+          cls: cls(i),
+          name: name(i)
+        }, extra));
+      });
+    };
+
+    addRoads(this.highways.highwaysWorld, function () {
+      return 'motorway';
+    }, function (i) {
+      return names.highways[i];
+    });
+    roads.forEach(function (r, i) {
+      return r.ref = names.highwayRefs[i];
+    });
+    addRoads(this.highways.rampsWorld, function () {
+      return 'motorway_link';
+    });
+    addRoads(this.mainRoads.allStreamlines, function () {
+      return 'primary';
+    }, function (i) {
+      return names.main[i];
+    });
+    addRoads(this.majorRoads.allStreamlines, function (i) {
+      return names.majorClass[i];
+    }, function (i) {
+      return names.major[i];
+    });
+    addRoads(this.coastline.streamlinesWithSecondaryRoad, function () {
+      return 'secondary';
+    }, function (i) {
+      return names.coast[i];
+    });
+    addRoads(this.highways.frontageRoadsWorld, function () {
+      return 'secondary';
+    }, function (i) {
+      return names.frontage[i];
+    }, {
+      frontage: true
+    });
+    addRoads(this.minorRoads.allStreamlines, function () {
+      return 'residential';
+    }, function (i) {
+      return names.minor[i];
+    });
+    addRoads(this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []), function () {
+      return 'service';
+    });
+    var areas = [];
+
+    var addAreas = function addAreas(polygons, cls, name) {
+      var e_10, _a;
+
+      try {
+        for (var polygons_1 = __values(polygons), polygons_1_1 = polygons_1.next(); !polygons_1_1.done; polygons_1_1 = polygons_1.next()) {
+          var polygon = polygons_1_1.value;
+          if (polygon && polygon.length >= 3) areas.push({
+            polygon: polygon,
+            cls: cls,
+            name: name
+          });
+        }
+      } catch (e_10_1) {
+        e_10 = {
+          error: e_10_1
+        };
+      } finally {
+        try {
+          if (polygons_1_1 && !polygons_1_1.done && (_a = polygons_1["return"])) _a.call(polygons_1);
+        } finally {
+          if (e_10) throw e_10.error;
+        }
+      }
+    };
+
+    addAreas(b.residentialBlocks, 'residential_area');
+    addAreas(b.lowIncomeBlocks, 'low_income_area');
+    addAreas(b.industrialBlocks, 'industrial_area');
+    if (this.zoning.enabled) addAreas(this.zoning.exclusionAreas, 'highway_verge');
+    addAreas([this.coastline.floodplainWorld], 'floodplain');
+    var parkNames = new Map();
+    var parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
+
+    var _loop_2 = function _loop_2(park) {
+      var label = this_2.worldPlaceLabels.find(function (l) {
+        return l.kind === 'park' && l.at.equals(polygon_util_1["default"].averagePoint(park));
+      });
+      areas.push({
+        polygon: park,
+        cls: 'park',
+        name: label ? label.text : undefined
+      });
+      if (label) parkNames.set(park, label.text);
+    };
+
+    var this_2 = this;
+
+    try {
+      for (var parks_1 = __values(parks), parks_1_1 = parks_1.next(); !parks_1_1.done; parks_1_1 = parks_1.next()) {
+        var park = parks_1_1.value;
+
+        _loop_2(park);
+      }
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
+      };
+    } finally {
+      try {
+        if (parks_1_1 && !parks_1_1.done && (_a = parks_1["return"])) _a.call(parks_1);
+      } finally {
+        if (e_9) throw e_9.error;
+      }
+    }
+
+    addAreas(this.pitchLines.filter(function (l) {
+      return l.length === 5;
+    }).map(function (l) {
+      return l.slice(0, 4);
+    }), 'pitch');
+    addAreas(this.trees.concat(this.waterfrontTrees), 'wood');
+    addAreas([this.coastline.seaPolygonWorld], 'sea', this.seaName || undefined);
+    addAreas(this.port ? this.port.land : [], 'port_quay');
+    addAreas(this.port ? this.port.water : [], 'port_water');
+    addAreas(this.coastline.beachesWorld, 'beach');
+    addAreas([this.coastline.riverWorld], 'river', this.riverName || undefined);
+    addAreas(this.coastline.lakesWorld.concat(this.ponds), 'lake');
+    addAreas(this.coastline.sandBarsWorld, 'sand_bar'); // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
+
+    var poi = points_of_interest_1["default"].select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60); // What the map shows right now
+
+    var origin = this.domainController.origin.clone();
+    var size = this.domainController.worldDimensions.clone();
+    return scene_export_1["default"].build({
+      viewOrigin: origin,
+      viewSize: size,
+      houses: b.houses,
+      lowIncomeHouses: b.lowIncomeHouses,
+      industrialBuildings: b.industrial,
+      portBuildings: b.port,
+      churches: poi.churches,
+      heights: b.heights,
+      roads: roads,
+      railways: this.railway.length >= 2 ? [this.railway] : [],
+      paths: this.parkPaths.concat(this.waterfrontPaths).concat(this.coastline.riversidePathsWorld),
+      riverCentreline: this.coastline.riverCentrelineWorld,
+      riverName: this.riverName,
+      areas: areas,
+      bridgeWater: [this.coastline.riverWorld].concat(this.coastline.lakesWorld),
+      parking: poi.parking,
+      labels: this.worldPlaceLabels.filter(function (l) {
+        return l.kind === 'neighbourhood';
+      }).map(function (l) {
+        return {
+          at: l.at,
+          cls: 'neighbourhood_label',
+          name: l.text
+        };
+      }).concat(this.worldPlaceLabels.filter(function (l) {
+        return l.kind === 'park';
+      }).map(function (l) {
+        return {
+          at: l.at,
+          cls: 'park_label',
+          name: l.text
+        };
+      }))
+    });
+  };
+  /**
    * Names streets, water, parks and neighbourhoods when the map has changed
    */
 
 
   MainGUI.prototype.updateNames = function () {
-    var e_9, _a, e_10, _b, e_11, _c;
+    var e_11, _a, e_12, _b, e_13, _c;
 
     var first = function first(lines) {
       return lines.length > 0 && lines[0].length > 0 ? "" + lines[0][0].x.toFixed(1) : '';
@@ -144613,8 +145800,8 @@ function () {
     var parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
 
     try {
-      for (var parks_1 = __values(parks), parks_1_1 = parks_1.next(); !parks_1_1.done; parks_1_1 = parks_1.next()) {
-        var park = parks_1_1.value;
+      for (var parks_2 = __values(parks), parks_2_1 = parks_2.next(); !parks_2_1.done; parks_2_1 = parks_2.next()) {
+        var park = parks_2_1.value;
         if (park.length < 3 || polygon_util_1["default"].calcPolygonArea(park) < 8000) continue;
         this.worldPlaceLabels.push({
           text: this.placeNames.parkName(),
@@ -144622,15 +145809,15 @@ function () {
           kind: 'park'
         });
       }
-    } catch (e_9_1) {
-      e_9 = {
-        error: e_9_1
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
       };
     } finally {
       try {
-        if (parks_1_1 && !parks_1_1.done && (_a = parks_1["return"])) _a.call(parks_1);
+        if (parks_2_1 && !parks_2_1.done && (_a = parks_2["return"])) _a.call(parks_2);
       } finally {
-        if (e_9) throw e_9.error;
+        if (e_11) throw e_11.error;
       }
     } // Neighbourhoods spread over the built up land in view
 
@@ -144638,29 +145825,29 @@ function () {
     var floodplain = this.coastline.floodplainWorld;
     var candidates = [];
 
-    var _loop_2 = function _loop_2(i) {
+    var _loop_3 = function _loop_3(i) {
       var p = new vector_1["default"](origin.x + (0.08 + 0.84 * Math.random()) * size.x, origin.y + (0.08 + 0.84 * Math.random()) * size.y);
-      if (!this_2.tensorField.onLand(p)) return "continue";
+      if (!this_3.tensorField.onLand(p)) return "continue";
       if (floodplain && floodplain.length >= 3 && polygon_util_1["default"].insidePolygon(p, floodplain)) return "continue";
       if (parks.some(function (park) {
         return polygon_util_1["default"].insidePolygon(p, park);
       })) return "continue";
-      if (this_2.zoning.enabled && this_2.zoning.zoneAt(p) === 2
+      if (this_3.zoning.enabled && this_3.zoning.zoneAt(p) === 2
       /* Industrial */
       ) return "continue";
       candidates.push(p);
     };
 
-    var this_2 = this;
+    var this_3 = this;
 
     for (var i = 0; i < 600; i++) {
-      _loop_2(i);
+      _loop_3(i);
     }
 
     var spacing = 0.3 * Math.min(size.x, size.y) + 150;
     var chosen = [];
 
-    var _loop_3 = function _loop_3(p) {
+    var _loop_4 = function _loop_4(p) {
       if (chosen.every(function (c) {
         return c.distanceTo(p) > spacing;
       })) chosen.push(p);
@@ -144670,17 +145857,17 @@ function () {
       for (var candidates_1 = __values(candidates), candidates_1_1 = candidates_1.next(); !candidates_1_1.done; candidates_1_1 = candidates_1.next()) {
         var p = candidates_1_1.value;
 
-        _loop_3(p);
+        _loop_4(p);
       }
-    } catch (e_10_1) {
-      e_10 = {
-        error: e_10_1
+    } catch (e_12_1) {
+      e_12 = {
+        error: e_12_1
       };
     } finally {
       try {
         if (candidates_1_1 && !candidates_1_1.done && (_b = candidates_1["return"])) _b.call(candidates_1);
       } finally {
-        if (e_10) throw e_10.error;
+        if (e_12) throw e_12.error;
       }
     }
 
@@ -144693,15 +145880,15 @@ function () {
           kind: 'neighbourhood'
         });
       }
-    } catch (e_11_1) {
-      e_11 = {
-        error: e_11_1
+    } catch (e_13_1) {
+      e_13 = {
+        error: e_13_1
       };
     } finally {
       try {
         if (chosen_1_1 && !chosen_1_1.done && (_c = chosen_1["return"])) _c.call(chosen_1);
       } finally {
-        if (e_11) throw e_11.error;
+        if (e_13) throw e_13.error;
       }
     }
   };
@@ -144786,7 +145973,7 @@ function () {
 
 exports["default"] = MainGUI;
 
-},{"../impl/graph":105,"../impl/hydrology":108,"../impl/integrator":110,"../impl/park_paths":112,"../impl/place_names":113,"../impl/polygon_finder":114,"../impl/polygon_util":115,"../impl/port":116,"../impl/railway":117,"../impl/zoning":123,"../util":136,"../vector":137,"./buildings":125,"./domain_controller":127,"./highway_gui":129,"./road_gui":132,"./style":133,"./water_gui":135}],132:[function(require,module,exports){
+},{"../impl/graph":105,"../impl/hydrology":108,"../impl/integrator":110,"../impl/park_paths":112,"../impl/place_names":113,"../impl/points_of_interest":114,"../impl/polygon_finder":115,"../impl/polygon_util":116,"../impl/port":117,"../impl/railway":118,"../impl/scene_export":119,"../impl/zoning":125,"../util":138,"../vector":139,"./buildings":127,"./domain_controller":129,"./highway_gui":131,"./road_gui":134,"./style":135,"./water_gui":137}],134:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -145236,7 +146423,7 @@ function () {
 
 exports["default"] = RoadGUI;
 
-},{"../impl/streamlines":118,"../util":136,"./domain_controller":127}],133:[function(require,module,exports){
+},{"../impl/streamlines":120,"../util":138,"./domain_controller":129}],135:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -145334,6 +146521,8 @@ var domain_controller_1 = require("./domain_controller");
 var vector_1 = require("../vector");
 
 var labeller_1 = require("./labeller");
+
+var points_of_interest_1 = require("../impl/points_of_interest");
 /**
  * Controls how screen-space data is drawn
  */
@@ -147416,60 +148605,39 @@ function (_super) {
     this.drawPointsOfInterest(canvas, labeller);
   };
   /**
-   * A sprinkling of map symbols: churches among the houses, car parks by the warehouses.
-   * Chosen by a hash of the block so they stay put when the map is redrawn
+   * A sprinkling of map symbols: churches among the houses, car parks by the warehouses
    */
 
 
   OsmStyle.prototype.drawPointsOfInterest = function (canvas, labeller) {
-    var _this = this;
+    var e_62, _a, e_63, _b;
 
-    var hash = function hash(i, salt) {
-      var h = Math.imul(i + 1, 2654435761) ^ Math.imul(salt, 40503);
-      h = Math.imul(h ^ h >>> 15, 2246822507);
-      return ((h ^ h >>> 13) >>> 0) / 4294967296;
-    }; // Places of worship: a black cross on one building of a few blocks
+    var zoom = this.domainController.zoom;
+    var poi = points_of_interest_1["default"].select(this.residentialAreas, this.lots, this.industrialAreas, 60 * zoom);
 
-
-    this.residentialAreas.forEach(function (block, i) {
-      var e_62, _a;
-
-      if (hash(i, 1) > 0.045 || block.length < 3) return;
-      var c = polygon_util_1["default"].averagePoint(block);
-      var best = null;
-      var bestD = Infinity;
-
-      try {
-        for (var _b = __values(_this.lots), _c = _b.next(); !_c.done; _c = _b.next()) {
-          var b = _c.value;
-          if (b.length === 0) continue;
-          var d = b[0].distanceToSquared(c);
-
-          if (d < bestD) {
-            bestD = d;
-            best = b;
-          }
-        }
-      } catch (e_62_1) {
-        e_62 = {
-          error: e_62_1
-        };
-      } finally {
-        try {
-          if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
-        } finally {
-          if (e_62) throw e_62.error;
-        }
+    try {
+      // Places of worship: a black cross on the church
+      for (var _c = __values(poi.churches), _d = _c.next(); !_d.done; _d = _c.next()) {
+        var church = _d.value;
+        var at = polygon_util_1["default"].averagePoint(church);
+        if (!labeller.reserve(at, 5, 7)) continue;
+        canvas.setStrokeStyle('#000000');
+        canvas.setLineWidth(1.5);
+        canvas.drawPolyline([new vector_1["default"](at.x, at.y - 5.5), new vector_1["default"](at.x, at.y + 5.5)]);
+        canvas.drawPolyline([new vector_1["default"](at.x - 3.5, at.y - 2), new vector_1["default"](at.x + 3.5, at.y - 2)]);
       }
+    } catch (e_62_1) {
+      e_62 = {
+        error: e_62_1
+      };
+    } finally {
+      try {
+        if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+      } finally {
+        if (e_62) throw e_62.error;
+      }
+    } // Car parks: a blue P
 
-      if (best === null || bestD > 60 * 60) return;
-      var at = polygon_util_1["default"].averagePoint(best);
-      if (!labeller.reserve(at, 5, 7)) return;
-      canvas.setStrokeStyle('#000000');
-      canvas.setLineWidth(1.5);
-      canvas.drawPolyline([new vector_1["default"](at.x, at.y - 5.5), new vector_1["default"](at.x, at.y + 5.5)]);
-      canvas.drawPolyline([new vector_1["default"](at.x - 3.5, at.y - 2), new vector_1["default"](at.x + 3.5, at.y - 2)]);
-    }); // Car parks: a blue P in some industrial blocks
 
     var parking = {
       font: "bold 13px " + this.colourScheme.fontFamily,
@@ -147478,12 +148646,23 @@ function (_super) {
       halo: 'rgba(255,255,255,0.8)',
       haloWidth: 1
     };
-    this.industrialAreas.forEach(function (block, i) {
-      if (hash(i, 2) > 0.45 || block.length < 3) return;
-      var c = polygon_util_1["default"].averagePoint(block);
-      if (!polygon_util_1["default"].insidePolygon(c, block)) return;
-      labeller.labelPoint(c, 'P', parking);
-    });
+
+    try {
+      for (var _e = __values(poi.parking), _f = _e.next(); !_f.done; _f = _e.next()) {
+        var p = _f.value;
+        labeller.labelPoint(p, 'P', parking);
+      }
+    } catch (e_63_1) {
+      e_63 = {
+        error: e_63_1
+      };
+    } finally {
+      try {
+        if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+      } finally {
+        if (e_63) throw e_63.error;
+      }
+    }
   };
 
   return OsmStyle;
@@ -147491,7 +148670,7 @@ function (_super) {
 
 exports.OsmStyle = OsmStyle;
 
-},{"../impl/polygon_util":115,"../util":136,"../vector":137,"./canvas_wrapper":126,"./domain_controller":127,"./labeller":130,"loglevel":54}],134:[function(require,module,exports){
+},{"../impl/points_of_interest":114,"../impl/polygon_util":116,"../util":138,"../vector":139,"./canvas_wrapper":128,"./domain_controller":129,"./labeller":132,"loglevel":54}],136:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -147724,7 +148903,7 @@ function (_super) {
 
 exports["default"] = TensorFieldGUI;
 
-},{"../impl/tensor_field":120,"../util":136,"../vector":137,"./domain_controller":127}],135:[function(require,module,exports){
+},{"../impl/tensor_field":122,"../util":138,"../vector":139,"./domain_controller":129}],137:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -148034,7 +149213,7 @@ function (_super) {
 
 exports["default"] = WaterGUI;
 
-},{"../impl/water_generator":121,"../util":136,"./road_gui":132}],136:[function(require,module,exports){
+},{"../impl/water_generator":123,"../util":138,"./road_gui":134}],138:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -148373,7 +149552,7 @@ function () {
 
 exports["default"] = Util;
 
-},{}],137:[function(require,module,exports){
+},{}],139:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -148574,4 +149753,4 @@ function () {
 
 exports["default"] = Vector;
 
-},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,120,119,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137]);
+},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,122,121,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139]);
