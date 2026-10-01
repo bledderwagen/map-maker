@@ -29,7 +29,8 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
     "world_unit_m": 2,                   // generator units, for reference only
     "view_bounds": [minX, minY, maxX, maxY],  // what the 2D map showed at export
     "data_bounds": [minX, minY, maxX, maxY],  // everything, reaches past the view
-    "boundary": { "bounds": [...], "polygon": [...], "land": [...] },  // the generated area, see docs/game-export.md
+    "boundary": { "bounds": [...], "polygon": [...], "land": [...] },        // the view the map was made for, built up to its edges, see docs/game-export.md
+    "generated_area": { "bounds": [...], "polygon": [...], "land": [...] },  // where it was generated, the boundary plus a margin
     "pseudo_3d": { "height_exaggeration": 2, ... },                     // the 2D map's 3D camera, see docs/game-export.md
     "layers": ["areas", "waterways", "paths", "roads", "railways", "buildings", "points", "labels"],
     "classes": [ { "name": "house", "id": 1, "layer": "buildings", "geometry": "Polygon", "description": "..." }, ... ],

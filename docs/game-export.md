@@ -18,17 +18,33 @@ The origin is the middle of the area the map was generated in, not of the view w
 
 ## Boundary
 
-`map_maker.boundary` is the area the map was generated in: the view when the coastline (the first step of a map) was generated, enlarged by the same 20% the generator uses. Roads, blocks and buildings are generated inside it. Treat it as the edge of the world, for example to clamp the camera.
+`map_maker.boundary` is the view the map was made for: where the screen was, and how big, when the coastline (the first step of a map) was generated. Treat it as the edge of the world. Keep the camera's view of the ground inside it, and the player never sees the end of the map.
+
+The map is generated in `map_maker.generated_area`, the boundary enlarged by 20% (10% on each side). The generator's edge is out there: streets that stop short of it and blocks it leaves open are in the margin, out of sight from inside the boundary. Inside the boundary, streets run on past its edge and blocks are built up to it.
 
 ```jsonc
 "boundary": {
     "bounds": [minX, minY, maxX, maxY],      // metres
     "polygon": [[x, y], ...],                // the same rectangle as a closed ring
     "land": [[[x, y], ...], ...]             // the rectangle less the sea, closed rings
-}
+},
+"generated_area": { "bounds": [...], "polygon": [...], "land": [...] }   // the same, for the area the map was generated in
 ```
 
-Highways and ramps can run a little past the boundary, where the generator draws them beyond its edge. They end there as dead ends.
+Features aren't cut at the boundary. Roads, blocks and buildings carry on into the margin, so a tilted camera, or a tall building leaning in perspective, never shows an edge. Highways and ramps can run a little past the generated area too, where the generator draws them beyond its edge. They end there as dead ends.
+
+To keep a top-down perspective camera inside the boundary, limit its height so the ground it sees fits, then keep its target far enough from each edge (`examples/webgl/game.js` does this):
+
+```js
+const [minX, minY, maxX, maxY] = header.boundary.bounds;
+const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+height = Math.min(height, (maxY - minY) / 2 / tanHalf, (maxX - minX) / 2 / (tanHalf * camera.aspect));
+const halfH = height * tanHalf, halfW = halfH * camera.aspect;   // half the ground in view
+target.x = THREE.MathUtils.clamp(target.x, minX + halfW, maxX - halfW);
+target.y = THREE.MathUtils.clamp(target.y, minY + halfH, maxY - halfH);
+```
+
+In the map maker itself, Options → keepViewInMap does the same for the 2D map: once a map is generated, you can't pan or zoom out past its boundary. Open the Tensor Field folder to move freely and make a map somewhere else.
 
 ## Road network
 
@@ -106,13 +122,13 @@ The scene has one node per layer, each holding one mesh per class:
 
 | node | children |
 |---|---|
-| `ground` | the land inside the boundary, feature id 0 |
+| `ground` | the land in the generated area, feature id 0 |
 | `areas` | `park`, `sea`, `residential_area`, ... flat, stacked a few millimetres apart by `z_order` |
 | `paths`, `roads`, `railways` | flat strips of the feature's `width`, 0.5 m up. Motorways and ramps are 0.8 m up so they cover what they cross |
 | `buildings` | `house`, `warehouse`, `mall`, ... footprints extruded to `height`. Pitched roofs are flat, halfway between eaves and ridge |
 | `labels` | empty nodes, see above |
 
-Each mesh has `POSITION`, `NORMAL` and `_FEATURE_ID` attributes and a plain material in the colours of the Google style. Each mesh node's `extras` hold its `class` and `class_id`. The scene's `extras` repeat `boundary` and `pseudo_3d`.
+Each mesh has `POSITION`, `NORMAL` and `_FEATURE_ID` attributes and a plain material in the colours of the Google style. Each mesh node's `extras` hold its `class` and `class_id`. The scene's `extras` repeat `boundary`, `generated_area` and `pseudo_3d`.
 
 Picking in three.js (`GLTFLoader` lower-cases the attribute name):
 

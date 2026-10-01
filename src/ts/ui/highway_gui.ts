@@ -1,4 +1,3 @@
-import Util from '../util';
 import FieldIntegrator from '../impl/integrator';
 import {StreamlineParams} from '../impl/streamlines';
 import HighwayGenerator from '../impl/highway_generator';
@@ -41,18 +40,16 @@ export default class HighwayGUI extends RoadGUI {
     }
 
     private createGenerator(): HighwayGenerator {
+        const area = this.domainController.generationArea;
         return new HighwayGenerator(
-            this.integrator, this.domainController.origin,
-            this.domainController.worldDimensions,
+            this.integrator, area.origin, area.size,
             Object.assign({}, this.params), this.tensorField);
     }
 
     async generateRoads(): Promise<void> {
         this.preGenerateCallback();
 
-        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
         this.streamlines = this.createGenerator();
-        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
 
         this.streamlines.createHighways();
 

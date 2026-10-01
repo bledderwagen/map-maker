@@ -127,7 +127,10 @@ export interface SceneInput {
     streets: {name: string; kind: string; crossStreets: string[]}[];
     viewOrigin: Vector;
     viewSize: Vector;
-    generationOrigin: Vector;  // Where the map was generated, also the origin of the scene
+    mapOrigin: Vector;  // The view the map was generated for, its boundary. Fully built up to its edges
+    mapSize: Vector;
+    mapLand: Vector[][];  // The boundary less the sea
+    generationOrigin: Vector;  // Where the map was generated, the boundary enlarged a little. Its middle is the origin of the scene
     generationSize: Vector;
     land: Vector[][];  // The generation area less the sea
     camera: {heightExaggeration: number; cameraHeight: number; screenSize: Vector};  // The pseudo 3D view
@@ -403,11 +406,17 @@ export default class SceneExport {
         for (const l of input.labels) this.addPoint(l.cls, l.at, {name: l.name, hover_height: Math.round(l.hoverHeight * 10) / 10});
 
         const view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(v => this.toMetres(v));
-        const g0 = input.generationOrigin;
-        const g1 = g0.clone().add(input.generationSize);
-        const area = [g0, new Vector(g1.x, g0.y), g1, new Vector(g0.x, g1.y)];
         const rect = (corners: number[][]): number[] => [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1]),
             Math.max(corners[0][0], corners[1][0]), Math.max(corners[0][1], corners[1][1])];
+        const rectangle = (origin: Vector, size: Vector): Vector[] => {
+            const end = origin.clone().add(size);
+            return [origin, new Vector(end.x, origin.y), end, new Vector(origin.x, end.y)];
+        };
+        const area = (origin: Vector, size: Vector, land: Vector[][]): any => ({
+            bounds: rect([this.toMetres(origin), this.toMetres(origin.clone().add(size))]),
+            polygon: this.ring(rectangle(origin, size)),
+            land: land.filter(l => l.length >= 3).map(l => this.ring(l)),
+        });
         const classes = Object.keys(CLASSES).map(name => Object.assign({name}, CLASSES[name]))
             .sort((a, b) => a.id - b.id);
         return {
@@ -420,12 +429,11 @@ export default class SceneExport {
                 world_unit_m: WORLD_UNIT_M,
                 // The view is what the 2D map shows, data reaches a little beyond it
                 view_bounds: rect(view),
-                // The area the map was generated in. Roads and buildings stop at its edge, so it's the edge of the world
-                boundary: {
-                    bounds: rect([this.toMetres(g0), this.toMetres(g1)]),
-                    polygon: this.ring(area),
-                    land: input.land.filter(l => l.length >= 3).map(l => this.ring(l)),
-                },
+                // The view the map was generated for. It's built up right to its edges, so it's the edge of the world
+                boundary: area(input.mapOrigin, input.mapSize, input.mapLand),
+                // Where roads and buildings were generated, the boundary enlarged a little. The edge of the
+                // generator is out here, where streets and blocks can stop short, out of sight from inside the boundary
+                generated_area: area(input.generationOrigin, input.generationSize, input.land),
                 // How the 2D map's pseudo 3D view is drawn, to match it with a perspective camera, see docs/game-export.md
                 pseudo_3d: {
                     height_exaggeration: input.camera.heightExaggeration,

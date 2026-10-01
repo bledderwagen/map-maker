@@ -35,6 +35,7 @@ class Main {
     // Options
     private imageScale = 3;  // Multiplier for res of downloaded image
     public highDPI = false;  // Increases resolution for hiDPI displays
+    public keepViewInMap = true;  // Stop panning and zooming out past the map's boundary
 
     // Style options
     private canvas: HTMLCanvasElement;
@@ -127,6 +128,7 @@ class Main {
 
         this.optionsFolder.add(this.tensorField, 'drawCentre');
         this.optionsFolder.add(this, 'highDPI').onChange((high: boolean) => this.changeCanvasScale(high));
+        this.optionsFolder.add(this, 'keepViewInMap');
         
         this.downloadsFolder.add(this, 'imageScale', 1, 5).step(1);
         this.downloadsFolder.add({"PNG": () => this.downloadPng()}, 'PNG');  // This allows custom naming of button
@@ -335,6 +337,10 @@ class Main {
     }
 
     draw(): void {
+        // The tensor field can be moved about freely, to make a map somewhere else
+        const keepInMap = this.keepViewInMap && !this.showTensorField();
+        if (this.domainController.keepInMap !== keepInMap) this.domainController.keepInMap = keepInMap;
+
         if (this.showTensorField()) {
             this.previousFrameDrawTensor = true;
             this.dragController.setDragDisabled(false);

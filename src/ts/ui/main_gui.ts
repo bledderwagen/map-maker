@@ -119,6 +119,9 @@ export default class MainGUI {
 
     private redraw: boolean = true;
 
+    // How far inside the generation area the frame that closes off edge blocks runs, world units
+    private readonly EDGE_FRAME_INSET = 1;
+
     // Names for labelling, world space, made again whenever the map changes
     private placeNames = new PlaceNames();
     private namesKey = '';
@@ -126,8 +129,6 @@ export default class MainGUI {
     private riverName = '';
     private seaName = '';
     private worldPlaceLabels: {text: string; at: Vector; kind: PlaceLabel['kind']}[] = [];
-    // Where the current map was generated, world space. Set when the coastline (the first step) is generated
-    private _generationArea: {origin: Vector; size: Vector} = null;
 
     constructor(private guiFolder: dat.GUI, private tensorField: TensorField, private closeTensorFolder: () => void) {
         guiFolder.add(this, 'generateEverything');
@@ -220,6 +221,8 @@ export default class MainGUI {
             allStreamlines.push(...this.coastline.streamlinesWithSecondaryRoad);
             // The water's edge closes off the blocks between the coast road and the sea
             allStreamlines.push(...this.coastline.waterEdges);
+            // And the edge of the map closes off the blocks along it
+            allStreamlines.push(this.edgeFrame());
 
             // Half the drawn width of each kind of road, 1 world unit per pixel at zoom 1
             const widths = this.roadHalfWidths();
@@ -256,7 +259,8 @@ export default class MainGUI {
         this.minorRoads.setBlocked(p => this.blockedForMinorRoads(p));
 
         this.coastline.setPreGenerateCallback(() => {
-            this._generationArea = this.domainController.generationArea;
+            // The map is made for the view as it is now, every later step is generated around it
+            this.domainController.lockMapArea();
             this.highways.clearStreamlines();
             this.resetZoning();
             this.mainRoads.clearStreamlines();
@@ -308,6 +312,7 @@ export default class MainGUI {
         this.mainRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
             this.removeWanderingBridges(this.mainRoads);
+            this.mainRoads.replaceRoads(this.extendToEdge(this.mainRoads.allStreamlines, p => this.inFloodplain(p)));
             this.setupZoning();
         });
 
@@ -327,6 +332,7 @@ export default class MainGUI {
         this.majorRoads.setPostGenerateCallback(() => {
             tensorField.ignoreRiver = false;
             this.removeWanderingBridges(this.majorRoads);
+            this.majorRoads.replaceRoads(this.extendToEdge(this.majorRoads.allStreamlines, p => this.inFloodplain(p)));
             this.setDistricts();
             this.addParks();
             this.redraw = true;
@@ -396,10 +402,7 @@ export default class MainGUI {
      * A railway across the city, through industry where it can
      */
     private planRailway(): void {
-        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
-        const origin = this.domainController.origin;
-        const size = this.domainController.worldDimensions;
-        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+        const {origin, size} = this.generationArea;
         const floodplain = this.coastline.floodplainWorld;
         this.railway = Railway.plan({
             origin,
@@ -411,6 +414,68 @@ export default class MainGUI {
             highways: this.highways.highwaysWorld,
             parks: this.bigParks.concat(floodplain && floodplain.length >= 3 ? [floodplain] : []),
         });
+    }
+
+    /**
+     * How far p is inside the generation area, negative outside it
+     */
+    private edgeDistance(p: Vector): number {
+        const {origin, size} = this.generationArea;
+        return Math.min(p.x - origin.x, p.y - origin.y, origin.x + size.x - p.x, origin.y + size.y - p.y);
+    }
+
+    /**
+     * The edge of the generation area, just inside it, as a closed line. Roads that run off the map
+     * cross it, so it closes off the blocks along the edge, which otherwise stay open and empty
+     */
+    private edgeFrame(): Vector[] {
+        const {origin, size} = this.generationArea;
+        const a = origin.clone().add(new Vector(this.EDGE_FRAME_INSET, this.EDGE_FRAME_INSET));
+        const b = origin.clone().add(size).sub(new Vector(this.EDGE_FRAME_INSET, this.EDGE_FRAME_INSET));
+        return [a, new Vector(b.x, a.y), b, new Vector(a.x, b.y), a.clone()];
+    }
+
+    /**
+     * Roads stop when they reach the edge of the generation area, or a little short of it where they
+     * meet another road's spacing or a step lands just inside. Carry ends near the edge on straight to it,
+     * so that streets run off the map rather than stopping just before its edge
+     * @param blocked where the road may not go
+     */
+    private extendToEdge(lines: Vector[][], blocked: (p: Vector) => boolean): Vector[][] {
+        const REACH = 45;
+        const {origin, size} = this.generationArea;
+        const max = origin.clone().add(size);
+        const extend = (line: Vector[]): Vector[] => {
+            const end = line[line.length - 1];
+            const dir = end.clone().sub(line[line.length - 2]);
+            if (dir.length() < 1e-6) return line;
+            dir.normalize();
+            // Distance along dir to the edge, which must be ahead and faced roughly head on
+            let t = Infinity;
+            if (dir.x > 0.5) t = Math.min(t, (max.x - end.x) / dir.x);
+            if (dir.x < -0.5) t = Math.min(t, (origin.x - end.x) / dir.x);
+            if (dir.y > 0.5) t = Math.min(t, (max.y - end.y) / dir.y);
+            if (dir.y < -0.5) t = Math.min(t, (origin.y - end.y) / dir.y);
+            if (!(t > 0.01) || t > REACH) return line;
+            const target = end.clone().add(dir.clone().multiplyScalar(t));
+            target.x = Math.min(Math.max(target.x, origin.x), max.x);
+            target.y = Math.min(Math.max(target.y, origin.y), max.y);
+            for (let s = 2; s < t; s += 2) {
+                const p = end.clone().add(dir.clone().multiplyScalar(s));
+                if (!this.tensorField.onLand(p) || blocked(p)) return line;
+            }
+            return line.concat([target]);
+        };
+        return lines.map(line => {
+            if (line.length < 2) return line;
+            const forward = extend(line);
+            return extend(forward.slice().reverse()).reverse();
+        });
+    }
+
+    private inFloodplain(p: Vector): boolean {
+        const park = this.coastline.floodplainWorld;
+        return park && park.length >= 3 && PolygonUtil.insidePolygon(p, park);
     }
 
     private roadHalfWidths(): {minor: number; major: number; main: number; highway: number; ramp: number} {
@@ -431,10 +496,7 @@ export default class MainGUI {
         this.highways.createInterchanges(this.mainRoads.allStreamlines
             .concat(this.coastline.streamlinesWithSecondaryRoad));
 
-        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
-        const origin = this.domainController.origin;
-        const worldDimensions = this.domainController.worldDimensions;
-        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+        const {origin, size: worldDimensions} = this.generationArea;
 
         // No building lots between a highway and its frontage roads
         this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 12;
@@ -468,7 +530,8 @@ export default class MainGUI {
         const g = new Graph(this.highways.allStreamlines
             .concat(this.mainRoads.allStreamlines)
             .concat(this.majorRoads.allStreamlines)
-            .concat(this.coastline.streamlinesWithSecondaryRoad), this.minorParams.dstep, true);
+            .concat(this.coastline.streamlinesWithSecondaryRoad)
+            .concat([this.edgeFrame()]), this.minorParams.dstep, true);
         const p = new PolygonFinder(g.nodes, {
                 maxLength: 1000,  // Districts next to smoothed highways have many sides
                 minArea: 80,
@@ -499,17 +562,21 @@ export default class MainGUI {
 
     private trimMinorRoads(): void {
         if (!this.zoning.enabled) {
+            const inPark = (p: Vector): boolean => this.inBigPark(p) || this.inFloodplain(p);
             if (this.bigParks.length > 0) this.minorRoads.trimEnds(p => this.inBigPark(p), 1);
+            this.minorRoads.replaceRoads(this.extendToEdge(this.minorRoads.allStreamlines, inPark));
             return;
         }
         const trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
-        // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
-        this.minorRoads.trimEnds(p => this.zoning.exactHighwayDistance(p) < trimDistance
+        const outside = (p: Vector): boolean => this.zoning.exactHighwayDistance(p) < trimDistance
             || this.zoning.inIndustrialDistrict(p)
             || this.zoning.inCommercialDistrict(p)
             || this.zoning.inInterchange(p)
-            || this.inBigPark(p), 1);
+            || this.inBigPark(p);
+        // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
+        this.minorRoads.trimEnds(outside, 1);
         this.addUnderpasses(trimDistance);
+        this.minorRoads.replaceRoads(this.extendToEdge(this.minorRoads.allStreamlines, p => outside(p) || this.inFloodplain(p)));
         this.pruneStubs();
     }
 
@@ -567,8 +634,9 @@ export default class MainGUI {
             }
             return out;
         };
-        const touching = (p: Vector, owner: number): boolean =>
-            nearby(p, p, owner).some(s => PolygonUtil.distanceToSegment(p, s.a, s.b) < TOUCH);
+        // A road that runs off the edge of the map isn't a dead end
+        const touching = (p: Vector, owner: number): boolean => this.edgeDistance(p) < TOUCH
+            || nearby(p, p, owner).some(s => PolygonUtil.distanceToSegment(p, s.a, s.b) < TOUCH);
 
         // Returns the line with a dangling end cut back, walking from the end at index 0
         const prune = (line: Vector[], owner: number): Vector[] => {
@@ -1042,23 +1110,29 @@ export default class MainGUI {
         // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
         const poi = PointsOfInterest.select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60);
 
-        // What the map shows right now, and where it was generated
+        // What the map shows right now, the view it was made for, and where it was generated
         const origin = this.domainController.origin.clone();
         const size = this.domainController.worldDimensions.clone();
+        const map = this.domainController.mapArea;
         const area = this.generationArea;
-        const g1 = area.origin.clone().add(area.size);
-        const rectangle = [area.origin.clone(), new Vector(g1.x, area.origin.y), g1, new Vector(area.origin.x, g1.y)];
         const sea = this.coastline.seaPolygonWorld;
-        const land = sea.length >= 3 ? PolygonUtil.subtractPolygons(rectangle, [sea], 100) : [rectangle];
+        const landIn = (a: {origin: Vector; size: Vector}): Vector[][] => {
+            const end = a.origin.clone().add(a.size);
+            const rectangle = [a.origin.clone(), new Vector(end.x, a.origin.y), end, new Vector(a.origin.x, end.y)];
+            return sea.length >= 3 ? PolygonUtil.subtractPolygons(rectangle, [sea], 100) : [rectangle];
+        };
 
         return SceneExport.build({
             addresses: addresses.byBuilding,
             streets: addresses.metadata.streets,
             viewOrigin: origin,
             viewSize: size,
+            mapOrigin: map.origin,
+            mapSize: map.size,
+            mapLand: landIn(map),
             generationOrigin: area.origin,
             generationSize: area.size,
-            land,
+            land: landIn(area),
             camera: {
                 heightExaggeration: HEIGHT_EXAGGERATION,
                 cameraHeight: this.domainController.cameraHeight,
@@ -1153,8 +1227,7 @@ export default class MainGUI {
      * Where the current map was generated, world space: the view when it was generated, enlarged a little
      */
     get generationArea(): {origin: Vector; size: Vector} {
-        const area = this._generationArea || this.domainController.generationArea;
-        return {origin: area.origin.clone(), size: area.size.clone()};
+        return this.domainController.generationArea;
     }
 
     roadsEmpty(): boolean {

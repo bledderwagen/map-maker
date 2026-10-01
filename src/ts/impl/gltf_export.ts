@@ -188,8 +188,8 @@ export default class GltfExport {
         const header = this.scene.map_maker;
         const labels: any[] = [];
 
-        // Ground: the land inside the boundary, feature id 0
-        for (const ring of header.boundary.land) {
+        // Ground: the land everything was generated on, which reaches a little past the boundary, feature id 0
+        for (const ring of (header.generated_area || header.boundary).land) {
             GltfExport.flat(this.mesh('ground'), GltfExport.openRing([ring]), 0, 0);
         }
 
@@ -320,6 +320,7 @@ export default class GltfExport {
                     format: 'map-maker-gltf',
                     axes: 'x east, y up, z south; metres; scene file (x, y) is glTF (x, -z)',
                     boundary: header.boundary,
+                    generated_area: header.generated_area,
                     pseudo_3d: header.pseudo_3d,
                 },
             }],

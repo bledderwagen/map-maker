@@ -27,6 +27,10 @@ export default class DomainController {
     private _cameraDirection = Vector.zeroVector();
     private _orthographic = false;
 
+    // The view the map was generated for, see lockMapArea
+    private _mapArea: {origin: Vector; size: Vector} = null;
+    private _keepInMap = false;
+
     // Set after pan or zoom
     public moved = false;
 
@@ -64,6 +68,7 @@ export default class DomainController {
         this.moved = true;
         this._screenDimensions.setX(window.innerWidth);
         this._screenDimensions.setY(window.innerHeight);
+        this.clampView();
     }
 
     public static getInstance(): DomainController {
@@ -79,6 +84,7 @@ export default class DomainController {
     pan(delta: Vector) {
         this.moved = true;
         this._origin.sub(delta);
+        this.clampView();
     }
 
     /**
@@ -106,6 +112,7 @@ export default class DomainController {
     set screenDimensions(v: Vector) {
         this.moved = true;
         this._screenDimensions.copy(v);
+        this.clampView();
     }
 
     set zoom(z: number) {
@@ -116,6 +123,7 @@ export default class DomainController {
             const newWorldSpaceMidpoint = this.origin.add(this.worldDimensions.divideScalar(2));
             this.pan(newWorldSpaceMidpoint.sub(oldWorldSpaceMidpoint));
             this.zoomCallback();
+            this.clampView();
         }
     }
 
@@ -178,13 +186,69 @@ export default class DomainController {
     }
 
     /**
-     * The area roads and buildings are generated in: the view, enlarged a little
-     * so the map doesn't stop at the edge of the screen. World space
+     * Fixes the map to the view as it is now: the screen's placement, zoom and size when the
+     * map was generated. Every later step of the map is generated around this area, and the
+     * view can be kept inside it, see keepInMap
+     */
+    lockMapArea(): void {
+        this._mapArea = {origin: this.origin, size: this.worldDimensions};
+        this.clampView();
+    }
+
+    /**
+     * The view the current map was generated for, world space. Everything inside it is fully built,
+     * it's the boundary of the map. The view when null, before a map is generated
+     */
+    get mapArea(): {origin: Vector; size: Vector} {
+        const area = this._mapArea || {origin: this.origin, size: this.worldDimensions};
+        return {origin: area.origin.clone(), size: area.size.clone()};
+    }
+
+    /**
+     * The area roads and buildings are generated in: the map area enlarged a little, so that
+     * whatever happens at the edge of the generator happens out of sight. World space
      */
     get generationArea(): {origin: Vector; size: Vector} {
-        const size = this.worldDimensions.multiplyScalar(Util.DRAW_INFLATE_AMOUNT);
-        const centre = this.origin.add(this.worldDimensions.divideScalar(2));
+        const area = this.mapArea;
+        const size = area.size.clone().multiplyScalar(Util.DRAW_INFLATE_AMOUNT);
+        const centre = area.origin.add(area.size.divideScalar(2));
         return {origin: centre.sub(size.clone().divideScalar(2)), size};
+    }
+
+    /**
+     * When set, panning and zooming can't take the view outside the map area
+     */
+    set keepInMap(v: boolean) {
+        this._keepInMap = v;
+        this.clampView();
+    }
+
+    get keepInMap(): boolean {
+        return this._keepInMap;
+    }
+
+    /**
+     * Moves and zooms the view the least it can to fit it inside the map area
+     */
+    private clampView(): void {
+        if (!this._keepInMap || this._mapArea === null || this._screenDimensions.x <= 0 || this._screenDimensions.y <= 0) return;
+        const area = this._mapArea;
+        // Zoomed out no further than the map, at any window size
+        const minZoom = Math.max(this._screenDimensions.x / area.size.x, this._screenDimensions.y / area.size.y);
+        if (this._zoom < minZoom) {
+            const centre = this.origin.add(this.worldDimensions.divideScalar(2));
+            this._zoom = minZoom;
+            this._origin = centre.sub(this.worldDimensions.divideScalar(2));
+            this.moved = true;
+            this.zoomCallback();
+        }
+        const view = this.worldDimensions;
+        const x = Math.min(Math.max(this._origin.x, area.origin.x), area.origin.x + area.size.x - view.x);
+        const y = Math.min(Math.max(this._origin.y, area.origin.y), area.origin.y + area.size.y - view.y);
+        if (x !== this._origin.x || y !== this._origin.y) {
+            this._origin = new Vector(x, y);
+            this.moved = true;
+        }
     }
 
     setZoomUpdate(callback: () => any): void {

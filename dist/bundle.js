@@ -130268,6 +130268,8 @@ function () {
 
     this.highDPI = false; // Increases resolution for hiDPI displays
 
+    this.keepViewInMap = true; // Stop panning and zooming out past the map's boundary
+
     this.colourScheme = "OpenStreetMap"; // See colour_schemes.json
 
     this.zoomBuildings = false; // Show buildings only when zoomed in?
@@ -130355,6 +130357,7 @@ function () {
     this.optionsFolder.add(this, 'highDPI').onChange(function (high) {
       return _this.changeCanvasScale(high);
     });
+    this.optionsFolder.add(this, 'keepViewInMap');
     this.downloadsFolder.add(this, 'imageScale', 1, 5).step(1);
     this.downloadsFolder.add({
       "PNG": function PNG() {
@@ -130599,6 +130602,10 @@ function () {
   };
 
   Main.prototype.draw = function () {
+    // The tensor field can be moved about freely, to make a map somewhere else
+    var keepInMap = this.keepViewInMap && !this.showTensorField();
+    if (this.domainController.keepInMap !== keepInMap) this.domainController.keepInMap = keepInMap;
+
     if (this.showTensorField()) {
       this.previousFrameDrawTensor = true;
       this.dragController.setDragDisabled(false);
@@ -132860,8 +132867,8 @@ function () {
     var labels = [];
 
     try {
-      // Ground: the land inside the boundary, feature id 0
-      for (var _c = __values(header.boundary.land), _d = _c.next(); !_d.done; _d = _c.next()) {
+      // Ground: the land everything was generated on, which reaches a little past the boundary, feature id 0
+      for (var _c = __values((header.generated_area || header.boundary).land), _d = _c.next(); !_d.done; _d = _c.next()) {
         var ring = _d.value;
         GltfExport.flat(this.mesh('ground'), GltfExport.openRing([ring]), 0, 0);
       }
@@ -133091,6 +133098,7 @@ function () {
           format: 'map-maker-gltf',
           axes: 'x east, y up, z south; metres; scene file (x, y) is glTF (x, -z)',
           boundary: header.boundary,
+          generated_area: header.generated_area,
           pseudo_3d: header.pseudo_3d
         }
       }],
@@ -140750,12 +140758,26 @@ function () {
     var view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(function (v) {
       return _this.toMetres(v);
     });
-    var g0 = input.generationOrigin;
-    var g1 = g0.clone().add(input.generationSize);
-    var area = [g0, new vector_1["default"](g1.x, g0.y), g1, new vector_1["default"](g0.x, g1.y)];
 
     var rect = function rect(corners) {
       return [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1]), Math.max(corners[0][0], corners[1][0]), Math.max(corners[0][1], corners[1][1])];
+    };
+
+    var rectangle = function rectangle(origin, size) {
+      var end = origin.clone().add(size);
+      return [origin, new vector_1["default"](end.x, origin.y), end, new vector_1["default"](origin.x, end.y)];
+    };
+
+    var area = function area(origin, size, land) {
+      return {
+        bounds: rect([_this.toMetres(origin), _this.toMetres(origin.clone().add(size))]),
+        polygon: _this.ring(rectangle(origin, size)),
+        land: land.filter(function (l) {
+          return l.length >= 3;
+        }).map(function (l) {
+          return _this.ring(l);
+        })
+      };
     };
 
     var classes = Object.keys(exports.CLASSES).map(function (name) {
@@ -140775,16 +140797,11 @@ function () {
         world_unit_m: WORLD_UNIT_M,
         // The view is what the 2D map shows, data reaches a little beyond it
         view_bounds: rect(view),
-        // The area the map was generated in. Roads and buildings stop at its edge, so it's the edge of the world
-        boundary: {
-          bounds: rect([this.toMetres(g0), this.toMetres(g1)]),
-          polygon: this.ring(area),
-          land: input.land.filter(function (l) {
-            return l.length >= 3;
-          }).map(function (l) {
-            return _this.ring(l);
-          })
-        },
+        // The view the map was generated for. It's built up right to its edges, so it's the edge of the world
+        boundary: area(input.mapOrigin, input.mapSize, input.mapLand),
+        // Where roads and buildings were generated, the boundary enlarged a little. The edge of the
+        // generator is out here, where streets and blocks can stop short, out of sight from inside the boundary
+        generated_area: area(input.generationOrigin, input.generationSize, input.land),
         // How the 2D map's pseudo 3D view is drawn, to match it with a perspective camera, see docs/game-export.md
         pseudo_3d: {
           height_exaggeration: input.camera.heightExaggeration,
@@ -146646,7 +146663,10 @@ function () {
     this.lastScrolltime = -this.SCROLL_DELAY;
     this.refreshedAfterScroll = false;
     this._cameraDirection = vector_1["default"].zeroVector();
-    this._orthographic = false; // Set after pan or zoom
+    this._orthographic = false; // The view the map was generated for, see lockMapArea
+
+    this._mapArea = null;
+    this._keepInMap = false; // Set after pan or zoom
 
     this.moved = false;
     this.setScreenDimensions();
@@ -146686,6 +146706,8 @@ function () {
     this._screenDimensions.setX(window.innerWidth);
 
     this._screenDimensions.setY(window.innerHeight);
+
+    this.clampView();
   };
 
   DomainController.getInstance = function () {
@@ -146704,6 +146726,8 @@ function () {
     this.moved = true;
 
     this._origin.sub(delta);
+
+    this.clampView();
   };
 
   Object.defineProperty(DomainController.prototype, "origin", {
@@ -146728,6 +146752,7 @@ function () {
         var newWorldSpaceMidpoint = this.origin.add(this.worldDimensions.divideScalar(2));
         this.pan(newWorldSpaceMidpoint.sub(oldWorldSpaceMidpoint));
         this.zoomCallback();
+        this.clampView();
       }
     },
     enumerable: true,
@@ -146741,6 +146766,8 @@ function () {
       this.moved = true;
 
       this._screenDimensions.copy(v);
+
+      this.clampView();
     },
     enumerable: true,
     configurable: true
@@ -146824,15 +146851,48 @@ function () {
     var camera = this.getCameraPosition();
     return v.clone().sub(camera).multiplyScalar(scale).add(camera);
   };
+  /**
+   * Fixes the map to the view as it is now: the screen's placement, zoom and size when the
+   * map was generated. Every later step of the map is generated around this area, and the
+   * view can be kept inside it, see keepInMap
+   */
 
-  Object.defineProperty(DomainController.prototype, "generationArea", {
+
+  DomainController.prototype.lockMapArea = function () {
+    this._mapArea = {
+      origin: this.origin,
+      size: this.worldDimensions
+    };
+    this.clampView();
+  };
+
+  Object.defineProperty(DomainController.prototype, "mapArea", {
     /**
-     * The area roads and buildings are generated in: the view, enlarged a little
-     * so the map doesn't stop at the edge of the screen. World space
+     * The view the current map was generated for, world space. Everything inside it is fully built,
+     * it's the boundary of the map. The view when null, before a map is generated
      */
     get: function get() {
-      var size = this.worldDimensions.multiplyScalar(util_1["default"].DRAW_INFLATE_AMOUNT);
-      var centre = this.origin.add(this.worldDimensions.divideScalar(2));
+      var area = this._mapArea || {
+        origin: this.origin,
+        size: this.worldDimensions
+      };
+      return {
+        origin: area.origin.clone(),
+        size: area.size.clone()
+      };
+    },
+    enumerable: true,
+    configurable: true
+  });
+  Object.defineProperty(DomainController.prototype, "generationArea", {
+    /**
+     * The area roads and buildings are generated in: the map area enlarged a little, so that
+     * whatever happens at the edge of the generator happens out of sight. World space
+     */
+    get: function get() {
+      var area = this.mapArea;
+      var size = area.size.clone().multiplyScalar(util_1["default"].DRAW_INFLATE_AMOUNT);
+      var centre = area.origin.add(area.size.divideScalar(2));
       return {
         origin: centre.sub(size.clone().divideScalar(2)),
         size: size
@@ -146841,6 +146901,48 @@ function () {
     enumerable: true,
     configurable: true
   });
+  Object.defineProperty(DomainController.prototype, "keepInMap", {
+    get: function get() {
+      return this._keepInMap;
+    },
+
+    /**
+     * When set, panning and zooming can't take the view outside the map area
+     */
+    set: function set(v) {
+      this._keepInMap = v;
+      this.clampView();
+    },
+    enumerable: true,
+    configurable: true
+  });
+  /**
+   * Moves and zooms the view the least it can to fit it inside the map area
+   */
+
+  DomainController.prototype.clampView = function () {
+    if (!this._keepInMap || this._mapArea === null || this._screenDimensions.x <= 0 || this._screenDimensions.y <= 0) return;
+    var area = this._mapArea; // Zoomed out no further than the map, at any window size
+
+    var minZoom = Math.max(this._screenDimensions.x / area.size.x, this._screenDimensions.y / area.size.y);
+
+    if (this._zoom < minZoom) {
+      var centre = this.origin.add(this.worldDimensions.divideScalar(2));
+      this._zoom = minZoom;
+      this._origin = centre.sub(this.worldDimensions.divideScalar(2));
+      this.moved = true;
+      this.zoomCallback();
+    }
+
+    var view = this.worldDimensions;
+    var x = Math.min(Math.max(this._origin.x, area.origin.x), area.origin.x + area.size.x - view.x);
+    var y = Math.min(Math.max(this._origin.y, area.origin.y), area.origin.y + area.size.y - view.y);
+
+    if (x !== this._origin.x || y !== this._origin.y) {
+      this._origin = new vector_1["default"](x, y);
+      this.moved = true;
+    }
+  };
 
   DomainController.prototype.setZoomUpdate = function (callback) {
     this.zoomCallback = callback;
@@ -147249,8 +147351,6 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-var util_1 = require("../util");
-
 var highway_generator_1 = require("../impl/highway_generator");
 
 var road_gui_1 = require("./road_gui");
@@ -147296,16 +147396,15 @@ function (_super) {
   };
 
   HighwayGUI.prototype.createGenerator = function () {
-    return new highway_generator_1["default"](this.integrator, this.domainController.origin, this.domainController.worldDimensions, Object.assign({}, this.params), this.tensorField);
+    var area = this.domainController.generationArea;
+    return new highway_generator_1["default"](this.integrator, area.origin, area.size, Object.assign({}, this.params), this.tensorField);
   };
 
   HighwayGUI.prototype.generateRoads = function () {
     return __awaiter(this, void 0, void 0, function () {
       return __generator(this, function (_a) {
         this.preGenerateCallback();
-        this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
         this.streamlines = this.createGenerator();
-        this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT;
         this.streamlines.createHighways();
         this.closeTensorFolder();
         this.redraw();
@@ -147458,7 +147557,7 @@ function (_super) {
 
 exports["default"] = HighwayGUI;
 
-},{"../impl/highway_generator":110,"../util":142,"./road_gui":138}],136:[function(require,module,exports){
+},{"../impl/highway_generator":110,"./road_gui":138}],136:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -148167,8 +148266,6 @@ var buildings_1 = require("./buildings");
 
 var polygon_util_1 = require("../impl/polygon_util");
 
-var util_1 = require("../util");
-
 var highway_gui_1 = require("./highway_gui");
 
 var zoning_1 = require("../impl/zoning");
@@ -148247,16 +148344,16 @@ function () {
       simplifyTolerance: 0.5,
       collideEarly: 0
     };
-    this.redraw = true; // Names for labelling, world space, made again whenever the map changes
+    this.redraw = true; // How far inside the generation area the frame that closes off edge blocks runs, world units
+
+    this.EDGE_FRAME_INSET = 1; // Names for labelling, world space, made again whenever the map changes
 
     this.placeNames = new place_names_1["default"]();
     this.namesKey = '';
     this.streetNames = null;
     this.riverName = '';
     this.seaName = '';
-    this.worldPlaceLabels = []; // Where the current map was generated, world space. Set when the coastline (the first step) is generated
-
-    this._generationArea = null;
+    this.worldPlaceLabels = [];
     guiFolder.add(this, 'generateEverything'); // guiFolder.add(this, 'simpleBenchMark');
 
     var animateController = guiFolder.add(this, 'animate');
@@ -148346,7 +148443,9 @@ function () {
       allStreamlines.push.apply(allStreamlines, __spread(_this.minorRoads.allStreamlines));
       allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.streamlinesWithSecondaryRoad)); // The water's edge closes off the blocks between the coast road and the sea
 
-      allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.waterEdges)); // Half the drawn width of each kind of road, 1 world unit per pixel at zoom 1
+      allStreamlines.push.apply(allStreamlines, __spread(_this.coastline.waterEdges)); // And the edge of the map closes off the blocks along it
+
+      allStreamlines.push(_this.edgeFrame()); // Half the drawn width of each kind of road, 1 world unit per pixel at zoom 1
 
       var widths = _this.roadHalfWidths();
 
@@ -148409,7 +148508,8 @@ function () {
       return _this.blockedForMinorRoads(p);
     });
     this.coastline.setPreGenerateCallback(function () {
-      _this._generationArea = _this.domainController.generationArea;
+      // The map is made for the view as it is now, every later step is generated around it
+      _this.domainController.lockMapArea();
 
       _this.highways.clearStreamlines();
 
@@ -148479,6 +148579,10 @@ function () {
 
       _this.removeWanderingBridges(_this.mainRoads);
 
+      _this.mainRoads.replaceRoads(_this.extendToEdge(_this.mainRoads.allStreamlines, function (p) {
+        return _this.inFloodplain(p);
+      }));
+
       _this.setupZoning();
     });
     this.majorRoads.setPreGenerateCallback(function () {
@@ -148500,6 +148604,10 @@ function () {
       tensorField.ignoreRiver = false;
 
       _this.removeWanderingBridges(_this.majorRoads);
+
+      _this.majorRoads.replaceRoads(_this.extendToEdge(_this.majorRoads.allStreamlines, function (p) {
+        return _this.inFloodplain(p);
+      }));
 
       _this.setDistricts();
 
@@ -148605,10 +148713,9 @@ function () {
   MainGUI.prototype.planRailway = function () {
     var _this = this;
 
-    this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
-    var origin = this.domainController.origin;
-    var size = this.domainController.worldDimensions;
-    this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT;
+    var _a = this.generationArea,
+        origin = _a.origin,
+        size = _a.size;
     var floodplain = this.coastline.floodplainWorld;
     this.railway = railway_1["default"].plan({
       origin: origin,
@@ -148630,6 +148737,83 @@ function () {
       highways: this.highways.highwaysWorld,
       parks: this.bigParks.concat(floodplain && floodplain.length >= 3 ? [floodplain] : [])
     });
+  };
+  /**
+   * How far p is inside the generation area, negative outside it
+   */
+
+
+  MainGUI.prototype.edgeDistance = function (p) {
+    var _a = this.generationArea,
+        origin = _a.origin,
+        size = _a.size;
+    return Math.min(p.x - origin.x, p.y - origin.y, origin.x + size.x - p.x, origin.y + size.y - p.y);
+  };
+  /**
+   * The edge of the generation area, just inside it, as a closed line. Roads that run off the map
+   * cross it, so it closes off the blocks along the edge, which otherwise stay open and empty
+   */
+
+
+  MainGUI.prototype.edgeFrame = function () {
+    var _a = this.generationArea,
+        origin = _a.origin,
+        size = _a.size;
+    var a = origin.clone().add(new vector_1["default"](this.EDGE_FRAME_INSET, this.EDGE_FRAME_INSET));
+    var b = origin.clone().add(size).sub(new vector_1["default"](this.EDGE_FRAME_INSET, this.EDGE_FRAME_INSET));
+    return [a, new vector_1["default"](b.x, a.y), b, new vector_1["default"](a.x, b.y), a.clone()];
+  };
+  /**
+   * Roads stop when they reach the edge of the generation area, or a little short of it where they
+   * meet another road's spacing or a step lands just inside. Carry ends near the edge on straight to it,
+   * so that streets run off the map rather than stopping just before its edge
+   * @param blocked where the road may not go
+   */
+
+
+  MainGUI.prototype.extendToEdge = function (lines, blocked) {
+    var _this = this;
+
+    var REACH = 45;
+    var _a = this.generationArea,
+        origin = _a.origin,
+        size = _a.size;
+    var max = origin.clone().add(size);
+
+    var extend = function extend(line) {
+      var end = line[line.length - 1];
+      var dir = end.clone().sub(line[line.length - 2]);
+      if (dir.length() < 1e-6) return line;
+      dir.normalize(); // Distance along dir to the edge, which must be ahead and faced roughly head on
+
+      var t = Infinity;
+      if (dir.x > 0.5) t = Math.min(t, (max.x - end.x) / dir.x);
+      if (dir.x < -0.5) t = Math.min(t, (origin.x - end.x) / dir.x);
+      if (dir.y > 0.5) t = Math.min(t, (max.y - end.y) / dir.y);
+      if (dir.y < -0.5) t = Math.min(t, (origin.y - end.y) / dir.y);
+      if (!(t > 0.01) || t > REACH) return line;
+      var target = end.clone().add(dir.clone().multiplyScalar(t));
+      target.x = Math.min(Math.max(target.x, origin.x), max.x);
+      target.y = Math.min(Math.max(target.y, origin.y), max.y);
+
+      for (var s = 2; s < t; s += 2) {
+        var p = end.clone().add(dir.clone().multiplyScalar(s));
+        if (!_this.tensorField.onLand(p) || blocked(p)) return line;
+      }
+
+      return line.concat([target]);
+    };
+
+    return lines.map(function (line) {
+      if (line.length < 2) return line;
+      var forward = extend(line);
+      return extend(forward.slice().reverse()).reverse();
+    });
+  };
+
+  MainGUI.prototype.inFloodplain = function (p) {
+    var park = this.coastline.floodplainWorld;
+    return park && park.length >= 3 && polygon_util_1["default"].insidePolygon(p, park);
   };
 
   MainGUI.prototype.roadHalfWidths = function () {
@@ -148655,10 +148839,9 @@ function () {
 
   MainGUI.prototype.setupZoning = function () {
     this.highways.createInterchanges(this.mainRoads.allStreamlines.concat(this.coastline.streamlinesWithSecondaryRoad));
-    this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
-    var origin = this.domainController.origin;
-    var worldDimensions = this.domainController.worldDimensions;
-    this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT; // No building lots between a highway and its frontage roads
+    var _a = this.generationArea,
+        origin = _a.origin,
+        worldDimensions = _a.size; // No building lots between a highway and its frontage roads
 
     this.zoningParams.highwayBuffer = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance + 1 : 12;
     this.port = null;
@@ -148687,7 +148870,7 @@ function () {
 
   MainGUI.prototype.setDistricts = function () {
     if (!this.zoning.enabled) return;
-    var g = new graph_1["default"](this.highways.allStreamlines.concat(this.mainRoads.allStreamlines).concat(this.majorRoads.allStreamlines).concat(this.coastline.streamlinesWithSecondaryRoad), this.minorParams.dstep, true);
+    var g = new graph_1["default"](this.highways.allStreamlines.concat(this.mainRoads.allStreamlines).concat(this.majorRoads.allStreamlines).concat(this.coastline.streamlinesWithSecondaryRoad).concat([this.edgeFrame()]), this.minorParams.dstep, true);
     var p = new polygon_finder_1["default"](g.nodes, {
       maxLength: 1000,
       minArea: 80,
@@ -148721,18 +148904,29 @@ function () {
     var _this = this;
 
     if (!this.zoning.enabled) {
+      var inPark = function inPark(p) {
+        return _this.inBigPark(p) || _this.inFloodplain(p);
+      };
+
       if (this.bigParks.length > 0) this.minorRoads.trimEnds(function (p) {
         return _this.inBigPark(p);
       }, 1);
+      this.minorRoads.replaceRoads(this.extendToEdge(this.minorRoads.allStreamlines, inPark));
       return;
     }
 
-    var trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3; // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
+    var trimDistance = this.highwayParams.frontageRoads ? this.highwayParams.frontageDistance : this.zoningParams.highwayBuffer + 3;
 
-    this.minorRoads.trimEnds(function (p) {
+    var outside = function outside(p) {
       return _this.zoning.exactHighwayDistance(p) < trimDistance || _this.zoning.inIndustrialDistrict(p) || _this.zoning.inCommercialDistrict(p) || _this.zoning.inInterchange(p) || _this.inBigPark(p);
-    }, 1);
+    }; // Overshoot so the end crosses the road it stops at, otherwise no junction is found there
+
+
+    this.minorRoads.trimEnds(outside, 1);
     this.addUnderpasses(trimDistance);
+    this.minorRoads.replaceRoads(this.extendToEdge(this.minorRoads.allStreamlines, function (p) {
+      return outside(p) || _this.inFloodplain(p);
+    }));
     this.pruneStubs();
   };
   /**
@@ -148753,6 +148947,8 @@ function () {
 
 
   MainGUI.prototype.pruneLines = function (minor, others, maxStub) {
+    var _this = this;
+
     var MAX_STUB = maxStub;
     var TOUCH = 3; // Segment grid over every road
 
@@ -148812,10 +149008,11 @@ function () {
       }
 
       return out;
-    };
+    }; // A road that runs off the edge of the map isn't a dead end
+
 
     var touching = function touching(p, owner) {
-      return nearby(p, p, owner).some(function (s) {
+      return _this.edgeDistance(p) < TOUCH || nearby(p, p, owner).some(function (s) {
         return polygon_util_1["default"].distanceToSegment(p, s.a, s.b) < TOUCH;
       });
     }; // Returns the line with a dangling end cut back, walking from the end at index 0
@@ -149689,23 +149886,31 @@ function () {
     addAreas(this.coastline.lakesWorld.concat(this.ponds), 'lake');
     addAreas(this.coastline.sandBarsWorld, 'sand_bar'); // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
 
-    var poi = points_of_interest_1["default"].select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60); // What the map shows right now, and where it was generated
+    var poi = points_of_interest_1["default"].select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60); // What the map shows right now, the view it was made for, and where it was generated
 
     var origin = this.domainController.origin.clone();
     var size = this.domainController.worldDimensions.clone();
+    var map = this.domainController.mapArea;
     var area = this.generationArea;
-    var g1 = area.origin.clone().add(area.size);
-    var rectangle = [area.origin.clone(), new vector_1["default"](g1.x, area.origin.y), g1, new vector_1["default"](area.origin.x, g1.y)];
     var sea = this.coastline.seaPolygonWorld;
-    var land = sea.length >= 3 ? polygon_util_1["default"].subtractPolygons(rectangle, [sea], 100) : [rectangle];
+
+    var landIn = function landIn(a) {
+      var end = a.origin.clone().add(a.size);
+      var rectangle = [a.origin.clone(), new vector_1["default"](end.x, a.origin.y), end, new vector_1["default"](a.origin.x, end.y)];
+      return sea.length >= 3 ? polygon_util_1["default"].subtractPolygons(rectangle, [sea], 100) : [rectangle];
+    };
+
     return scene_export_1["default"].build({
       addresses: addresses.byBuilding,
       streets: addresses.metadata.streets,
       viewOrigin: origin,
       viewSize: size,
+      mapOrigin: map.origin,
+      mapSize: map.size,
+      mapLand: landIn(map),
       generationOrigin: area.origin,
       generationSize: area.size,
-      land: land,
+      land: landIn(area),
       camera: {
         heightExaggeration: buildings_1.HEIGHT_EXAGGERATION,
         cameraHeight: this.domainController.cameraHeight,
@@ -149907,11 +150112,7 @@ function () {
      * Where the current map was generated, world space: the view when it was generated, enlarged a little
      */
     get: function get() {
-      var area = this._generationArea || this.domainController.generationArea;
-      return {
-        origin: area.origin.clone(),
-        size: area.size.clone()
-      };
+      return this.domainController.generationArea;
     },
     enumerable: true,
     configurable: true
@@ -149997,7 +150198,7 @@ function () {
 
 exports["default"] = MainGUI;
 
-},{"../impl/addressing":103,"../impl/graph":108,"../impl/hydrology":111,"../impl/integrator":113,"../impl/park_paths":115,"../impl/place_names":116,"../impl/points_of_interest":117,"../impl/polygon_finder":118,"../impl/polygon_util":119,"../impl/port":120,"../impl/railway":121,"../impl/scene_export":123,"../impl/zoning":129,"../util":142,"../vector":143,"./buildings":131,"./domain_controller":133,"./highway_gui":135,"./road_gui":138,"./style":139,"./water_gui":141}],138:[function(require,module,exports){
+},{"../impl/addressing":103,"../impl/graph":108,"../impl/hydrology":111,"../impl/integrator":113,"../impl/park_paths":115,"../impl/place_names":116,"../impl/points_of_interest":117,"../impl/polygon_finder":118,"../impl/polygon_util":119,"../impl/port":120,"../impl/railway":121,"../impl/scene_export":123,"../impl/zoning":129,"../vector":143,"./buildings":131,"./domain_controller":133,"./highway_gui":135,"./road_gui":138,"./style":139,"./water_gui":141}],138:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -150372,7 +150573,7 @@ function () {
     }
 
     return __awaiter(this, void 0, void 0, function () {
-      var _a, _b, s;
+      var area, _a, _b, s;
 
       var e_1, _c;
 
@@ -150380,10 +150581,9 @@ function () {
 
       return __generator(this, function (_d) {
         this.preGenerateCallback();
-        this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
-        this.streamlines = new streamlines_1["default"](this.integrator, this.domainController.origin, this.domainController.worldDimensions, Object.assign({}, this.params));
+        area = this.domainController.generationArea;
+        this.streamlines = new streamlines_1["default"](this.integrator, area.origin, area.size, Object.assign({}, this.params));
         this.streamlines.blocked = this.blocked;
-        this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT;
 
         try {
           for (_a = __values(this.existingStreamlines), _b = _a.next(); !_b.done; _b = _a.next()) {
@@ -153388,8 +153588,6 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-var util_1 = require("../util");
-
 var water_generator_1 = require("../impl/water_generator");
 
 var road_gui_1 = require("./road_gui");
@@ -153437,9 +153635,8 @@ function (_super) {
 
   WaterGUI.prototype.generateRoads = function () {
     this.preGenerateCallback();
-    this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
-    this.streamlines = new water_generator_1["default"](this.integrator, this.domainController.origin, this.domainController.worldDimensions, Object.assign({}, this.params), this.tensorField);
-    this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT;
+    var area = this.domainController.generationArea;
+    this.streamlines = new water_generator_1["default"](this.integrator, area.origin, area.size, Object.assign({}, this.params), this.tensorField);
     this.streamlines.createCoast();
     this.streamlines.createRiver();
     this.closeTensorFolder();
@@ -153665,7 +153862,7 @@ function (_super) {
 
 exports["default"] = WaterGUI;
 
-},{"../impl/water_generator":127,"../util":142,"./road_gui":138}],142:[function(require,module,exports){
+},{"../impl/water_generator":127,"./road_gui":138}],142:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {

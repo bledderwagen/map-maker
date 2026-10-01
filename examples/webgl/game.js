@@ -63,10 +63,13 @@ const target = new THREE.Vector2((minX + maxX) / 2, (minY + maxY) / 2);  // Scen
 const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
 let height = (maxY - minY) / 2 / tanHalf;
 
+// The ground in view stays inside the boundary, so the edge of the map is never on screen
 function placeCamera() {
-    target.x = THREE.MathUtils.clamp(target.x, minX, maxX);
-    target.y = THREE.MathUtils.clamp(target.y, minY, maxY);
-    height = THREE.MathUtils.clamp(height, 150, (maxY - minY) / tanHalf);
+    height = THREE.MathUtils.clamp(height, 150, Math.min((maxY - minY) / 2 / tanHalf, (maxX - minX) / 2 / (tanHalf * camera.aspect)));
+    const halfH = height * tanHalf;
+    const halfW = halfH * camera.aspect;
+    target.x = THREE.MathUtils.clamp(target.x, minX + halfW, maxX - halfW);
+    target.y = THREE.MathUtils.clamp(target.y, minY + halfH, maxY - halfH);
     camera.position.copy(toWorld([target.x, target.y], height));
     camera.lookAt(toWorld([target.x, target.y]));
 }
