@@ -65,6 +65,8 @@ export interface ColourScheme {
     shieldColour?: string;
     shieldOutline?: string;
     fontFamily?: string;
+    floatingLabels?: boolean;  // Place names hovering over the pseudo 3D city
+    labelStemColour?: string;
     retailColour?: string;
     retailOutline?: string;
     parkingColour?: string;
@@ -73,11 +75,25 @@ export interface ColourScheme {
     shopLabelColour?: string;
 }
 
+export type PlaceKind = 'neighbourhood' | 'park' | 'mall' | 'apartments' | 'river';
+
 export interface PlaceLabel {
     text: string;
     at: Vector;  // Screen space
-    kind: 'neighbourhood' | 'park' | 'mall' | 'apartments';
+    kind: PlaceKind;
 }
+
+/**
+ * How high floating labels hover, in world units as the pseudo 3D view draws them.
+ * Clear of the tallest buildings, and the more important the place the higher
+ */
+export const FLOATING_LABEL_HEIGHT: {[kind in PlaceKind]: number} = {
+    neighbourhood: 75,
+    mall: 55,
+    river: 50,
+    park: 45,
+    apartments: 45,
+};
 
 /**
  * Controls how screen-space data is drawn
@@ -235,6 +251,10 @@ export default abstract class Style {
         this.colourScheme.zoomBuildings = b;
     }
 
+    public set floatingLabels(b: boolean) {
+        this.colourScheme.floatingLabels = b;
+    }
+
     public set showBuildingModels(b: boolean) {
         this.colourScheme.buildingModels = b;
     }
@@ -256,6 +276,49 @@ export default abstract class Style {
     }
 }
 
+/**
+ * Place names hovering over the city on stems, projected with the same camera as the
+ * pseudo 3D buildings so they lean and drift with them as the view moves
+ */
+function drawFloatingLabelsOn(canvas: DefaultCanvasWrapper, labels: PlaceLabel[], cs: ColourScheme,
+                              domainController: DomainController): void {
+    const screen = domainController.screenDimensions;
+    const labeller = new Labeller(canvas, screen.x, screen.y);
+    const fontFamily = cs.fontFamily || '"Noto Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif';
+    const halo = 'rgba(255,255,255,0.85)';
+    const looks: {[kind in PlaceKind]: {size: number; fill: string; extra: string; wrap: number}} = {
+        neighbourhood: {size: 16, fill: cs.placeLabelColour || '#4a4a4a', extra: 'bold', wrap: 14},
+        mall: {size: 13, fill: cs.shopLabelColour || '#ac39ac', extra: 'bold', wrap: 16},
+        river: {size: 13, fill: cs.waterLabelColour || '#4d80b3', extra: 'italic', wrap: 30},
+        park: {size: 12.5, fill: cs.parkLabelColour || '#3c7a43', extra: '', wrap: 14},
+        apartments: {size: 11.5, fill: '#555555', extra: '', wrap: 16},
+    };
+    const order: PlaceKind[] = ['neighbourhood', 'mall', 'river', 'park', 'apartments'];
+
+    // Room is claimed most important first; stems are drawn under every label
+    const placed: {ground: Vector; top: Vector; draw: () => void}[] = [];
+    for (const kind of order) {
+        const look = looks[kind];
+        const labelStyle: LabelStyle = {font: `${look.extra} ${look.size}px ${fontFamily}`.trim(), size: look.size,
+            fill: look.fill, halo, haloWidth: 3};
+        for (const l of labels) {
+            if (l.kind !== kind) continue;
+            const top = domainController.heightToScreen(l.at, FLOATING_LABEL_HEIGHT[kind]);
+            // The text sits just above the top of its stem
+            const at = new Vector(top.x, top.y - look.size);
+            const draw = labeller.placePoint(at, l.text, labelStyle, look.wrap);
+            if (draw !== null) placed.push({ground: l.at, top, draw});
+        }
+    }
+
+    canvas.setStrokeStyle(cs.labelStemColour || 'rgba(70,70,70,0.45)');
+    canvas.setLineWidth(1);
+    for (const p of placed) canvas.drawPolyline([p.ground, p.top]);
+    canvas.setFillStyle(cs.labelStemColour || 'rgba(70,70,70,0.45)');
+    for (const p of placed) canvas.drawSquare(p.ground, 3);
+    for (const p of placed) p.draw();
+}
+
 export class DefaultStyle extends Style {
     constructor(c: HTMLCanvasElement, dragController: DragController, colourScheme: ColourScheme, private heightmap=false) {
         super(dragController, colourScheme);
@@ -264,6 +327,10 @@ export class DefaultStyle extends Style {
 
     public createCanvasWrapper(c: HTMLCanvasElement, scale=1, resizeToWindow=true): CanvasWrapper {
         return new DefaultCanvasWrapper(c, scale, resizeToWindow);
+    }
+
+    protected drawFloatingLabels(canvas: DefaultCanvasWrapper): void {
+        drawFloatingLabelsOn(canvas, this.placeLabels, this.colourScheme, this.domainController);
     }
 
     public draw(canvas=this.canvas as DefaultCanvasWrapper): void {
@@ -450,6 +517,8 @@ export class DefaultStyle extends Style {
                     canvas.drawPolygon(b.roof);
                 }
             }
+
+            if (this.colourScheme.floatingLabels) this.drawFloatingLabels(canvas);
         }
 
         if (this.showFrame) {

@@ -153,6 +153,40 @@ export default class DomainController {
         // this.screenDimensions.divideScalar(2);
     }
 
+    /**
+     * Height of the pseudo 3D camera above the ground, world units.
+     * The camera looks straight down from above getCameraPosition()
+     */
+    get cameraHeight(): number {
+        return 1000 / this._zoom;
+    }
+
+    /**
+     * Where a point h world units above a ground point appears on screen, in the pseudo 3D view
+     * @param v ground point, screen space
+     */
+    heightToScreen(v: Vector, h: number): Vector {
+        const d = this.cameraHeight;
+        // Nothing reaches the camera
+        h = Math.min(h, 0.9 * d);
+        const scale = d / (d - h);
+        if (this._orthographic) {
+            return v.clone().add(this.cameraDirection.multiplyScalar(-h * scale));
+        }
+        const camera = this.getCameraPosition();
+        return v.clone().sub(camera).multiplyScalar(scale).add(camera);
+    }
+
+    /**
+     * The area roads and buildings are generated in: the view, enlarged a little
+     * so the map doesn't stop at the edge of the screen. World space
+     */
+    get generationArea(): {origin: Vector; size: Vector} {
+        const size = this.worldDimensions.multiplyScalar(Util.DRAW_INFLATE_AMOUNT);
+        const centre = this.origin.add(this.worldDimensions.divideScalar(2));
+        return {origin: centre.sub(size.clone().divideScalar(2)), size};
+    }
+
     setZoomUpdate(callback: () => any): void {
         this.zoomCallback = callback;
     }

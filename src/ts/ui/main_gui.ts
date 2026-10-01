@@ -16,7 +16,7 @@ import WaterGenerator from '../impl/water_generator';
 import Style from './style';
 import {DefaultStyle, RoughStyle} from './style';
 import CanvasWrapper from './canvas_wrapper';
-import Buildings, {BuildingModel} from './buildings';
+import Buildings, {BuildingModel, HEIGHT_EXAGGERATION} from './buildings';
 import PolygonUtil from '../impl/polygon_util';
 import Util from '../util';
 import HighwayGUI from './highway_gui';
@@ -29,7 +29,7 @@ import PlaceNames, {StreetNameSets} from '../impl/place_names';
 import Railway from '../impl/railway';
 import SceneExport, {SceneRoad} from '../impl/scene_export';
 import PointsOfInterest from '../impl/points_of_interest';
-import {PlaceLabel} from './style';
+import {PlaceLabel, FLOATING_LABEL_HEIGHT} from './style';
 
 /**
  * Handles Map folder, glues together impl
@@ -99,6 +99,8 @@ export default class MainGUI {
     private riverName = '';
     private seaName = '';
     private worldPlaceLabels: {text: string; at: Vector; kind: PlaceLabel['kind']}[] = [];
+    // Where the current map was generated, world space. Set when the coastline (the first step) is generated
+    private _generationArea: {origin: Vector; size: Vector} = null;
 
     constructor(private guiFolder: dat.GUI, private tensorField: TensorField, private closeTensorFolder: () => void) {
         guiFolder.add(this, 'generateEverything');
@@ -227,6 +229,7 @@ export default class MainGUI {
         this.minorRoads.setBlocked(p => this.blockedForMinorRoads(p));
 
         this.coastline.setPreGenerateCallback(() => {
+            this._generationArea = this.domainController.generationArea;
             this.highways.clearStreamlines();
             this.resetZoning();
             this.mainRoads.clearStreamlines();
@@ -898,13 +901,26 @@ export default class MainGUI {
         // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
         const poi = PointsOfInterest.select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60);
 
-        // What the map shows right now
+        // What the map shows right now, and where it was generated
         const origin = this.domainController.origin.clone();
         const size = this.domainController.worldDimensions.clone();
+        const area = this.generationArea;
+        const g1 = area.origin.clone().add(area.size);
+        const rectangle = [area.origin.clone(), new Vector(g1.x, area.origin.y), g1, new Vector(area.origin.x, g1.y)];
+        const sea = this.coastline.seaPolygonWorld;
+        const land = sea.length >= 3 ? PolygonUtil.subtractPolygons(rectangle, [sea], 100) : [rectangle];
 
         return SceneExport.build({
             viewOrigin: origin,
             viewSize: size,
+            generationOrigin: area.origin,
+            generationSize: area.size,
+            land,
+            camera: {
+                heightExaggeration: HEIGHT_EXAGGERATION,
+                cameraHeight: this.domainController.cameraHeight,
+                screenSize: this.domainController.screenDimensions,
+            },
             houses: b.houses,
             lowIncomeHouses: b.lowIncomeHouses,
             industrialBuildings: b.industrial,
@@ -920,14 +936,9 @@ export default class MainGUI {
             areas,
             bridgeWater: [this.coastline.riverWorld].concat(this.coastline.lakesWorld),
             parking: poi.parking,
-            labels: this.worldPlaceLabels.filter(l => l.kind === 'neighbourhood')
-                .map(l => ({at: l.at, cls: 'neighbourhood_label', name: l.text}))
-                .concat(this.worldPlaceLabels.filter(l => l.kind === 'park')
-                    .map(l => ({at: l.at, cls: 'park_label', name: l.text})))
-                .concat(this.worldPlaceLabels.filter(l => l.kind === 'mall')
-                    .map(l => ({at: l.at, cls: 'mall_label', name: l.text})))
-                .concat(this.worldPlaceLabels.filter(l => l.kind === 'apartments')
-                    .map(l => ({at: l.at, cls: 'apartments_label', name: l.text}))),
+            // Floating labels hover at a height drawn with exaggerated buildings, the export is at real scale
+            labels: this.worldPlaceLabels.map(l => ({at: l.at, cls: `${l.kind}_label`, name: l.text,
+                hoverHeight: FLOATING_LABEL_HEIGHT[l.kind] / HEIGHT_EXAGGERATION * 2})),
         });
     }
 
@@ -944,10 +955,7 @@ export default class MainGUI {
         if (key === this.namesKey) return;
         this.namesKey = key;
 
-        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
-        const origin = this.domainController.origin;
-        const size = this.domainController.worldDimensions;
-        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+        const {origin, size} = this.generationArea;
         const centre = origin.clone().add(size.clone().divideScalar(2));
 
         const river = this.coastline.riverCentrelineWorld;
@@ -958,6 +966,12 @@ export default class MainGUI {
         this.seaName = this.coastline.seaPolygonWorld.length >= 3 ? this.placeNames.seaName() : '';
 
         this.worldPlaceLabels = [];
+        // The river is named halfway along the part of it on the map
+        const inArea = (p: Vector): boolean => p.x > origin.x && p.y > origin.y && p.x < origin.x + size.x && p.y < origin.y + size.y;
+        const riverInArea = river.filter(inArea);
+        if (this.riverName && riverInArea.length > 0) {
+            this.worldPlaceLabels.push({text: this.riverName, at: riverInArea[Math.floor(riverInArea.length / 2)].clone(), kind: 'river'});
+        }
         const parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
         for (const park of parks) {
             if (park.length < 3 || PolygonUtil.calcPolygonArea(park) < 8000) continue;
@@ -990,6 +1004,14 @@ export default class MainGUI {
             if (chosen.every(c => c.distanceTo(p) > spacing)) chosen.push(p);
         }
         for (const p of chosen) this.worldPlaceLabels.push({text: this.placeNames.neighbourhoodName(), at: p, kind: 'neighbourhood'});
+    }
+
+    /**
+     * Where the current map was generated, world space: the view when it was generated, enlarged a little
+     */
+    get generationArea(): {origin: Vector; size: Vector} {
+        const area = this._generationArea || this.domainController.generationArea;
+        return {origin: area.origin.clone(), size: area.size.clone()};
     }
 
     roadsEmpty(): boolean {

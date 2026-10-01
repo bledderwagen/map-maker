@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>map-maker WebGL example</title>
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #ececec; font-family: "Noto Sans", "Helvetica Neue", Arial, sans-serif; }
+        #view { position: absolute; inset: 0; }
+        #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+        .label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; color: #4a4a4a; font-size: 14px;
+                 text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; }
+        .label.neighbourhood_label { font-size: 16px; font-weight: bold; }
+        .label.mall_label { color: #ac39ac; font-weight: bold; }
+        .label.park_label { color: #3c7a43; }
+        .label.river_label { color: #4d80b3; font-style: italic; }
+        #panel { position: absolute; left: 12px; top: 12px; max-width: 340px; padding: 10px 12px; background: rgba(255,255,255,0.92);
+                 border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.2); font-size: 13px; line-height: 1.45; }
+        #panel h1 { font-size: 14px; margin: 0 0 4px; }
+        #panel code { font-size: 12px; }
+    </style>
+</head>
+<body>
+<div id="view"></div>
+<div id="labels"></div>
+<div id="panel">
+    <h1>map-maker in WebGL</h1>
+    <div>Drag to pan, scroll to zoom. Click to pick. Shift-click two places to route between them.</div>
+    <div id="info"></div>
+</div>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>

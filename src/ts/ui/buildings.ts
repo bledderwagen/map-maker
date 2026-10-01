@@ -31,10 +31,14 @@ const APARTMENT_HEIGHT = {min: 5.5, max: 6.8};  // Three storeys
 const RETAIL_HEIGHT = {min: 2.8, max: 3.5};
 
 /**
+ * Real heights look flat from as high up as the pseudo 3D camera, so it draws them this much taller
+ */
+export const HEIGHT_EXAGGERATION = 2;
+
+/**
  * Pseudo 3D buildings
  */
 class BuildingModels {
-    private static readonly HEIGHT_EXAGGERATION = 2;
     private static readonly STOREY = 1.5;  // World units, 1 unit = 2 m
     private static readonly ROOF = 0.75;
     private domainController = DomainController.getInstance();
@@ -98,23 +102,11 @@ class BuildingModels {
      * Recalculated when the camera moves
      */
     setBuildingProjections(): void {
-        const d = 1000 / this.domainController.zoom;
-        const cameraPos = this.domainController.getCameraPosition();
         for (const b of this._buildingModels) {
             b.lotScreen = b.lotWorld.map(v => this.domainController.worldToScreen(v.clone()));
             // Real heights look flat from this far up, exaggerate them for the pseudo 3D view
-            b.roof = b.lotScreen.map(v => this.heightVectorToScreen(v, b.height * BuildingModels.HEIGHT_EXAGGERATION, d, cameraPos));
+            b.roof = b.lotScreen.map(v => this.domainController.heightToScreen(v, b.height * HEIGHT_EXAGGERATION));
             b.sides = this.getBuildingSides(b);
-        }
-    }
-
-    private heightVectorToScreen(v: Vector, h: number, d: number, camera: Vector): Vector {
-        const scale = (d / (d - h)); // 0.1
-        if (this.domainController.orthographic) {
-            const diff = this.domainController.cameraDirection.multiplyScalar(-h * scale);
-            return v.clone().add(diff);
-        } else {
-            return v.clone().sub(camera).multiplyScalar(scale).add(camera);
         }
     }
 

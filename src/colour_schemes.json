@@ -137,6 +137,7 @@
         "mainRoadOutline": "rgb(246,207,101)",
         "zoomBuildings": true,
         "buildingModels": true,
+        "floatingLabels": true,
         "outlineSize": 2,
     },
     "GoogleNoZoom": {
@@ -153,6 +154,7 @@
         "mainRoadOutline": "rgb(246,207,101)",
         "zoomBuildings": false,
         "buildingModels": true,
+        "floatingLabels": true,
         "outlineSize": 2,
     },
     "Heightmap": { // Using 0 as sea level

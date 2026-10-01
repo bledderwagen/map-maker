@@ -27,12 +27,15 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
     "units": "metres",
     "axes": "x east, y north, z up; ground at z = 0",
     "world_unit_m": 2,                   // generator units, for reference only
-    "view_bounds": [minX, minY, maxX, maxY],  // what the 2D map shows, centred on (0, 0)
+    "view_bounds": [minX, minY, maxX, maxY],  // what the 2D map showed at export
     "data_bounds": [minX, minY, maxX, maxY],  // everything, reaches past the view
+    "boundary": { "bounds": [...], "polygon": [...], "land": [...] },  // the generated area, see docs/game-export.md
+    "pseudo_3d": { "height_exaggeration": 2, ... },                     // the 2D map's 3D camera, see docs/game-export.md
     "layers": ["areas", "waterways", "paths", "roads", "railways", "buildings", "points", "labels"],
     "classes": [ { "name": "house", "id": 1, "layer": "buildings", "geometry": "Polygon", "description": "..." }, ... ],
     "feature_count": 7222
   },
+  "road_network": { "nodes": [ { "id": 1, "coordinates": [x, y], "edges": [412, 413] }, ... ] },
   "features": [
     {
       "type": "Feature",
@@ -44,7 +47,7 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
 }
 ```
 
-* Units are metres. x points east, y points north, z points up, and the origin is the middle of the map view. This matches Blender's axes, so importing needs no transform.
+* Units are metres. x points east, y points north, z points up, and the origin is the middle of the area the map was generated in, so panning before exporting moves nothing. This matches Blender's axes, so importing needs no transform.
 * Everything is flat at z = 0. Heights are given as attributes, never as a third coordinate.
 * Polygons have one closed exterior ring (the first point is repeated at the end) and no holes. The ring is anticlockwise seen from above, so a face built from it points up (+Z). Drop the repeated last point when building a face.
 * Lines are open `LineString`s.
@@ -58,7 +61,7 @@ GeoJSON tools can open it. **Coordinates are local metres, not longitude and lat
 
 | id | class | notes |
 |---|---|---|
-| 1 | `house` | detached house, 1-2 storeys |
+| 1 | `house` | detached house, 1-2 storeys. In dense neighbourhoods some are taller blocks of up to 14 storeys, with flat roofs |
 | 2 | `outbuilding` | garage or shed behind a house |
 | 3 | `small_house` | low income house in a fenced yard |
 | 4 | `warehouse` | industrial shed |
@@ -103,10 +106,14 @@ Gabled roofs can run along the longest side of the footprint. Most footprints ar
 | `dual_carriageway` | 0/1 | motorways only: two carriageways either side of a median |
 | `median_width` | float, m | motorways only |
 | `frontage` | 0/1 | frontage road running alongside a motorway |
+| `from_node`, `to_node` | int | ends of the road in `road_network`, see [game-export.md](game-export.md) |
+| `length` | float, m | along the line |
+| `grade_separated` | 0/1 | motorways and ramps, which pass over what they cross |
+| `driveway` | 0/1 | a driveway added so a car park joins the streets |
 | `name` | string | street name, missing on ramps and service roads |
 | `ref` | string | motorway number such as `I 45` |
 
-Roads are split where a bridge starts or ends. The pieces share their end point, so a bridge piece meets the ground pieces either side of it. A bridge piece reaches a few metres onto each bank. That overlap is where a ramp or abutment can go.
+Roads are split where they meet each other and where a bridge starts or ends, so each road feature is one edge of the road network. The pieces share their end point, so a bridge piece meets the ground pieces either side of it. A bridge piece reaches a few metres onto each bank. That overlap is where a ramp or abutment can go.
 
 Roads cross each other at grade, except that a motorway passes over anything that crosses it.
 `parking_aisle` lines run across car parks and may be closed loops (first point equals last), such as the ring road round a mall.
@@ -172,6 +179,9 @@ Blocks are bounded by street centrelines, so they run under half of each road. S
 | 91 | `park_label` | `name`, at the middle of its park |
 | 92 | `mall_label` | `name`, at the middle of the mall |
 | 93 | `apartments_label` | `name` of an apartment complex |
+| 94 | `river_label` | `name`, halfway along the river on the map |
+
+Labels also have `hover_height` (m), where the 2D map's floating labels hover, at real building scale.
 
 Street, river and sea names are properties of their features.
 

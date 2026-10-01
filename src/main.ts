@@ -13,6 +13,7 @@ import * as ColourSchemes from './colour_schemes.json';
 import Vector from './ts/vector';
 import { SVG } from '@svgdotjs/svg.js';
 import ModelGenerator from './ts/model_generator';
+import GltfExport from './ts/impl/gltf_export';
 import { saveAs } from 'file-saver';
 
 class Main {
@@ -42,6 +43,7 @@ class Main {
     private colourScheme: string = "OpenStreetMap";  // See colour_schemes.json
     private zoomBuildings: boolean = false;  // Show buildings only when zoomed in?
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
+    private floatingLabels: boolean = false;  // Place names hovering over the pseudo-3D city?
     private showFrame: boolean = false;
     private showZones: boolean = false;  // Tint industrial and low income areas
 
@@ -92,6 +94,11 @@ class Main {
             this._style.showBuildingModels = val;
         });
         
+        this.styleFolder.add(this, 'floatingLabels').onChange((val: boolean) => {
+            this.previousFrameDrawTensor = true;
+            this._style.floatingLabels = val;
+        });
+
         this.styleFolder.add(this, 'showFrame').onChange((val: boolean) => {
             this.previousFrameDrawTensor = true;
             this._style.showFrame = val;
@@ -127,6 +134,7 @@ class Main {
         this.downloadsFolder.add({"STL": () => this.downloadSTL()}, 'STL');
         this.downloadsFolder.add({"Heightmap": () => this.downloadHeightmap()}, 'Heightmap');
         this.downloadsFolder.add({"Blender": () => this.downloadScene()}, 'Blender');
+        this.downloadsFolder.add({"Game": () => this.downloadGame()}, 'Game');
 
         this.changeColourScheme(this.colourScheme);
         this.tensorField.setRecommended();
@@ -153,6 +161,7 @@ class Main {
         const colourScheme: ColourScheme = (ColourSchemes as any)[scheme];
         this.zoomBuildings = colourScheme.zoomBuildings;
         this.buildingModels = colourScheme.buildingModels;
+        this.floatingLabels = !!colourScheme.floatingLabels;
         Util.updateGui(this.styleFolder);
         if (scheme.startsWith("OpenStreetMap")) {
             this._style = new OsmStyle(this.canvas, this.dragController, Object.assign({}, colourScheme));
@@ -215,6 +224,18 @@ class Main {
     downloadScene(): void {
         const scene = this.mainGui.exportScene();
         this.downloadFile('map.geojson', new Blob([JSON.stringify(scene)], {type: 'application/geo+json'}));
+    }
+
+    /**
+     * The scene as JSON plus a matching glTF model, for a WebGL game, see docs/game-export.md
+     */
+    downloadGame(): void {
+        const scene = this.mainGui.exportScene();
+        const JSZip = require("jszip");
+        const zip = new JSZip();
+        zip.file('map.json', JSON.stringify(scene));
+        zip.file('map.glb', GltfExport.build(scene));
+        zip.generateAsync({type: 'blob'}).then((blob: Blob) => this.downloadFile('map-game.zip', blob));
     }
 
     private downloadFile(filename: string, file: any): void {

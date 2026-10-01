@@ -61,6 +61,13 @@
 ![A mall in its car park next to apartment complexes and industry](docs/images/mall-apartments.png)
 
 * **Blender export** (Download → Blender): the city as a `.geojson` scene in metres, every building, road, railway, path, area and label tagged with a class id and attributes (heights, widths, lanes, bridges) for a Blender Geometry Nodes importer. See [docs/blender-export.md](docs/blender-export.md) and the sample [docs/blender/sample-map.geojson](docs/blender/sample-map.geojson). The Blender add-on in [blender/](blender/README.md) imports it as a Geometry Nodes scene.
+* **Google 3D style** (Style → `colourScheme` → `Google`): buildings get heights from storeys. Houses are mostly one or two storeys and more built up in denser neighbourhoods, bigger footprints become apartment blocks, with the odd tower, and sheds are a single tall storey. Neighbourhood, mall, park, apartment and river names float above the city on stems (Style → `floatingLabels`), leaning with the buildings as the view moves.
+
+![Floating place names over the Google 3D style](docs/images/google-3d-labels.png)
+
+* **Game export** (Download → Game): `map.json` and a matching `map.glb` for a WebGL game. The JSON holds the scene, a road network for routing (motorways and ramps grade separated, every car park reachable), the boundary of the generated area, and camera settings that match the pseudo 3D view. In the glTF, every vertex carries the id of its JSON feature for picking. See [docs/game-export.md](docs/game-export.md) and the three.js example in [examples/webgl/](examples/webgl/).
+
+![The three.js example: the glTF with floating labels and a route along the road network](docs/images/webgl-example.png)
 
 ![Highways, a waterfront industrial district and low income housing](docs/images/highways-industry.png)
 

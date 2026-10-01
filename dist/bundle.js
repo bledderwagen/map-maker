@@ -130149,6 +130149,7 @@ module.exports=// bgColour: string;
         "mainRoadOutline": "rgb(246,207,101)",
         "zoomBuildings": true,
         "buildingModels": true,
+        "floatingLabels": true,
         "outlineSize": 2,
     },
     "GoogleNoZoom": {
@@ -130165,6 +130166,7 @@ module.exports=// bgColour: string;
         "mainRoadOutline": "rgb(246,207,101)",
         "zoomBuildings": false,
         "buildingModels": true,
+        "floatingLabels": true,
         "outlineSize": 2,
     },
     "Heightmap": { // Using 0 as sea level
@@ -130243,6 +130245,8 @@ var svg_js_1 = require("@svgdotjs/svg.js");
 
 var model_generator_1 = require("./ts/model_generator");
 
+var gltf_export_1 = require("./ts/impl/gltf_export");
+
 var file_saver_1 = require("file-saver");
 
 var Main =
@@ -130269,6 +130273,8 @@ function () {
     this.zoomBuildings = false; // Show buildings only when zoomed in?
 
     this.buildingModels = false; // Draw pseudo-3D buildings?
+
+    this.floatingLabels = false; // Place names hovering over the pseudo-3D city?
 
     this.showFrame = false;
     this.showZones = false; // Tint industrial and low income areas
@@ -130314,6 +130320,10 @@ function () {
       // Force redraw
       _this.previousFrameDrawTensor = true;
       _this._style.showBuildingModels = val;
+    });
+    this.styleFolder.add(this, 'floatingLabels').onChange(function (val) {
+      _this.previousFrameDrawTensor = true;
+      _this._style.floatingLabels = val;
     });
     this.styleFolder.add(this, 'showFrame').onChange(function (val) {
       _this.previousFrameDrawTensor = true;
@@ -130372,6 +130382,11 @@ function () {
         return _this.downloadScene();
       }
     }, 'Blender');
+    this.downloadsFolder.add({
+      "Game": function Game() {
+        return _this.downloadGame();
+      }
+    }, 'Game');
     this.changeColourScheme(this.colourScheme);
     this.tensorField.setRecommended();
     requestAnimationFrame(function () {
@@ -130401,6 +130416,7 @@ function () {
     var colourScheme = ColourSchemes[scheme];
     this.zoomBuildings = colourScheme.zoomBuildings;
     this.buildingModels = colourScheme.buildingModels;
+    this.floatingLabels = !!colourScheme.floatingLabels;
     util_1["default"].updateGui(this.styleFolder);
 
     if (scheme.startsWith("OpenStreetMap")) {
@@ -130459,6 +130475,27 @@ function () {
     this.downloadFile('map.geojson', new Blob([JSON.stringify(scene)], {
       type: 'application/geo+json'
     }));
+  };
+  /**
+   * The scene as JSON plus a matching glTF model, for a WebGL game, see docs/game-export.md
+   */
+
+
+  Main.prototype.downloadGame = function () {
+    var _this = this;
+
+    var scene = this.mainGui.exportScene();
+
+    var JSZip = require("jszip");
+
+    var zip = new JSZip();
+    zip.file('map.json', JSON.stringify(scene));
+    zip.file('map.glb', gltf_export_1["default"].build(scene));
+    zip.generateAsync({
+      type: 'blob'
+    }).then(function (blob) {
+      return _this.downloadFile('map-game.zip', blob);
+    });
   };
 
   Main.prototype.downloadFile = function (filename, file) {
@@ -130592,7 +130629,7 @@ window.addEventListener('load', function () {
   window.mapGenerator = new Main();
 });
 
-},{"./colour_schemes.json":101,"./ts/model_generator":127,"./ts/ui/canvas_wrapper":129,"./ts/ui/domain_controller":130,"./ts/ui/drag_controller":131,"./ts/ui/main_gui":134,"./ts/ui/style":136,"./ts/ui/tensor_field_gui":137,"./ts/util":139,"./ts/vector":140,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"loglevel":54}],103:[function(require,module,exports){
+},{"./colour_schemes.json":101,"./ts/impl/gltf_export":106,"./ts/model_generator":129,"./ts/ui/canvas_wrapper":131,"./ts/ui/domain_controller":132,"./ts/ui/drag_controller":133,"./ts/ui/main_gui":136,"./ts/ui/style":138,"./ts/ui/tensor_field_gui":139,"./ts/util":141,"./ts/vector":142,"@svgdotjs/svg.js":1,"dat.gui":7,"file-saver":9,"jszip":27,"loglevel":54}],103:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -130810,7 +130847,7 @@ function (_super) {
 
 exports.Radial = Radial;
 
-},{"./tensor":122}],104:[function(require,module,exports){
+},{"./tensor":124}],104:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -131094,7 +131131,7 @@ function () {
 
 exports["default"] = BuildingCleanup;
 
-},{"../vector":140,"./polygon_util":117,"jsts":17}],105:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118,"jsts":17}],105:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -131548,7 +131585,624 @@ function () {
 
 exports["default"] = CommercialLayout;
 
-},{"./local_frame":112,"./polygon_util":117}],106:[function(require,module,exports){
+},{"./local_frame":113,"./polygon_util":118}],106:[function(require,module,exports){
+"use strict";
+
+var __read = void 0 && (void 0).__read || function (o, n) {
+  var m = typeof Symbol === "function" && o[Symbol.iterator];
+  if (!m) return o;
+  var i = m.call(o),
+      r,
+      ar = [],
+      e;
+
+  try {
+    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) {
+      ar.push(r.value);
+    }
+  } catch (error) {
+    e = {
+      error: error
+    };
+  } finally {
+    try {
+      if (r && !r.done && (m = i["return"])) m.call(i);
+    } finally {
+      if (e) throw e.error;
+    }
+  }
+
+  return ar;
+};
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+/* eslint-disable @typescript-eslint/camelcase */
+// Keys follow the scene file and glTF, which use snake_case and camelCase
+
+var THREE = require("three");
+/**
+ * Surface colours, roughly the Google style the 2D map draws
+ */
+
+
+var COLOURS = {
+  ground: '#ececec',
+  residential_area: '#ececec',
+  low_income_area: '#ebe7e2',
+  apartment_area: '#ececec',
+  industrial_area: '#e6e3ec',
+  retail_area: '#efe9ee',
+  highway_verge: '#e3eadf',
+  parking_lot: '#dcdcdc',
+  floodplain: '#c6e8c6',
+  park: '#c6e8c6',
+  pitch: '#aedcae',
+  wood: '#a8d5a2',
+  sea: '#a6d5f9',
+  port_quay: '#e0e0e0',
+  port_water: '#a6d5f9',
+  beach: '#f2e6c4',
+  river: '#a6d5f9',
+  lake: '#a6d5f9',
+  swimming_pool: '#8fd3f0',
+  sand_bar: '#f2e6c4',
+  motorway: '#ffe58a',
+  motorway_link: '#fff2af',
+  primary: '#fff2af',
+  secondary: '#ffffff',
+  tertiary: '#ffffff',
+  residential: '#ffffff',
+  service: '#f7f7f7',
+  parking_aisle: '#f4f4f4',
+  rail: '#9a9a9a',
+  footway: '#f6efe3',
+  house: '#f2f2f2',
+  outbuilding: '#e8e8e8',
+  small_house: '#efece8',
+  warehouse: '#e4e1ea',
+  industrial_office: '#ebe8f0',
+  storage_tank: '#dcdcdc',
+  port_shed: '#e2e2e2',
+  container_stack: '#c9b8a8',
+  church: '#efe6dc',
+  apartments: '#f0eeea',
+  mall: '#f0e6ef',
+  retail: '#f0e6ef'
+}; // Small lifts keep flat surfaces from flickering through each other: areas by z_order, then roads
+
+var AREA_LIFT = 0.005;
+var ROAD_LIFT = 0.5;
+var GRADE_SEPARATED_LIFT = 0.8;
+var ROAD_ORDER = {
+  footway: 0,
+  parking_aisle: 1,
+  service: 2,
+  residential: 3,
+  tertiary: 4,
+  secondary: 5,
+  primary: 6,
+  rail: 7
+};
+
+var GltfExport =
+/** @class */
+function () {
+  function GltfExport(scene) {
+    this.scene = scene;
+    this.meshes = new Map();
+  }
+  /**
+   * @param scene as returned by SceneExport.build
+   */
+
+
+  GltfExport.build = function (scene) {
+    return new GltfExport(scene).run();
+  };
+
+  GltfExport.prototype.mesh = function (name) {
+    if (!this.meshes.has(name)) this.meshes.set(name, {
+      positions: [],
+      normals: [],
+      featureIds: [],
+      indices: []
+    });
+    return this.meshes.get(name);
+  };
+  /**
+   * Scene metres (x east, y north) at height h to glTF
+   */
+
+
+  GltfExport.toGltf = function (p, h) {
+    return [p[0], h, -p[1]];
+  };
+  /**
+   * Adds a flat shaded triangle, turned so it faces the way `facing` points
+   */
+
+
+  GltfExport.triangle = function (m, a, b, c, facing, id) {
+    var _a, e_1, _b;
+
+    var u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    var v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    var n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    var len = Math.hypot(n[0], n[1], n[2]);
+    if (len < 1e-9) return;
+
+    if (n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2] < 0) {
+      _a = __read([c, b], 2), b = _a[0], c = _a[1];
+      n[0] = -n[0];
+      n[1] = -n[1];
+      n[2] = -n[2];
+    }
+
+    var base = m.positions.length / 3;
+
+    try {
+      for (var _c = __values([a, b, c]), _d = _c.next(); !_d.done; _d = _c.next()) {
+        var p = _d.value;
+        m.positions.push(p[0], p[1], p[2]);
+        m.normals.push(n[0] / len, n[1] / len, n[2] / len);
+        m.featureIds.push(id);
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (_d && !_d.done && (_b = _c["return"])) _b.call(_c);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    }
+
+    m.indices.push(base, base + 1, base + 2);
+  };
+  /**
+   * Flat polygon facing up, ring in scene metres without the repeated closing point
+   */
+
+
+  GltfExport.flat = function (m, ring, h, id) {
+    var e_2, _a;
+
+    if (ring.length < 3) return;
+    var contour = ring.map(function (p) {
+      return new THREE.Vector2(p[0], p[1]);
+    });
+    var tris;
+
+    try {
+      tris = THREE.ShapeUtils.triangulateShape(contour, []);
+    } catch (e) {
+      return;
+    }
+
+    try {
+      for (var tris_1 = __values(tris), tris_1_1 = tris_1.next(); !tris_1_1.done; tris_1_1 = tris_1.next()) {
+        var t = tris_1_1.value;
+        GltfExport.triangle(m, GltfExport.toGltf(ring[t[0]], h), GltfExport.toGltf(ring[t[1]], h), GltfExport.toGltf(ring[t[2]], h), [0, 1, 0], id);
+      }
+    } catch (e_2_1) {
+      e_2 = {
+        error: e_2_1
+      };
+    } finally {
+      try {
+        if (tris_1_1 && !tris_1_1.done && (_a = tris_1["return"])) _a.call(tris_1);
+      } finally {
+        if (e_2) throw e_2.error;
+      }
+    }
+  };
+
+  GltfExport.openRing = function (polygon) {
+    var ring = polygon[0].slice();
+    var first = ring[0];
+    var last = ring[ring.length - 1];
+    if (ring.length > 1 && first[0] === last[0] && first[1] === last[1]) ring.pop();
+    return ring;
+  };
+  /**
+   * Footprint extruded to a height: walls facing out, flat roof
+   */
+
+
+  GltfExport.prism = function (m, ring, height, id) {
+    for (var i = 0; i < ring.length; i++) {
+      var a = ring[i];
+      var b = ring[(i + 1) % ring.length];
+      var dx = b[0] - a[0];
+      var dy = b[1] - a[1]; // The ring is anticlockwise seen from above, so outside is on the right
+
+      var out = [dy, 0, dx];
+      var a0 = GltfExport.toGltf(a, 0);
+      var b0 = GltfExport.toGltf(b, 0);
+      var a1 = GltfExport.toGltf(a, height);
+      var b1 = GltfExport.toGltf(b, height);
+      GltfExport.triangle(m, a0, b0, b1, out, id);
+      GltfExport.triangle(m, a0, b1, a1, out, id);
+    }
+
+    GltfExport.flat(m, ring, height, id);
+  };
+  /**
+   * Flat strip of a width along a line, mitred at the bends
+   */
+
+
+  GltfExport.ribbon = function (m, line, width, h, id) {
+    if (line.length < 2) return;
+    var half = width / 2;
+    var dirs = [];
+
+    for (var i = 0; i < line.length - 1; i++) {
+      var dx = line[i + 1][0] - line[i][0];
+      var dy = line[i + 1][1] - line[i][1];
+      var len = Math.hypot(dx, dy) || 1;
+      dirs.push([dx / len, dy / len]);
+    }
+
+    var left = [];
+    var right = [];
+
+    for (var i = 0; i < line.length; i++) {
+      var d0 = dirs[Math.max(0, i - 1)];
+      var d1 = dirs[Math.min(dirs.length - 1, i)];
+      var nx = -(d0[1] + d1[1]);
+      var ny = d0[0] + d1[0];
+      var len = Math.hypot(nx, ny);
+
+      if (len < 1e-6) {
+        nx = -d1[1];
+        ny = d1[0];
+        len = 1;
+      }
+
+      nx /= len;
+      ny /= len; // Longer offsets at bends keep the strip its full width, within reason
+
+      var cos = nx * -d1[1] + ny * d1[0];
+      var miter = Math.min(3, 1 / Math.max(0.2, cos));
+      left.push([line[i][0] + nx * half * miter, line[i][1] + ny * half * miter]);
+      right.push([line[i][0] - nx * half * miter, line[i][1] - ny * half * miter]);
+    }
+
+    for (var i = 0; i < line.length - 1; i++) {
+      var l0 = GltfExport.toGltf(left[i], h);
+      var l1 = GltfExport.toGltf(left[i + 1], h);
+      var r0 = GltfExport.toGltf(right[i], h);
+      var r1 = GltfExport.toGltf(right[i + 1], h);
+      GltfExport.triangle(m, l0, r0, r1, [0, 1, 0], id);
+      GltfExport.triangle(m, l0, r1, l1, [0, 1, 0], id);
+    }
+  };
+
+  GltfExport.prototype.run = function () {
+    var e_3, _a, e_4, _b;
+
+    var header = this.scene.map_maker;
+    var labels = [];
+
+    try {
+      // Ground: the land inside the boundary, feature id 0
+      for (var _c = __values(header.boundary.land), _d = _c.next(); !_d.done; _d = _c.next()) {
+        var ring = _d.value;
+        GltfExport.flat(this.mesh('ground'), GltfExport.openRing([ring]), 0, 0);
+      }
+    } catch (e_3_1) {
+      e_3 = {
+        error: e_3_1
+      };
+    } finally {
+      try {
+        if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+      } finally {
+        if (e_3) throw e_3.error;
+      }
+    }
+
+    try {
+      for (var _e = __values(this.scene.features), _f = _e.next(); !_f.done; _f = _e.next()) {
+        var f = _f.value;
+        var p = f.properties;
+        var geometry = f.geometry;
+
+        if (p.layer === 'areas' && geometry.type === 'Polygon') {
+          GltfExport.flat(this.mesh(p["class"]), GltfExport.openRing(geometry.coordinates), (p.z_order || 0) * AREA_LIFT, f.id);
+        } else if (p.layer === 'buildings' && geometry.type === 'Polygon') {
+          // Pitched roofs are left flat, halfway between the eaves and the ridge
+          var h = p.roof === 'gabled' ? (p.eave_height + p.height) / 2 : p.height;
+          GltfExport.prism(this.mesh(p["class"]), GltfExport.openRing(geometry.coordinates), h, f.id);
+        } else if ((p.layer === 'roads' || p.layer === 'railways' || p.layer === 'paths') && geometry.type === 'LineString') {
+          var lift = p.grade_separated ? GRADE_SEPARATED_LIFT : ROAD_LIFT + 0.01 * (ROAD_ORDER[p["class"]] || 0);
+          GltfExport.ribbon(this.mesh(p["class"]), geometry.coordinates, p.width || 2, lift, f.id);
+        } else if (p.layer === 'labels' && geometry.type === 'Point') {
+          labels.push(f);
+        }
+      }
+    } catch (e_4_1) {
+      e_4 = {
+        error: e_4_1
+      };
+    } finally {
+      try {
+        if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+      } finally {
+        if (e_4) throw e_4.error;
+      }
+    }
+
+    return this.writeGlb(labels);
+  };
+
+  GltfExport.prototype.writeGlb = function (labels) {
+    var e_5, _a, e_6, _b, e_7, _c;
+
+    var header = this.scene.map_maker;
+    var chunks = [];
+    var byteLength = 0;
+    var bufferViews = [];
+    var accessors = [];
+
+    var addView = function addView(data, target) {
+      var padded = Math.ceil(data.byteLength / 4) * 4;
+      var copy = new Uint8Array(padded);
+      copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      chunks.push(copy.buffer);
+      bufferViews.push({
+        buffer: 0,
+        byteOffset: byteLength,
+        byteLength: data.byteLength,
+        target: target
+      });
+      byteLength += padded;
+      return bufferViews.length - 1;
+    };
+
+    var addAccessor = function addAccessor(data, type, componentType, target, bounds) {
+      if (bounds === void 0) {
+        bounds = false;
+      }
+
+      var size = type === 'VEC3' ? 3 : 1;
+      var accessor = {
+        bufferView: addView(data, target),
+        componentType: componentType,
+        count: data.length / size,
+        type: type
+      };
+
+      if (bounds) {
+        var min = [Infinity, Infinity, Infinity].slice(0, size);
+        var max = [-Infinity, -Infinity, -Infinity].slice(0, size);
+
+        for (var i = 0; i < data.length; i++) {
+          min[i % size] = Math.min(min[i % size], data[i]);
+          max[i % size] = Math.max(max[i % size], data[i]);
+        }
+
+        accessor.min = min;
+        accessor.max = max;
+      }
+
+      accessors.push(accessor);
+      return accessors.length - 1;
+    };
+
+    var ARRAY_BUFFER = 34962;
+    var ELEMENT_ARRAY_BUFFER = 34963;
+    var FLOAT = 5126;
+    var UNSIGNED_INT = 5125;
+    var materials = [];
+    var meshes = [];
+    var nodes = [];
+    var groups = {};
+
+    var layerOf = function layerOf(name) {
+      if (name === 'ground') return 'ground';
+      var cls = header.classes.find(function (c) {
+        return c.name === name;
+      });
+      return cls ? cls.layer : 'other';
+    };
+
+    this.meshes.forEach(function (m, name) {
+      if (m.indices.length === 0) return; // glTF colour factors are linear
+
+      var colour = new THREE.Color(COLOURS[name] || '#dddddd').convertSRGBToLinear();
+      materials.push({
+        name: name,
+        pbrMetallicRoughness: {
+          baseColorFactor: [colour.r, colour.g, colour.b, 1],
+          metallicFactor: 0,
+          roughnessFactor: 1
+        }
+      });
+      var cls = header.classes.find(function (c) {
+        return c.name === name;
+      });
+      meshes.push({
+        name: name,
+        primitives: [{
+          attributes: {
+            POSITION: addAccessor(new Float32Array(m.positions), 'VEC3', FLOAT, ARRAY_BUFFER, true),
+            NORMAL: addAccessor(new Float32Array(m.normals), 'VEC3', FLOAT, ARRAY_BUFFER),
+            _FEATURE_ID: addAccessor(new Float32Array(m.featureIds), 'SCALAR', FLOAT, ARRAY_BUFFER)
+          },
+          indices: addAccessor(new Uint32Array(m.indices), 'SCALAR', UNSIGNED_INT, ELEMENT_ARRAY_BUFFER),
+          material: materials.length - 1
+        }]
+      });
+      nodes.push({
+        name: name,
+        mesh: meshes.length - 1,
+        extras: {
+          "class": name,
+          class_id: cls ? cls.id : 0
+        }
+      });
+      var layer = layerOf(name);
+      if (!groups[layer]) groups[layer] = [];
+      groups[layer].push(nodes.length - 1);
+    }); // Labels: empty nodes to hang text on, at their hover height
+
+    groups.labels = groups.labels || [];
+
+    try {
+      for (var labels_1 = __values(labels), labels_1_1 = labels_1.next(); !labels_1_1.done; labels_1_1 = labels_1.next()) {
+        var f = labels_1_1.value;
+        var p = f.properties;
+        nodes.push({
+          name: p.name,
+          translation: GltfExport.toGltf(f.geometry.coordinates, p.hover_height || 0),
+          extras: {
+            feature_id: f.id,
+            "class": p["class"],
+            name: p.name,
+            hover_height: p.hover_height
+          }
+        });
+        groups.labels.push(nodes.length - 1);
+      }
+    } catch (e_5_1) {
+      e_5 = {
+        error: e_5_1
+      };
+    } finally {
+      try {
+        if (labels_1_1 && !labels_1_1.done && (_a = labels_1["return"])) _a.call(labels_1);
+      } finally {
+        if (e_5) throw e_5.error;
+      }
+    } // One parent node per layer, in drawing order
+
+
+    var order = ['ground', 'areas', 'paths', 'roads', 'railways', 'buildings', 'labels', 'other'];
+    var roots = [];
+
+    try {
+      for (var order_1 = __values(order), order_1_1 = order_1.next(); !order_1_1.done; order_1_1 = order_1.next()) {
+        var layer = order_1_1.value;
+        if (!groups[layer] || groups[layer].length === 0) continue;
+        nodes.push({
+          name: layer,
+          children: groups[layer]
+        });
+        roots.push(nodes.length - 1);
+      }
+    } catch (e_6_1) {
+      e_6 = {
+        error: e_6_1
+      };
+    } finally {
+      try {
+        if (order_1_1 && !order_1_1.done && (_b = order_1["return"])) _b.call(order_1);
+      } finally {
+        if (e_6) throw e_6.error;
+      }
+    }
+
+    var json = {
+      asset: {
+        version: '2.0',
+        generator: 'map-maker'
+      },
+      scene: 0,
+      scenes: [{
+        name: 'map',
+        nodes: roots,
+        extras: {
+          format: 'map-maker-gltf',
+          axes: 'x east, y up, z south; metres; scene file (x, y) is glTF (x, -z)',
+          boundary: header.boundary,
+          pseudo_3d: header.pseudo_3d
+        }
+      }],
+      nodes: nodes,
+      meshes: meshes,
+      materials: materials,
+      accessors: accessors,
+      bufferViews: bufferViews,
+      buffers: [{
+        byteLength: byteLength
+      }]
+    }; // GLB: 12 byte header, JSON chunk padded with spaces, BIN chunk padded with zeros
+
+    var jsonBytes = new TextEncoder().encode(JSON.stringify(json));
+    var jsonPadded = Math.ceil(jsonBytes.length / 4) * 4;
+    var total = 12 + 8 + jsonPadded + 8 + byteLength;
+    var out = new ArrayBuffer(total);
+    var view = new DataView(out);
+    var bytes = new Uint8Array(out);
+    view.setUint32(0, 0x46546C67, true); // glTF
+
+    view.setUint32(4, 2, true);
+    view.setUint32(8, total, true);
+    view.setUint32(12, jsonPadded, true);
+    view.setUint32(16, 0x4E4F534A, true); // JSON
+
+    bytes.set(jsonBytes, 20);
+
+    for (var i = 20 + jsonBytes.length; i < 20 + jsonPadded; i++) {
+      bytes[i] = 0x20;
+    }
+
+    var offset = 20 + jsonPadded;
+    view.setUint32(offset, byteLength, true);
+    view.setUint32(offset + 4, 0x004E4942, true); // BIN
+
+    offset += 8;
+
+    try {
+      for (var chunks_1 = __values(chunks), chunks_1_1 = chunks_1.next(); !chunks_1_1.done; chunks_1_1 = chunks_1.next()) {
+        var c = chunks_1_1.value;
+        bytes.set(new Uint8Array(c), offset);
+        offset += c.byteLength;
+      }
+    } catch (e_7_1) {
+      e_7 = {
+        error: e_7_1
+      };
+    } finally {
+      try {
+        if (chunks_1_1 && !chunks_1_1.done && (_c = chunks_1["return"])) _c.call(chunks_1);
+      } finally {
+        if (e_7) throw e_7.error;
+      }
+    }
+
+    return out;
+  };
+
+  return GltfExport;
+}();
+
+exports["default"] = GltfExport;
+
+},{"three":96}],107:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132044,7 +132698,7 @@ function () {
 
 exports["default"] = Graph;
 
-},{"../vector":140,"d3-quadtree":6,"isect":16,"loglevel":54}],107:[function(require,module,exports){
+},{"../vector":142,"d3-quadtree":6,"isect":16,"loglevel":54}],108:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -132332,7 +132986,7 @@ function () {
 
 exports["default"] = GridStorage;
 
-},{"../vector":140}],108:[function(require,module,exports){
+},{"../vector":142}],109:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -133166,7 +133820,7 @@ function (_super) {
 
 exports["default"] = HighwayGenerator;
 
-},{"../vector":140,"./polygon_util":117,"./streamlines":121,"loglevel":54}],109:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118,"./streamlines":123,"loglevel":54}],110:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -133813,7 +134467,7 @@ function () {
 
 exports.ShorelineSimulator = ShorelineSimulator;
 
-},{"../vector":140,"./polygon_util":117,"simplex-noise":90}],110:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118,"simplex-noise":90}],111:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -134188,7 +134842,7 @@ function () {
 
 exports["default"] = IndustrialLayout;
 
-},{"./local_frame":112,"./polygon_util":117}],111:[function(require,module,exports){
+},{"./local_frame":113,"./polygon_util":118}],112:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -134290,7 +134944,7 @@ function (_super) {
 
 exports.RK4Integrator = RK4Integrator;
 
-},{"../vector":140}],112:[function(require,module,exports){
+},{"../vector":142}],113:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -134427,7 +135081,7 @@ function () {
 
 exports["default"] = LocalFrame;
 
-},{"../vector":140}],113:[function(require,module,exports){
+},{"../vector":142}],114:[function(require,module,exports){
 "use strict";
 
 function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
@@ -134922,7 +135576,7 @@ function () {
 
 exports["default"] = ParkPaths;
 
-},{"../vector":140,"./hydrology":109,"./polygon_util":117,"simplex-noise":90}],114:[function(require,module,exports){
+},{"../vector":142,"./hydrology":110,"./polygon_util":118,"simplex-noise":90}],115:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -135352,7 +136006,7 @@ function () {
 
 exports["default"] = PlaceNames;
 
-},{"../vector":140}],115:[function(require,module,exports){
+},{"../vector":142}],116:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -135452,7 +136106,7 @@ function () {
 
 exports["default"] = PointsOfInterest;
 
-},{"./polygon_util":117}],116:[function(require,module,exports){
+},{"./polygon_util":118}],117:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -136073,7 +136727,7 @@ function () {
 
 exports["default"] = PolygonFinder;
 
-},{"./polygon_util":117,"loglevel":54}],117:[function(require,module,exports){
+},{"./polygon_util":118,"loglevel":54}],118:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -136867,7 +137521,7 @@ function () {
 
 exports["default"] = PolygonUtil;
 
-},{"../vector":140,"jsts":17,"loglevel":54,"polyk":71}],118:[function(require,module,exports){
+},{"../vector":142,"jsts":17,"loglevel":54,"polyk":71}],119:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -137173,7 +137827,7 @@ function () {
 
 exports["default"] = PortPlanner;
 
-},{"../vector":140,"./local_frame":112,"./polygon_util":117}],119:[function(require,module,exports){
+},{"../vector":142,"./local_frame":113,"./polygon_util":118}],120:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -137350,7 +138004,812 @@ function () {
 
 exports["default"] = Railway;
 
-},{"../vector":140,"./polygon_util":117}],120:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118}],121:[function(require,module,exports){
+"use strict";
+
+var __values = void 0 && (void 0).__values || function (o) {
+  var s = typeof Symbol === "function" && Symbol.iterator,
+      m = s && o[s],
+      i = 0;
+  if (m) return m.call(o);
+  if (o && typeof o.length === "number") return {
+    next: function next() {
+      if (o && i >= o.length) o = void 0;
+      return {
+        value: o && o[i++],
+        done: !o
+      };
+    }
+  };
+  throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+
+var __read = void 0 && (void 0).__read || function (o, n) {
+  var m = typeof Symbol === "function" && o[Symbol.iterator];
+  if (!m) return o;
+  var i = m.call(o),
+      r,
+      ar = [],
+      e;
+
+  try {
+    while ((n === void 0 || n-- > 0) && !(r = i.next()).done) {
+      ar.push(r.value);
+    }
+  } catch (error) {
+    e = {
+      error: error
+    };
+  } finally {
+    try {
+      if (r && !r.done && (m = i["return"])) m.call(i);
+    } finally {
+      if (e) throw e.error;
+    }
+  }
+
+  return ar;
+};
+
+var __spread = void 0 && (void 0).__spread || function () {
+  for (var ar = [], i = 0; i < arguments.length; i++) {
+    ar = ar.concat(__read(arguments[i]));
+  }
+
+  return ar;
+};
+
+Object.defineProperty(exports, "__esModule", {
+  value: true
+});
+
+var isect = require("isect");
+
+var vector_1 = require("../vector");
+/**
+ * Turns road centrelines into a graph to find routes on: nodes where roads meet, edges along
+ * the roads between them.
+ *
+ * Roads meet where they cross or where one ends on another, except that motorways and their ramps
+ * are grade separated: they pass over anything that crosses them, and only join other roads
+ * where a ramp ends. So a route can't step off a motorway onto the street underneath it.
+ */
+
+
+var RoadNetwork =
+/** @class */
+function () {
+  function RoadNetwork(roads) {
+    this.roads = roads;
+    this.nodePositions = [];
+    this.nodeGrades = [];
+    this.parent = [];
+    this.splits = roads.map(function () {
+      return [];
+    });
+  }
+  /**
+   * Car parks the generator left without a way in get a driveway to the nearest street.
+   * Edges whose road index is past the end of `roads` are on those driveways
+   */
+
+
+  RoadNetwork.build = function (roads) {
+    var first = new RoadNetwork(roads).run();
+    var driveways = RoadNetwork.driveways(roads, first.nodes, first.edges);
+    if (driveways.length === 0) return Object.assign(first, {
+      driveways: driveways
+    });
+    var withDriveways = roads.concat(driveways.map(function (line) {
+      return {
+        line: line,
+        cls: 'service',
+        halfWidth: RoadNetwork.DRIVEWAY_HALF_WIDTH
+      };
+    }));
+    return Object.assign(new RoadNetwork(withDriveways).run(), {
+      driveways: driveways
+    });
+  };
+  /**
+   * For each group of car park aisles not joined to any other road, the shortest link to a surface road
+   */
+
+
+  RoadNetwork.driveways = function (roads, nodes, edges) {
+    var e_1, _a; // Connected components
+
+
+    var component = nodes.map(function () {
+      return -1;
+    });
+    var count = 0;
+    nodes.forEach(function (_, start) {
+      var e_2, _a, e_3, _b;
+
+      if (component[start] >= 0) return;
+      var stack = [start];
+      component[start] = count;
+
+      while (stack.length > 0) {
+        var n = stack.pop();
+
+        try {
+          for (var _c = (e_2 = void 0, __values(nodes[n].edges)), _d = _c.next(); !_d.done; _d = _c.next()) {
+            var e = _d.value;
+
+            try {
+              for (var _e = (e_3 = void 0, __values([edges[e].from, edges[e].to])), _f = _e.next(); !_f.done; _f = _e.next()) {
+                var m = _f.value;
+
+                if (component[m] < 0) {
+                  component[m] = count;
+                  stack.push(m);
+                }
+              }
+            } catch (e_3_1) {
+              e_3 = {
+                error: e_3_1
+              };
+            } finally {
+              try {
+                if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+              } finally {
+                if (e_3) throw e_3.error;
+              }
+            }
+          }
+        } catch (e_2_1) {
+          e_2 = {
+            error: e_2_1
+          };
+        } finally {
+          try {
+            if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+          } finally {
+            if (e_2) throw e_2.error;
+          }
+        }
+      }
+
+      count++;
+    });
+    var onlyAisles = new Array(count).fill(true);
+
+    try {
+      for (var edges_1 = __values(edges), edges_1_1 = edges_1.next(); !edges_1_1.done; edges_1_1 = edges_1.next()) {
+        var e = edges_1_1.value;
+        if (roads[e.road].cls !== 'parking_aisle') onlyAisles[component[e.from]] = false;
+      }
+    } catch (e_1_1) {
+      e_1 = {
+        error: e_1_1
+      };
+    } finally {
+      try {
+        if (edges_1_1 && !edges_1_1.done && (_a = edges_1["return"])) _a.call(edges_1);
+      } finally {
+        if (e_1) throw e_1.error;
+      }
+    }
+
+    var targets = edges.filter(function (e) {
+      return !onlyAisles[component[e.from]] && RoadNetwork.grade(roads[e.road].cls) === 'surface';
+    });
+    var best = new Array(count).fill(null);
+    nodes.forEach(function (n, i) {
+      var e_4, _a;
+
+      var c = component[i];
+      if (!onlyAisles[c]) return;
+
+      try {
+        for (var targets_1 = __values(targets), targets_1_1 = targets_1.next(); !targets_1_1.done; targets_1_1 = targets_1.next()) {
+          var e = targets_1_1.value;
+
+          for (var k = 0; k < e.line.length - 1; k++) {
+            var at = RoadNetwork.closestOnSegment(n.at, e.line[k], e.line[k + 1]);
+            var d = at.distanceTo(n.at) - roads[e.road].halfWidth;
+            if (d <= RoadNetwork.MAX_DRIVEWAY && (best[c] === null || d < best[c].d)) best[c] = {
+              d: d,
+              from: n.at,
+              to: at
+            };
+          }
+        }
+      } catch (e_4_1) {
+        e_4 = {
+          error: e_4_1
+        };
+      } finally {
+        try {
+          if (targets_1_1 && !targets_1_1.done && (_a = targets_1["return"])) _a.call(targets_1);
+        } finally {
+          if (e_4) throw e_4.error;
+        }
+      }
+    });
+    return best.filter(function (b) {
+      return b !== null;
+    }).map(function (b) {
+      return [b.from.clone(), b.to.clone()];
+    });
+  };
+
+  RoadNetwork.grade = function (cls) {
+    if (cls === 'motorway') return 'motorway';
+    if (cls === 'motorway_link') return 'link';
+    return 'surface';
+  };
+  /**
+   * Whether a road crossing another in the middle meets it
+   */
+
+
+  RoadNetwork.meetCrossing = function (a, b) {
+    return a === 'surface' && b === 'surface';
+  };
+  /**
+   * Whether the end of a road of grade a joins a road of grade b it ends on
+   */
+
+
+  RoadNetwork.meetAtEnd = function (a, b) {
+    if (a === 'surface') return b !== 'motorway';
+    if (a === 'link') return true;
+    return b !== 'surface'; // A motorway end continues as motorway or a ramp
+  };
+
+  RoadNetwork.prototype.addNode = function (at, grades) {
+    this.nodePositions.push(at.clone());
+    this.nodeGrades.push(new Set(grades));
+    this.parent.push(this.parent.length);
+    return this.nodePositions.length - 1;
+  };
+
+  RoadNetwork.prototype.find = function (n) {
+    while (this.parent[n] !== n) {
+      this.parent[n] = this.parent[this.parent[n]];
+      n = this.parent[n];
+    }
+
+    return n;
+  };
+
+  RoadNetwork.prototype.union = function (a, b) {
+    var e_5, _a;
+
+    var ra = this.find(a);
+    var rb = this.find(b);
+    if (ra === rb) return;
+    this.parent[rb] = ra;
+
+    try {
+      for (var _b = __values(this.nodeGrades[rb]), _c = _b.next(); !_c.done; _c = _b.next()) {
+        var g = _c.value;
+        this.nodeGrades[ra].add(g);
+      }
+    } catch (e_5_1) {
+      e_5 = {
+        error: e_5_1
+      };
+    } finally {
+      try {
+        if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+      } finally {
+        if (e_5) throw e_5.error;
+      }
+    }
+  };
+
+  RoadNetwork.prototype.run = function () {
+    this.splitAtCrossings();
+    this.splitAtEnds();
+    this.joinRampLoops();
+    this.mergeCloseNodes();
+    return this.buildGraph();
+  };
+
+  RoadNetwork.prototype.splitAtCrossings = function () {
+    var e_6, _a;
+
+    var _this = this;
+
+    var segments = [];
+    var owner = new Map();
+    this.roads.forEach(function (r, ri) {
+      for (var i = 0; i < r.line.length - 1; i++) {
+        if (r.line[i].distanceToSquared(r.line[i + 1]) < 1e-8) continue;
+        var s = {
+          from: r.line[i],
+          to: r.line[i + 1]
+        };
+        segments.push(s);
+        owner.set(s, {
+          road: ri,
+          seg: i
+        });
+      }
+    });
+
+    var _loop_1 = function _loop_1(crossing) {
+      var e_7, _a;
+
+      var at = new vector_1["default"](crossing.point.x, crossing.point.y);
+      var on = crossing.segments.map(function (s) {
+        return owner.get(s);
+      }).filter(function (o) {
+        return o !== undefined;
+      });
+      var roads = Array.from(new Set(on.map(function (o) {
+        return o.road;
+      })));
+      var grades = roads.map(function (r) {
+        return RoadNetwork.grade(_this.roads[r].cls);
+      }); // Only surface roads meet where they cross
+
+      var meeting = roads.filter(function (r, i) {
+        return grades.some(function (g, j) {
+          return j !== i && RoadNetwork.meetCrossing(grades[i], g);
+        });
+      });
+      if (meeting.length < 2) return "continue";
+      var node = this_1.addNode(at, meeting.map(function (r) {
+        return RoadNetwork.grade(_this.roads[r].cls);
+      }));
+
+      try {
+        for (var on_1 = (e_7 = void 0, __values(on)), on_1_1 = on_1.next(); !on_1_1.done; on_1_1 = on_1.next()) {
+          var o = on_1_1.value;
+          if (meeting.indexOf(o.road) < 0) continue;
+          this_1.splits[o.road].push({
+            seg: o.seg,
+            t: RoadNetwork.param(this_1.roads[o.road].line, o.seg, at),
+            node: node
+          });
+        }
+      } catch (e_7_1) {
+        e_7 = {
+          error: e_7_1
+        };
+      } finally {
+        try {
+          if (on_1_1 && !on_1_1.done && (_a = on_1["return"])) _a.call(on_1);
+        } finally {
+          if (e_7) throw e_7.error;
+        }
+      }
+    };
+
+    var this_1 = this;
+
+    try {
+      for (var _b = __values(isect.bush(segments).run()), _c = _b.next(); !_c.done; _c = _b.next()) {
+        var crossing = _c.value;
+
+        _loop_1(crossing);
+      }
+    } catch (e_6_1) {
+      e_6 = {
+        error: e_6_1
+      };
+    } finally {
+      try {
+        if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+      } finally {
+        if (e_6) throw e_6.error;
+      }
+    }
+  };
+
+  RoadNetwork.key = function (p) {
+    return Math.floor(p.x / RoadNetwork.CELL) + "," + Math.floor(p.y / RoadNetwork.CELL);
+  };
+  /**
+   * Road segments by grid cell, each in every cell within snapping reach of it
+   */
+
+
+  RoadNetwork.prototype.segmentGrid = function () {
+    var CELL = RoadNetwork.CELL;
+    var reach = RoadNetwork.SNAP + RoadNetwork.RAMP_REACH + Math.max.apply(Math, __spread([0], this.roads.map(function (r) {
+      return r.halfWidth;
+    })));
+    var grid = new Map();
+
+    var key = function key(x, y) {
+      return x + "," + y;
+    };
+
+    this.roads.forEach(function (r, ri) {
+      for (var i = 0; i < r.line.length - 1; i++) {
+        var a = r.line[i];
+        var b = r.line[i + 1];
+
+        for (var x = Math.floor((Math.min(a.x, b.x) - reach) / CELL); x <= Math.floor((Math.max(a.x, b.x) + reach) / CELL); x++) {
+          for (var y = Math.floor((Math.min(a.y, b.y) - reach) / CELL); y <= Math.floor((Math.max(a.y, b.y) + reach) / CELL); y++) {
+            var k = key(x, y);
+            if (!grid.has(k)) grid.set(k, []);
+            grid.get(k).push({
+              road: ri,
+              seg: i
+            });
+          }
+        }
+      }
+    });
+    return grid;
+  };
+
+  RoadNetwork.prototype.splitAtEnds = function () {
+    var _this = this;
+
+    var grid = this.segmentGrid();
+    this.roads.forEach(function (r, ri) {
+      var e_8, _a, e_9, _b;
+
+      if (r.line.length < 2) return;
+      var grade = RoadNetwork.grade(r.cls);
+      var last = r.line.length - 2;
+
+      try {
+        for (var _c = __values([[r.line[0], 0, 0], [r.line[r.line.length - 1], last, 1]]), _d = _c.next(); !_d.done; _d = _c.next()) {
+          var _e = __read(_d.value, 3),
+              end = _e[0],
+              seg = _e[1],
+              t = _e[2];
+
+          var best = null;
+
+          try {
+            for (var _f = (e_9 = void 0, __values(grid.get(RoadNetwork.key(end)) || [])), _g = _f.next(); !_g.done; _g = _f.next()) {
+              var c = _g.value; // A road's own end only counts at the other end of a closed loop
+
+              if (c.road === ri && Math.abs(c.seg - seg) <= 1) continue;
+              if (!RoadNetwork.meetAtEnd(grade, RoadNetwork.grade(_this.roads[c.road].cls))) continue;
+              var line = _this.roads[c.road].line;
+              var at = RoadNetwork.closestOnSegment(end, line[c.seg], line[c.seg + 1]); // Measured from the road's edge, so the nearest road wins even beside a wide one
+
+              var otherGrade = RoadNetwork.grade(_this.roads[c.road].cls);
+
+              var d = at.distanceTo(end) - _this.roads[c.road].halfWidth;
+
+              var snap = RoadNetwork.SNAP + (grade === 'link' && otherGrade === 'motorway' ? RoadNetwork.RAMP_REACH : 0);
+              if (d <= snap && (best === null || d < best.d)) best = {
+                road: c.road,
+                seg: c.seg,
+                at: at,
+                d: d
+              };
+            }
+          } catch (e_9_1) {
+            e_9 = {
+              error: e_9_1
+            };
+          } finally {
+            try {
+              if (_g && !_g.done && (_b = _f["return"])) _b.call(_f);
+            } finally {
+              if (e_9) throw e_9.error;
+            }
+          }
+
+          var grades = [grade];
+          if (best !== null) grades.push(RoadNetwork.grade(_this.roads[best.road].cls));
+
+          var node = _this.addNode(best === null ? end : best.at, grades);
+
+          _this.splits[ri].push({
+            seg: seg,
+            t: t,
+            node: node
+          });
+
+          if (best !== null) {
+            _this.splits[best.road].push({
+              seg: best.seg,
+              t: RoadNetwork.param(_this.roads[best.road].line, best.seg, best.at),
+              node: node
+            });
+          }
+        }
+      } catch (e_8_1) {
+        e_8 = {
+          error: e_8_1
+        };
+      } finally {
+        try {
+          if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
+        } finally {
+          if (e_8) throw e_8.error;
+        }
+      }
+    });
+  };
+  /**
+   * Cloverleaf loops are drawn as whole circles touching the motorways and ramps they link.
+   * They join each of those where they come closest to it
+   */
+
+
+  RoadNetwork.prototype.joinRampLoops = function () {
+    var _this = this;
+
+    var grid = this.segmentGrid();
+    this.roads.forEach(function (r, ri) {
+      var e_10, _a;
+
+      var line = r.line;
+      if (RoadNetwork.grade(r.cls) !== 'link' || line.length < 4 || line[0].distanceTo(line[line.length - 1]) > RoadNetwork.MERGE) return;
+      var best = new Map();
+
+      for (var i = 0; i < line.length - 1; i++) {
+        try {
+          for (var _b = (e_10 = void 0, __values(grid.get(RoadNetwork.key(line[i])) || [])), _c = _b.next(); !_c.done; _c = _b.next()) {
+            var c = _c.value;
+            if (c.road === ri || RoadNetwork.grade(_this.roads[c.road].cls) === 'surface') continue;
+            var other = _this.roads[c.road].line;
+            var at = RoadNetwork.closestOnSegment(line[i], other[c.seg], other[c.seg + 1]);
+
+            var d = at.distanceTo(line[i]) - _this.roads[c.road].halfWidth;
+
+            var b = best.get(c.road);
+
+            if (d <= RoadNetwork.SNAP + RoadNetwork.RAMP_REACH && (b === undefined || d < b.d)) {
+              best.set(c.road, {
+                seg: c.seg,
+                at: at,
+                vertex: i,
+                d: d
+              });
+            }
+          }
+        } catch (e_10_1) {
+          e_10 = {
+            error: e_10_1
+          };
+        } finally {
+          try {
+            if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+          } finally {
+            if (e_10) throw e_10.error;
+          }
+        }
+      }
+
+      best.forEach(function (b, road) {
+        var node = _this.addNode(b.at, ['link', RoadNetwork.grade(_this.roads[road].cls)]);
+
+        _this.splits[ri].push({
+          seg: b.vertex,
+          t: 0,
+          node: node
+        });
+
+        _this.splits[road].push({
+          seg: b.seg,
+          t: RoadNetwork.param(_this.roads[road].line, b.seg, b.at),
+          node: node
+        });
+      });
+    });
+  };
+  /**
+   * Nodes found more than once (a crossing at a road's end, two roads ending at the same point)
+   * become one, unless one is only on motorways and the other only on surface roads
+   */
+
+
+  RoadNetwork.prototype.mergeCloseNodes = function () {
+    var _this = this;
+
+    var CELL = 1;
+    var grid = new Map();
+
+    var key = function key(x, y) {
+      return x + "," + y;
+    };
+
+    this.nodePositions.forEach(function (p, n) {
+      var e_11, _a;
+
+      var cx = Math.floor(p.x / CELL);
+      var cy = Math.floor(p.y / CELL);
+
+      for (var x = cx - 1; x <= cx + 1; x++) {
+        for (var y = cy - 1; y <= cy + 1; y++) {
+          try {
+            for (var _b = (e_11 = void 0, __values(grid.get(key(x, y)) || [])), _c = _b.next(); !_c.done; _c = _b.next()) {
+              var m = _c.value;
+              if (_this.nodePositions[m].distanceTo(p) > RoadNetwork.MERGE) continue;
+
+              var a = _this.nodeGrades[_this.find(m)];
+
+              var b = _this.nodeGrades[n];
+
+              var onlyMotorway = function onlyMotorway(g) {
+                return !g.has('surface') && !g.has('link');
+              };
+
+              var onlySurface = function onlySurface(g) {
+                return !g.has('motorway') && !g.has('link');
+              };
+
+              if (onlyMotorway(a) && onlySurface(b) || onlySurface(a) && onlyMotorway(b)) continue;
+
+              _this.union(m, n);
+            }
+          } catch (e_11_1) {
+            e_11 = {
+              error: e_11_1
+            };
+          } finally {
+            try {
+              if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
+            } finally {
+              if (e_11) throw e_11.error;
+            }
+          }
+        }
+      }
+
+      var k = key(cx, cy);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(n);
+    });
+  };
+
+  RoadNetwork.prototype.buildGraph = function () {
+    var e_12, _a;
+
+    var _this = this; // Renumber the merged nodes, each at the average of the nodes merged into it
+
+
+    var index = new Map();
+    var sums = [];
+    var counts = [];
+    this.nodePositions.forEach(function (p, n) {
+      var root = _this.find(n);
+
+      if (!index.has(root)) {
+        index.set(root, sums.length);
+        sums.push(vector_1["default"].zeroVector());
+        counts.push(0);
+      }
+
+      sums[index.get(root)].add(p);
+      counts[index.get(root)]++;
+    });
+    var nodes = sums.map(function (s, i) {
+      return {
+        at: s.divideScalar(counts[i]),
+        edges: []
+      };
+    });
+
+    var nodeOf = function nodeOf(n) {
+      return index.get(_this.find(n));
+    };
+
+    var edges = [];
+    this.roads.forEach(function (r, ri) {
+      var splits = _this.splits[ri].slice().sort(function (a, b) {
+        return a.seg - b.seg || a.t - b.t;
+      });
+
+      var _loop_2 = function _loop_2(k) {
+        var a = splits[k];
+        var b = splits[k + 1];
+        var from = nodeOf(a.node);
+        var to = nodeOf(b.node);
+        var line = [nodes[from].at.clone()];
+
+        for (var i = a.seg + 1; i <= b.seg; i++) {
+          line.push(r.line[i].clone());
+        }
+
+        line.push(nodes[to].at.clone());
+        var clean = line.filter(function (v, i) {
+          return i === 0 || v.distanceToSquared(line[i - 1]) > 1e-6;
+        });
+        var length_1 = 0;
+
+        for (var i = 1; i < clean.length; i++) {
+          length_1 += clean[i].distanceTo(clean[i - 1]);
+        }
+
+        if (clean.length < 2 || length_1 < 0.01 || from === to && length_1 < 2 * RoadNetwork.SNAP + 2 * r.halfWidth) return "continue";
+        nodes[from].edges.push(edges.length);
+        if (to !== from) nodes[to].edges.push(edges.length);
+        edges.push({
+          road: ri,
+          line: clean,
+          from: from,
+          to: to,
+          length: length_1
+        });
+      };
+
+      for (var k = 0; k < splits.length - 1; k++) {
+        _loop_2(k);
+      }
+    }); // Drop nodes no edge uses, keeping the edges' node indices in step
+
+    var used = nodes.map(function (n) {
+      return n.edges.length > 0;
+    });
+    var renumber = [];
+    var next = 0;
+    used.forEach(function (u, i) {
+      return renumber[i] = u ? next++ : -1;
+    });
+
+    try {
+      for (var edges_2 = __values(edges), edges_2_1 = edges_2.next(); !edges_2_1.done; edges_2_1 = edges_2.next()) {
+        var e = edges_2_1.value;
+        e.from = renumber[e.from];
+        e.to = renumber[e.to];
+      }
+    } catch (e_12_1) {
+      e_12 = {
+        error: e_12_1
+      };
+    } finally {
+      try {
+        if (edges_2_1 && !edges_2_1.done && (_a = edges_2["return"])) _a.call(edges_2);
+      } finally {
+        if (e_12) throw e_12.error;
+      }
+    }
+
+    return {
+      nodes: nodes.filter(function (_, i) {
+        return used[i];
+      }),
+      edges: edges
+    };
+  };
+  /**
+   * Position of a point along a segment, 0 at its start and 1 at its end
+   */
+
+
+  RoadNetwork.param = function (line, seg, p) {
+    var a = line[seg];
+    var ab = line[seg + 1].clone().sub(a);
+    var len2 = ab.lengthSq();
+    if (len2 === 0) return 0;
+    return Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / len2));
+  };
+
+  RoadNetwork.closestOnSegment = function (p, a, b) {
+    var ab = b.clone().sub(a);
+    var len2 = ab.lengthSq();
+    if (len2 === 0) return a.clone();
+    var t = Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / len2));
+    return a.clone().add(ab.multiplyScalar(t));
+  };
+
+  RoadNetwork.SNAP = 2; // An end this close to the edge of another road joins it, world units
+
+  RoadNetwork.RAMP_REACH = 4; // Ramps merge into the outer lane, further from the motorway's edge
+
+  RoadNetwork.MAX_DRIVEWAY = 40; // Longest driveway added to reach a car park cut off from the streets
+
+  RoadNetwork.MERGE = 0.3; // Nodes this close together are one node
+
+  RoadNetwork.DRIVEWAY_HALF_WIDTH = 1.5;
+  /**
+   * Joins the end of each road to whatever road it stops on, or gives it a node of its own
+   */
+
+  RoadNetwork.CELL = 8;
+  return RoadNetwork;
+}();
+
+exports["default"] = RoadNetwork;
+
+},{"../vector":142,"isect":16}],122:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -137379,6 +138838,8 @@ Object.defineProperty(exports, "__esModule", {
 var vector_1 = require("../vector");
 
 var polygon_util_1 = require("./polygon_util");
+
+var road_network_1 = require("./road_network");
 /**
  * Exports a generated city as a scene for 3D tools such as Blender Geometry Nodes.
  * The file is GeoJSON shaped (a FeatureCollection) but in local metres, not longitude and latitude.
@@ -137686,6 +139147,12 @@ exports.CLASSES = {
     layer: 'labels',
     geometry: 'Point',
     description: 'Apartment complex name'
+  },
+  river_label: {
+    id: 94,
+    layer: 'labels',
+    geometry: 'Point',
+    description: 'River name, halfway along the river on the map'
   }
 };
 /**
@@ -137750,8 +139217,9 @@ function () {
     this.features = [];
     this.nextId = 1;
     this.min = new vector_1["default"](Infinity, Infinity);
-    this.max = new vector_1["default"](-Infinity, -Infinity);
-    this.centre = input.viewOrigin.clone().add(input.viewSize.clone().divideScalar(2));
+    this.max = new vector_1["default"](-Infinity, -Infinity); // The middle of the generated area, so the scene doesn't move if the view is panned before exporting
+
+    this.centre = input.generationOrigin.clone().add(input.generationSize.clone().divideScalar(2));
   }
 
   SceneExport.build = function (input) {
@@ -137823,21 +139291,36 @@ function () {
       coordinates: [ring]
     }, properties);
   };
+  /**
+   * @param dropTiny leave out lines shorter than a centimetre. Network edges are always kept, so every node's edges exist
+   * @return feature id, or null if nothing was added
+   */
 
-  SceneExport.prototype.addLine = function (cls, line, properties) {
+
+  SceneExport.prototype.addLine = function (cls, line, properties, dropTiny) {
     var _this = this;
 
-    if (!line || line.length < 2) return;
+    if (dropTiny === void 0) {
+      dropTiny = true;
+    }
+
+    if (!line || line.length < 2) return null;
     var coords = line.map(function (v) {
       return _this.toMetres(v);
     }).filter(function (c, i, all) {
       return i === 0 || c[0] !== all[i - 1][0] || c[1] !== all[i - 1][1];
     });
-    if (coords.length < 2) return;
+
+    if (coords.length < 2) {
+      if (dropTiny) return null;
+      coords = [coords[0], coords[0].slice()];
+    }
+
     this.add(cls, {
       type: 'LineString',
       coordinates: coords
     }, properties);
+    return this.nextId - 1;
   };
 
   SceneExport.prototype.addPoint = function (cls, at, properties) {
@@ -137929,7 +139412,7 @@ function () {
   };
 
   SceneExport.prototype.run = function () {
-    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o;
+    var e_1, _a, e_2, _b, e_3, _c, e_4, _d, e_5, _e, e_6, _f, e_7, _g, e_8, _h, e_9, _j, e_10, _k, e_11, _l, e_12, _m, e_13, _o, e_14, _p;
 
     var _this = this;
 
@@ -137937,8 +139420,8 @@ function () {
 
     try {
       // Areas
-      for (var _p = __values(input.areas), _q = _p.next(); !_q.done; _q = _p.next()) {
-        var a = _q.value;
+      for (var _q = __values(input.areas), _r = _q.next(); !_r.done; _r = _q.next()) {
+        var a = _r.value;
         this.addPolygon(a.cls, a.polygon, Object.assign({
           z_order: Z_ORDER[a.cls]
         }, a.name ? {
@@ -137951,7 +139434,7 @@ function () {
       };
     } finally {
       try {
-        if (_q && !_q.done && (_a = _p["return"])) _a.call(_p);
+        if (_r && !_r.done && (_a = _q["return"])) _a.call(_q);
       } finally {
         if (e_1) throw e_1.error;
       }
@@ -137966,7 +139449,19 @@ function () {
 
 
     var building = function building(cls, b, h, roof) {
-      var maxLevels = cls === 'apartments' ? 3 : 2;
+      var maxLevels = cls === 'apartments' ? 3 : 2; // Too tall for a pitched roof house: an apartment or office block with a flat roof
+
+      if (roof === 'gabled' && h > 3 * maxLevels + 4) {
+        _this.addPolygon(cls, b, {
+          height: h,
+          eave_height: h,
+          levels: Math.round(h / 3),
+          roof: 'flat'
+        });
+
+        return;
+      }
+
       var levels = roof === 'gabled' ? Math.max(1, Math.min(maxLevels, Math.floor((h - 2.5) / 3))) : cls === 'industrial_office' || cls === 'mall' ? 2 : 1;
       var eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
 
@@ -137979,10 +139474,10 @@ function () {
     };
 
     try {
-      for (var _r = __values(input.houses), _s = _r.next(); !_s.done; _s = _r.next()) {
-        var b = _s.value;
-        var area = SceneExport.areaM2(b);
-        if (churches.has(b)) building('church', b, 14, 'gabled');else if (area < 45) building('outbuilding', b, 3, 'gabled');else building('house', b, height(b, 9), 'gabled');
+      for (var _s = __values(input.houses), _t = _s.next(); !_t.done; _t = _s.next()) {
+        var b = _t.value;
+        var area_1 = SceneExport.areaM2(b);
+        if (churches.has(b)) building('church', b, 14, 'gabled');else if (area_1 < 45) building('outbuilding', b, 3, 'gabled');else building('house', b, height(b, 9), 'gabled');
       }
     } catch (e_2_1) {
       e_2 = {
@@ -137990,15 +139485,15 @@ function () {
       };
     } finally {
       try {
-        if (_s && !_s.done && (_b = _r["return"])) _b.call(_r);
+        if (_t && !_t.done && (_b = _s["return"])) _b.call(_s);
       } finally {
         if (e_2) throw e_2.error;
       }
     }
 
     try {
-      for (var _t = __values(input.lowIncomeHouses), _u = _t.next(); !_u.done; _u = _t.next()) {
-        var b = _u.value;
+      for (var _u = __values(input.lowIncomeHouses), _v = _u.next(); !_v.done; _v = _u.next()) {
+        var b = _v.value;
         if (SceneExport.areaM2(b) < 45) building('outbuilding', b, 3, 'gabled');else building('small_house', b, height(b, 7), 'gabled');
       }
     } catch (e_3_1) {
@@ -138007,22 +139502,22 @@ function () {
       };
     } finally {
       try {
-        if (_u && !_u.done && (_c = _t["return"])) _c.call(_t);
+        if (_v && !_v.done && (_c = _u["return"])) _c.call(_u);
       } finally {
         if (e_3) throw e_3.error;
       }
     }
 
     try {
-      for (var _v = __values(input.industrialBuildings), _w = _v.next(); !_w.done; _w = _v.next()) {
-        var b = _w.value;
-        var area = SceneExport.areaM2(b);
+      for (var _w = __values(input.industrialBuildings), _x = _w.next(); !_x.done; _x = _w.next()) {
+        var b = _x.value;
+        var area_2 = SceneExport.areaM2(b);
 
         if (input.portBuildings.has(b)) {
-          if (area < 600) building('container_stack', b, 8, 'flat');else building('port_shed', b, height(b, 11), 'flat');
+          if (area_2 < 600) building('container_stack', b, 8, 'flat');else building('port_shed', b, height(b, 11), 'flat');
         } else if (b.length === 16) {
           building('storage_tank', b, 12, 'dome');
-        } else if (area < 400) {
+        } else if (area_2 < 400) {
           building('industrial_office', b, 7, 'flat');
         } else {
           building('warehouse', b, height(b, 11), 'flat');
@@ -138034,15 +139529,15 @@ function () {
       };
     } finally {
       try {
-        if (_w && !_w.done && (_d = _v["return"])) _d.call(_v);
+        if (_x && !_x.done && (_d = _w["return"])) _d.call(_w);
       } finally {
         if (e_4) throw e_4.error;
       }
     }
 
     try {
-      for (var _x = __values(input.siteBuildings), _y = _x.next(); !_y.done; _y = _x.next()) {
-        var s = _y.value;
+      for (var _y = __values(input.siteBuildings), _z = _y.next(); !_z.done; _z = _y.next()) {
+        var s = _z.value;
         if (s.kind === 'apartments') building('apartments', s.polygon, height(s.polygon, 12), 'gabled');else if (s.kind === 'mall') building('mall', s.polygon, height(s.polygon, 12), 'flat');else building('retail', s.polygon, height(s.polygon, 6), 'flat');
       }
     } catch (e_5_1) {
@@ -138051,37 +139546,30 @@ function () {
       };
     } finally {
       try {
-        if (_y && !_y.done && (_e = _x["return"])) _e.call(_x);
+        if (_z && !_z.done && (_e = _y["return"])) _e.call(_y);
       } finally {
         if (e_5) throw e_5.error;
       }
-    }
+    } // Roads, split at bridges and where they meet, as the edges of a road network
+
+
+    var pieces = [];
 
     try {
-      // Roads, railways and paths, split at bridges
-      for (var _z = __values(input.roads), _0 = _z.next(); !_0.done; _0 = _z.next()) {
-        var r = _0.value;
+      for (var _0 = __values(input.roads), _1 = _0.next(); !_1.done; _1 = _0.next()) {
+        var r = _1.value;
+        var halfWidth = ROAD_WIDTH[r.cls] / WORLD_UNIT_M / 2;
 
         try {
-          for (var _1 = (e_7 = void 0, __values(this.bridgeStretches(r.line))), _2 = _1.next(); !_2.done; _2 = _1.next()) {
-            var s = _2.value;
-            var props = {
-              width: ROAD_WIDTH[r.cls],
-              lanes: ROAD_LANES[r.cls],
-              bridge: s.bridge ? 1 : 0,
-              level: s.bridge ? 1 : 0,
-              deck_height: s.bridge ? BRIDGE_DECK_M : 0
-            };
-
-            if (r.cls === 'motorway') {
-              props.dual_carriageway = 1;
-              props.median_width = 2;
-            }
-
-            if (r.frontage) props.frontage = 1;
-            if (r.name) props.name = r.name;
-            if (r.ref) props.ref = r.ref;
-            this.addLine(r.cls, s.line, props);
+          for (var _2 = (e_7 = void 0, __values(this.bridgeStretches(r.line))), _3 = _2.next(); !_3.done; _3 = _2.next()) {
+            var st = _3.value;
+            pieces.push({
+              line: st.line,
+              cls: r.cls,
+              halfWidth: halfWidth,
+              road: r,
+              bridge: st.bridge
+            });
           }
         } catch (e_7_1) {
           e_7 = {
@@ -138089,7 +139577,7 @@ function () {
           };
         } finally {
           try {
-            if (_2 && !_2.done && (_g = _1["return"])) _g.call(_1);
+            if (_3 && !_3.done && (_g = _2["return"])) _g.call(_2);
           } finally {
             if (e_7) throw e_7.error;
           }
@@ -138101,19 +139589,83 @@ function () {
       };
     } finally {
       try {
-        if (_0 && !_0.done && (_f = _z["return"])) _f.call(_z);
+        if (_1 && !_1.done && (_f = _0["return"])) _f.call(_0);
       } finally {
         if (e_6) throw e_6.error;
       }
     }
 
+    var network = road_network_1["default"].build(pieces);
+    var edgeFeature = [];
+
     try {
-      for (var _3 = __values(input.railways), _4 = _3.next(); !_4.done; _4 = _3.next()) {
-        var r = _4.value;
+      for (var _4 = __values(network.edges), _5 = _4.next(); !_5.done; _5 = _4.next()) {
+        var e = _5.value; // Past the end of the pieces are driveways added to reach car parks
+
+        var piece = pieces[e.road] || {
+          road: {
+            line: e.line,
+            cls: 'service'
+          },
+          bridge: false
+        };
+        var r = piece.road;
+        var props = {
+          width: ROAD_WIDTH[r.cls],
+          lanes: ROAD_LANES[r.cls],
+          bridge: piece.bridge ? 1 : 0,
+          level: piece.bridge ? 1 : 0,
+          deck_height: piece.bridge ? BRIDGE_DECK_M : 0,
+          // Motorways and ramps pass over anything they cross, joining other roads only where a ramp ends
+          grade_separated: r.cls === 'motorway' || r.cls === 'motorway_link' ? 1 : 0,
+          from_node: e.from + 1,
+          to_node: e.to + 1,
+          length: Math.round(e.length * WORLD_UNIT_M * 100) / 100
+        };
+
+        if (r.cls === 'motorway') {
+          props.dual_carriageway = 1;
+          props.median_width = 2;
+        }
+
+        if (r.frontage) props.frontage = 1;
+        if (!pieces[e.road]) props.driveway = 1;
+        if (r.name) props.name = r.name;
+        if (r.ref) props.ref = r.ref;
+        var id = this.addLine(r.cls, e.line, props, false);
+        edgeFeature.push(id);
+      }
+    } catch (e_8_1) {
+      e_8 = {
+        error: e_8_1
+      };
+    } finally {
+      try {
+        if (_5 && !_5.done && (_h = _4["return"])) _h.call(_4);
+      } finally {
+        if (e_8) throw e_8.error;
+      }
+    }
+
+    var nodes = network.nodes.map(function (n, i) {
+      return {
+        id: i + 1,
+        coordinates: _this.toMetres(n.at),
+        edges: n.edges.map(function (e) {
+          return edgeFeature[e];
+        }).filter(function (id) {
+          return id !== null;
+        })
+      };
+    });
+
+    try {
+      for (var _6 = __values(input.railways), _7 = _6.next(); !_7.done; _7 = _6.next()) {
+        var r = _7.value;
 
         try {
-          for (var _5 = (e_9 = void 0, __values(this.bridgeStretches(r))), _6 = _5.next(); !_6.done; _6 = _5.next()) {
-            var s = _6.value;
+          for (var _8 = (e_10 = void 0, __values(this.bridgeStretches(r))), _9 = _8.next(); !_9.done; _9 = _8.next()) {
+            var s = _9.value;
             this.addLine('rail', s.line, {
               width: ROAD_WIDTH.rail,
               gauge: 1.435,
@@ -138123,46 +139675,46 @@ function () {
               deck_height: s.bridge ? BRIDGE_DECK_M : 0
             });
           }
-        } catch (e_9_1) {
-          e_9 = {
-            error: e_9_1
+        } catch (e_10_1) {
+          e_10 = {
+            error: e_10_1
           };
         } finally {
           try {
-            if (_6 && !_6.done && (_j = _5["return"])) _j.call(_5);
+            if (_9 && !_9.done && (_k = _8["return"])) _k.call(_8);
           } finally {
-            if (e_9) throw e_9.error;
+            if (e_10) throw e_10.error;
           }
         }
       }
-    } catch (e_8_1) {
-      e_8 = {
-        error: e_8_1
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
       };
     } finally {
       try {
-        if (_4 && !_4.done && (_h = _3["return"])) _h.call(_3);
+        if (_7 && !_7.done && (_j = _6["return"])) _j.call(_6);
       } finally {
-        if (e_8) throw e_8.error;
+        if (e_9) throw e_9.error;
       }
     }
 
     try {
-      for (var _7 = __values(input.paths), _8 = _7.next(); !_8.done; _8 = _7.next()) {
-        var p = _8.value;
+      for (var _10 = __values(input.paths), _11 = _10.next(); !_11.done; _11 = _10.next()) {
+        var p = _11.value;
         this.addLine('footway', p, {
           width: ROAD_WIDTH.footway
         });
       }
-    } catch (e_10_1) {
-      e_10 = {
-        error: e_10_1
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
       };
     } finally {
       try {
-        if (_8 && !_8.done && (_k = _7["return"])) _k.call(_7);
+        if (_11 && !_11.done && (_l = _10["return"])) _l.call(_10);
       } finally {
-        if (e_10) throw e_10.error;
+        if (e_11) throw e_11.error;
       }
     }
 
@@ -138174,26 +139726,9 @@ function () {
 
     try {
       // Points and labels
-      for (var _9 = __values(input.churches), _10 = _9.next(); !_10.done; _10 = _9.next()) {
-        var c = _10.value;
+      for (var _12 = __values(input.churches), _13 = _12.next(); !_13.done; _13 = _12.next()) {
+        var c = _13.value;
         this.addPoint('place_of_worship', polygon_util_1["default"].averagePoint(c), {});
-      }
-    } catch (e_11_1) {
-      e_11 = {
-        error: e_11_1
-      };
-    } finally {
-      try {
-        if (_10 && !_10.done && (_l = _9["return"])) _l.call(_9);
-      } finally {
-        if (e_11) throw e_11.error;
-      }
-    }
-
-    try {
-      for (var _11 = __values(input.parking), _12 = _11.next(); !_12.done; _12 = _11.next()) {
-        var p = _12.value;
-        this.addPoint('parking', p, {});
       }
     } catch (e_12_1) {
       e_12 = {
@@ -138201,18 +139736,16 @@ function () {
       };
     } finally {
       try {
-        if (_12 && !_12.done && (_m = _11["return"])) _m.call(_11);
+        if (_13 && !_13.done && (_m = _12["return"])) _m.call(_12);
       } finally {
         if (e_12) throw e_12.error;
       }
     }
 
     try {
-      for (var _13 = __values(input.labels), _14 = _13.next(); !_14.done; _14 = _13.next()) {
-        var l = _14.value;
-        this.addPoint(l.cls, l.at, {
-          name: l.name
-        });
+      for (var _14 = __values(input.parking), _15 = _14.next(); !_15.done; _15 = _14.next()) {
+        var p = _15.value;
+        this.addPoint('parking', p, {});
       }
     } catch (e_13_1) {
       e_13 = {
@@ -138220,15 +139753,44 @@ function () {
       };
     } finally {
       try {
-        if (_14 && !_14.done && (_o = _13["return"])) _o.call(_13);
+        if (_15 && !_15.done && (_o = _14["return"])) _o.call(_14);
       } finally {
         if (e_13) throw e_13.error;
+      }
+    }
+
+    try {
+      // Hover height is where the 2D map's floating labels float, at real (unexaggerated) building scale
+      for (var _16 = __values(input.labels), _17 = _16.next(); !_17.done; _17 = _16.next()) {
+        var l = _17.value;
+        this.addPoint(l.cls, l.at, {
+          name: l.name,
+          hover_height: Math.round(l.hoverHeight * 10) / 10
+        });
+      }
+    } catch (e_14_1) {
+      e_14 = {
+        error: e_14_1
+      };
+    } finally {
+      try {
+        if (_17 && !_17.done && (_p = _16["return"])) _p.call(_16);
+      } finally {
+        if (e_14) throw e_14.error;
       }
     }
 
     var view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(function (v) {
       return _this.toMetres(v);
     });
+    var g0 = input.generationOrigin;
+    var g1 = g0.clone().add(input.generationSize);
+    var area = [g0, new vector_1["default"](g1.x, g0.y), g1, new vector_1["default"](g0.x, g1.y)];
+
+    var rect = function rect(corners) {
+      return [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1]), Math.max(corners[0][0], corners[1][0]), Math.max(corners[0][1], corners[1][1])];
+    };
+
     var classes = Object.keys(exports.CLASSES).map(function (name) {
       return Object.assign({
         name: name
@@ -138245,13 +139807,34 @@ function () {
         axes: 'x east, y north, z up; ground at z = 0',
         world_unit_m: WORLD_UNIT_M,
         // The view is what the 2D map shows, data reaches a little beyond it
-        view_bounds: [Math.min(view[0][0], view[1][0]), Math.min(view[0][1], view[1][1]), Math.max(view[0][0], view[1][0]), Math.max(view[0][1], view[1][1])],
+        view_bounds: rect(view),
+        // The area the map was generated in. Roads and buildings stop at its edge, so it's the edge of the world
+        boundary: {
+          bounds: rect([this.toMetres(g0), this.toMetres(g1)]),
+          polygon: this.ring(area),
+          land: input.land.filter(function (l) {
+            return l.length >= 3;
+          }).map(function (l) {
+            return _this.ring(l);
+          })
+        },
+        // How the 2D map's pseudo 3D view is drawn, to match it with a perspective camera, see docs/game-export.md
+        pseudo_3d: {
+          height_exaggeration: input.camera.heightExaggeration,
+          camera_height_m: Math.round(input.camera.cameraHeight * WORLD_UNIT_M * 10) / 10,
+          viewport_px: [input.camera.screenSize.x, input.camera.screenSize.y],
+          vertical_fov_deg: Math.round(2 * Math.atan(input.camera.screenSize.y / 2 / 1000) * 180 / Math.PI * 100) / 100
+        },
         data_bounds: [this.min.x, this.min.y, this.max.x, this.max.y],
         layers: ['areas', 'waterways', 'paths', 'roads', 'railways', 'buildings', 'points', 'labels'],
         classes: classes,
         feature_count: this.features.length
       },
-      features: this.features
+      features: this.features,
+      // Where roads meet. Each road feature is one edge between two nodes (from_node, to_node)
+      road_network: {
+        nodes: nodes
+      }
     };
   };
 
@@ -138260,7 +139843,7 @@ function () {
 
 exports["default"] = SceneExport;
 
-},{"../vector":140,"./polygon_util":117}],121:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118,"./road_network":121}],123:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -139188,7 +140771,7 @@ function () {
 
 exports["default"] = StreamlineGenerator;
 
-},{"../vector":140,"./grid_storage":107,"loglevel":54,"simplify-js":91}],122:[function(require,module,exports){
+},{"../vector":142,"./grid_storage":108,"loglevel":54,"simplify-js":91}],124:[function(require,module,exports){
 "use strict";
 
 var __read = void 0 && (void 0).__read || function (o, n) {
@@ -139357,7 +140940,7 @@ function () {
 
 exports["default"] = Tensor;
 
-},{"../vector":140}],123:[function(require,module,exports){
+},{"../vector":142}],125:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -139567,7 +141150,7 @@ function () {
 
 exports["default"] = TensorField;
 
-},{"./basis_field":103,"./polygon_util":117,"./tensor":122,"simplex-noise":90}],124:[function(require,module,exports){
+},{"./basis_field":103,"./polygon_util":118,"./tensor":124,"simplex-noise":90}],126:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -140328,7 +141911,7 @@ function (_super) {
 
 exports["default"] = WaterGenerator;
 
-},{"./hydrology":109,"./polygon_util":117,"./streamlines":121,"loglevel":54,"simplex-noise":90}],125:[function(require,module,exports){
+},{"./hydrology":110,"./polygon_util":118,"./streamlines":123,"loglevel":54,"simplex-noise":90}],127:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -140759,7 +142342,7 @@ function () {
 
 exports["default"] = YardHouseLayout;
 
-},{"../vector":140,"./local_frame":112,"./polygon_util":117,"simplify-js":91}],126:[function(require,module,exports){
+},{"../vector":142,"./local_frame":113,"./polygon_util":118,"simplify-js":91}],128:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -141632,7 +143215,7 @@ function () {
 
 exports["default"] = Zoning;
 
-},{"../vector":140,"./polygon_util":117,"loglevel":54,"simplex-noise":90}],127:[function(require,module,exports){
+},{"../vector":142,"./polygon_util":118,"loglevel":54,"simplex-noise":90}],129:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -142063,7 +143646,7 @@ function () {
 
 exports["default"] = ModelGenerator;
 
-},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],128:[function(require,module,exports){
+},{"jszip":27,"loglevel":54,"three":96,"three-csg-ts":95,"threejs-export-stl":97}],130:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -142261,8 +143844,6 @@ var __spread = void 0 && (void 0).__spread || function () {
   return ar;
 };
 
-var _a;
-
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
@@ -142285,32 +143866,14 @@ var building_cleanup_1 = require("../impl/building_cleanup");
 
 var commercial_layout_1 = require("../impl/commercial_layout");
 /**
- * Building height range for each zone
+ * Fixed height ranges for buildings of a known kind, world units (1 unit = 2 m)
  */
 
 
-var HEIGHTS = (_a = {}, // World units, 1 unit = 2 m
-_a[0
-/* Residential */
-] = {
-  min: 3.5,
-  max: 6
-}, _a[1
-/* LowIncome */
-] = {
-  min: 3,
-  max: 4.5
-}, _a[2
-/* Industrial */
-] = {
-  min: 4.5,
-  max: 7
-}, _a[3
-/* Commercial */
-] = {
+var MALL_HEIGHT = {
   min: 5,
   max: 7
-}, _a);
+};
 var APARTMENT_HEIGHT = {
   min: 5.5,
   max: 6.8
@@ -142321,6 +143884,11 @@ var RETAIL_HEIGHT = {
   max: 3.5
 };
 /**
+ * Real heights look flat from as high up as the pseudo 3D camera, so it draws them this much taller
+ */
+
+exports.HEIGHT_EXAGGERATION = 2;
+/**
  * Pseudo 3D buildings
  */
 
@@ -142329,7 +143897,7 @@ var BuildingModels =
 function () {
   /**
    * @param lots world space
-   * @param ranges height range of each lot, else the zone's
+   * @param ranges height range of each lot of a known kind, else picked by buildingHeight
    */
   function BuildingModels(lots, zones, ranges) {
     if (ranges === void 0) {
@@ -142337,13 +143905,15 @@ function () {
     }
 
     this.domainController = domain_controller_1["default"].getInstance();
-    this._buildingModels = [];
+    this._buildingModels = []; // Some neighbourhoods are built up more than others
+
+    this.densityNoise = new SimplexNoise();
 
     for (var i = 0; i < lots.length; i++) {
-      var range = ranges[i] || HEIGHTS[zones[i]];
+      var range = ranges[i];
 
       this._buildingModels.push({
-        height: Math.random() * (range.max - range.min) + range.min,
+        height: range ? Math.random() * (range.max - range.min) + range.min : this.buildingHeight(lots[i], zones[i]),
         lotWorld: lots[i],
         lotScreen: [],
         roof: [],
@@ -142365,16 +143935,48 @@ function () {
     configurable: true
   });
   /**
+   * World space height from storeys: mostly one or two storey houses, built up more in denser
+   * neighbourhoods and on bigger footprints, with the odd tall block. Sheds are a single tall storey.
+   */
+
+  BuildingModels.prototype.buildingHeight = function (lot, zone) {
+    var area = polygon_util_1["default"].calcPolygonArea(lot);
+    var c = polygon_util_1["default"].averagePoint(lot);
+    var density = (this.densityNoise.noise2D(c.x / 700, c.y / 700) + 1) / 2;
+
+    var storeys = function storeys(n) {
+      return n * BuildingModels.STOREY + BuildingModels.ROOF * Math.random();
+    };
+
+    if (zone === 2
+    /* Industrial */
+    ) {
+        // Tanks and huts are low, big sheds a little taller
+        if (area < 60) return 1.5 + 1.5 * Math.random();
+        return 3 + Math.min(2, area / 500) + Math.random();
+      }
+
+    if (zone === 1
+    /* LowIncome */
+    ) return storeys(Math.random() < 0.75 ? 1 : 2); // Apartment blocks and the odd tower where the neighbourhood is dense
+    // House footprints are mostly 20-60 units, merged neighbours up to about 100
+
+    var dense = Math.max(0, density - 0.5) / 0.5;
+    if (area > 40 && Math.random() < 0.04 * dense) return storeys(6 + Math.floor(Math.random() * 9));
+    if (area > 55) return storeys(2 + Math.floor(Math.random() * (1 + 3 * density)));
+    var n = Math.random() < 0.6 ? 2 : 1;
+    if (Math.random() < density * density) n++;
+    return storeys(n);
+  };
+  /**
    * Recalculated when the camera moves
    */
+
 
   BuildingModels.prototype.setBuildingProjections = function () {
     var e_1, _a;
 
     var _this = this;
-
-    var d = 1000 / this.domainController.zoom;
-    var cameraPos = this.domainController.getCameraPosition();
 
     var _loop_1 = function _loop_1(b) {
       b.lotScreen = b.lotWorld.map(function (v) {
@@ -142382,7 +143984,7 @@ function () {
       }); // Real heights look flat from this far up, exaggerate them for the pseudo 3D view
 
       b.roof = b.lotScreen.map(function (v) {
-        return _this.heightVectorToScreen(v, b.height * BuildingModels.HEIGHT_EXAGGERATION, d, cameraPos);
+        return _this.domainController.heightToScreen(v, b.height * exports.HEIGHT_EXAGGERATION);
       });
       b.sides = this_1.getBuildingSides(b);
     };
@@ -142407,17 +144009,6 @@ function () {
       }
     }
   };
-
-  BuildingModels.prototype.heightVectorToScreen = function (v, h, d, camera) {
-    var scale = d / (d - h); // 0.1
-
-    if (this.domainController.orthographic) {
-      var diff = this.domainController.cameraDirection.multiplyScalar(-h * scale);
-      return v.clone().add(diff);
-    } else {
-      return v.clone().sub(camera).multiplyScalar(scale).add(camera);
-    }
-  };
   /**
    * Get sides of buildings by joining corresponding edges between the roof and ground
    */
@@ -142434,7 +144025,9 @@ function () {
     return polygons;
   };
 
-  BuildingModels.HEIGHT_EXAGGERATION = 5;
+  BuildingModels.STOREY = 1.5; // World units, 1 unit = 2 m
+
+  BuildingModels.ROOF = 0.75;
   return BuildingModels;
 }();
 /**
@@ -142944,9 +144537,7 @@ function () {
             try {
               for (_c = __values(this.siteBuildings), _d = _c.next(); !_d.done; _d = _c.next()) {
                 b = _d.value;
-                ranges[lots.length] = b.kind === 'apartments' ? APARTMENT_HEIGHT : b.kind === 'retail' ? RETAIL_HEIGHT : HEIGHTS[3
-                /* Commercial */
-                ];
+                ranges[lots.length] = b.kind === 'apartments' ? APARTMENT_HEIGHT : b.kind === 'retail' ? RETAIL_HEIGHT : MALL_HEIGHT;
                 lots.push(b.polygon);
                 zones.push(b.kind === 'apartments' ? 0
                 /* Residential */
@@ -143389,7 +144980,7 @@ function () {
 
 exports["default"] = Buildings;
 
-},{"../impl/building_cleanup":104,"../impl/commercial_layout":105,"../impl/graph":106,"../impl/industrial_layout":110,"../impl/polygon_finder":116,"../impl/polygon_util":117,"../impl/yard_houses":125,"./domain_controller":130,"simplex-noise":90}],129:[function(require,module,exports){
+},{"../impl/building_cleanup":104,"../impl/commercial_layout":105,"../impl/graph":107,"../impl/industrial_layout":111,"../impl/polygon_finder":117,"../impl/polygon_util":118,"../impl/yard_houses":127,"./domain_controller":132,"simplex-noise":90}],131:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -143954,7 +145545,7 @@ function (_super) {
 
 exports.RoughCanvasWrapper = RoughCanvasWrapper;
 
-},{"../util":139,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],130:[function(require,module,exports){
+},{"../util":141,"@svgdotjs/svg.js":1,"roughjs/bundled/rough.cjs":88}],132:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -144139,6 +145730,53 @@ function () {
     return centre.add(centre.clone().multiply(this._cameraDirection)); // this.screenDimensions.divideScalar(2);
   };
 
+  Object.defineProperty(DomainController.prototype, "cameraHeight", {
+    /**
+     * Height of the pseudo 3D camera above the ground, world units.
+     * The camera looks straight down from above getCameraPosition()
+     */
+    get: function get() {
+      return 1000 / this._zoom;
+    },
+    enumerable: true,
+    configurable: true
+  });
+  /**
+   * Where a point h world units above a ground point appears on screen, in the pseudo 3D view
+   * @param v ground point, screen space
+   */
+
+  DomainController.prototype.heightToScreen = function (v, h) {
+    var d = this.cameraHeight; // Nothing reaches the camera
+
+    h = Math.min(h, 0.9 * d);
+    var scale = d / (d - h);
+
+    if (this._orthographic) {
+      return v.clone().add(this.cameraDirection.multiplyScalar(-h * scale));
+    }
+
+    var camera = this.getCameraPosition();
+    return v.clone().sub(camera).multiplyScalar(scale).add(camera);
+  };
+
+  Object.defineProperty(DomainController.prototype, "generationArea", {
+    /**
+     * The area roads and buildings are generated in: the view, enlarged a little
+     * so the map doesn't stop at the edge of the screen. World space
+     */
+    get: function get() {
+      var size = this.worldDimensions.multiplyScalar(util_1["default"].DRAW_INFLATE_AMOUNT);
+      var centre = this.origin.add(this.worldDimensions.divideScalar(2));
+      return {
+        origin: centre.sub(size.clone().divideScalar(2)),
+        size: size
+      };
+    },
+    enumerable: true,
+    configurable: true
+  });
+
   DomainController.prototype.setZoomUpdate = function (callback) {
     this.zoomCallback = callback;
   };
@@ -144180,7 +145818,7 @@ function () {
 
 exports["default"] = DomainController;
 
-},{"../util":139,"../vector":140}],131:[function(require,module,exports){
+},{"../util":141,"../vector":142}],133:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -144318,7 +145956,7 @@ function () {
 
 exports["default"] = DragController;
 
-},{"../util":139,"../vector":140,"./domain_controller":130,"interactjs":14}],132:[function(require,module,exports){
+},{"../util":141,"../vector":142,"./domain_controller":132,"interactjs":14}],134:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -144755,7 +146393,7 @@ function (_super) {
 
 exports["default"] = HighwayGUI;
 
-},{"../impl/highway_generator":108,"../util":139,"./road_gui":135}],133:[function(require,module,exports){
+},{"../impl/highway_generator":109,"../util":141,"./road_gui":137}],135:[function(require,module,exports){
 "use strict";
 
 var __values = void 0 && (void 0).__values || function (o) {
@@ -145133,6 +146771,22 @@ function () {
 
 
   Labeller.prototype.labelPoint = function (at, text, style, wrap) {
+    if (wrap === void 0) {
+      wrap = 14;
+    }
+
+    var draw = this.placePoint(at, text, style, wrap);
+    if (draw === null) return false;
+    draw();
+    return true;
+  };
+  /**
+   * Claims room for a point label without drawing it yet
+   * @return draws the label, or null if there's no room
+   */
+
+
+  Labeller.prototype.placePoint = function (at, text, style, wrap) {
     var e_7, _a;
 
     var _this = this;
@@ -145173,14 +146827,15 @@ function () {
     var halfW = Math.max.apply(Math, __spread(widths)) / 2 + 2;
     var halfH = lines.length * lineHeight / 2 + 1;
     var box = Labeller.boxAround(at, halfW, halfH);
-    if (!this.free(box)) return false;
+    if (!this.free(box)) return null;
     this.occupy(box);
-    lines.forEach(function (l, i) {
-      var p = new vector_1["default"](at.x, at.y - halfH + 1 + lineHeight * (i + 0.5));
+    return function () {
+      return lines.forEach(function (l, i) {
+        var p = new vector_1["default"](at.x, at.y - halfH + 1 + lineHeight * (i + 0.5));
 
-      _this.canvas.drawText(l, p, 0, style.font, style.fill, style.halo, style.haloWidth);
-    });
-    return true;
+        _this.canvas.drawText(l, p, 0, style.font, style.fill, style.halo, style.haloWidth);
+      });
+    };
   };
   /**
    * Road number in a shield on the road, every so often along it
@@ -145225,7 +146880,7 @@ function () {
 
 exports["default"] = Labeller;
 
-},{"../vector":140}],134:[function(require,module,exports){
+},{"../vector":142}],136:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -145466,6 +147121,8 @@ var railway_1 = require("../impl/railway");
 var scene_export_1 = require("../impl/scene_export");
 
 var points_of_interest_1 = require("../impl/points_of_interest");
+
+var style_2 = require("./style");
 /**
  * Handles Map folder, glues together impl
  */
@@ -145530,7 +147187,9 @@ function () {
     this.streetNames = null;
     this.riverName = '';
     this.seaName = '';
-    this.worldPlaceLabels = [];
+    this.worldPlaceLabels = []; // Where the current map was generated, world space. Set when the coastline (the first step) is generated
+
+    this._generationArea = null;
     guiFolder.add(this, 'generateEverything'); // guiFolder.add(this, 'simpleBenchMark');
 
     var animateController = guiFolder.add(this, 'animate');
@@ -145683,6 +147342,8 @@ function () {
       return _this.blockedForMinorRoads(p);
     });
     this.coastline.setPreGenerateCallback(function () {
+      _this._generationArea = _this.domainController.generationArea;
+
       _this.highways.clearStreamlines();
 
       _this.resetZoning();
@@ -146781,13 +148442,26 @@ function () {
     addAreas(this.coastline.lakesWorld.concat(this.ponds), 'lake');
     addAreas(this.coastline.sandBarsWorld, 'sand_bar'); // Same choice as the map draws, at zoom 1 a screen pixel is a world unit
 
-    var poi = points_of_interest_1["default"].select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60); // What the map shows right now
+    var poi = points_of_interest_1["default"].select(b.residentialBlocks.concat(b.lowIncomeBlocks), b.houses, b.industrialBlocks, 60); // What the map shows right now, and where it was generated
 
     var origin = this.domainController.origin.clone();
     var size = this.domainController.worldDimensions.clone();
+    var area = this.generationArea;
+    var g1 = area.origin.clone().add(area.size);
+    var rectangle = [area.origin.clone(), new vector_1["default"](g1.x, area.origin.y), g1, new vector_1["default"](area.origin.x, g1.y)];
+    var sea = this.coastline.seaPolygonWorld;
+    var land = sea.length >= 3 ? polygon_util_1["default"].subtractPolygons(rectangle, [sea], 100) : [rectangle];
     return scene_export_1["default"].build({
       viewOrigin: origin,
       viewSize: size,
+      generationOrigin: area.origin,
+      generationSize: area.size,
+      land: land,
+      camera: {
+        heightExaggeration: buildings_1.HEIGHT_EXAGGERATION,
+        cameraHeight: this.domainController.cameraHeight,
+        screenSize: this.domainController.screenDimensions
+      },
       houses: b.houses,
       lowIncomeHouses: b.lowIncomeHouses,
       industrialBuildings: b.industrial,
@@ -146803,39 +148477,15 @@ function () {
       areas: areas,
       bridgeWater: [this.coastline.riverWorld].concat(this.coastline.lakesWorld),
       parking: poi.parking,
-      labels: this.worldPlaceLabels.filter(function (l) {
-        return l.kind === 'neighbourhood';
-      }).map(function (l) {
+      // Floating labels hover at a height drawn with exaggerated buildings, the export is at real scale
+      labels: this.worldPlaceLabels.map(function (l) {
         return {
           at: l.at,
-          cls: 'neighbourhood_label',
-          name: l.text
+          cls: l.kind + "_label",
+          name: l.text,
+          hoverHeight: style_2.FLOATING_LABEL_HEIGHT[l.kind] / buildings_1.HEIGHT_EXAGGERATION * 2
         };
-      }).concat(this.worldPlaceLabels.filter(function (l) {
-        return l.kind === 'park';
-      }).map(function (l) {
-        return {
-          at: l.at,
-          cls: 'park_label',
-          name: l.text
-        };
-      })).concat(this.worldPlaceLabels.filter(function (l) {
-        return l.kind === 'mall';
-      }).map(function (l) {
-        return {
-          at: l.at,
-          cls: 'mall_label',
-          name: l.text
-        };
-      })).concat(this.worldPlaceLabels.filter(function (l) {
-        return l.kind === 'apartments';
-      }).map(function (l) {
-        return {
-          at: l.at,
-          cls: 'apartments_label',
-          name: l.text
-        };
-      }))
+      })
     });
   };
   /**
@@ -146854,16 +148504,30 @@ function () {
     var key = [minor.length, this.majorRoads.allStreamlines.length, this.mainRoads.allStreamlines.length, this.highways.highwaysWorld.length, this.highways.frontageRoadsWorld.length, this.bigParks.length, this.buildings.waterfrontParks.length, this.buildings.siteCentres.length, first(minor), first(this.mainRoads.allStreamlines), first([this.coastline.riverWorld])].join('|');
     if (key === this.namesKey) return;
     this.namesKey = key;
-    this.domainController.zoom = this.domainController.zoom / util_1["default"].DRAW_INFLATE_AMOUNT;
-    var origin = this.domainController.origin;
-    var size = this.domainController.worldDimensions;
-    this.domainController.zoom = this.domainController.zoom * util_1["default"].DRAW_INFLATE_AMOUNT;
+    var _e = this.generationArea,
+        origin = _e.origin,
+        size = _e.size;
     var centre = origin.clone().add(size.clone().divideScalar(2));
     var river = this.coastline.riverCentrelineWorld;
     this.streetNames = this.placeNames.nameStreets(minor, this.majorRoads.allStreamlines, this.mainRoads.allStreamlines, this.coastline.streamlinesWithSecondaryRoad, this.highways.frontageRoadsWorld, this.highways.highwaysWorld, centre, river);
     this.riverName = river.length >= 2 ? this.placeNames.riverName() : '';
     this.seaName = this.coastline.seaPolygonWorld.length >= 3 ? this.placeNames.seaName() : '';
-    this.worldPlaceLabels = [];
+    this.worldPlaceLabels = []; // The river is named halfway along the part of it on the map
+
+    var inArea = function inArea(p) {
+      return p.x > origin.x && p.y > origin.y && p.x < origin.x + size.x && p.y < origin.y + size.y;
+    };
+
+    var riverInArea = river.filter(inArea);
+
+    if (this.riverName && riverInArea.length > 0) {
+      this.worldPlaceLabels.push({
+        text: this.riverName,
+        at: riverInArea[Math.floor(riverInArea.length / 2)].clone(),
+        kind: 'river'
+      });
+    }
+
     var parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
 
     try {
@@ -146890,8 +148554,8 @@ function () {
 
     try {
       // Shops and apartment complexes
-      for (var _e = __values(this.buildings.siteCentres), _f = _e.next(); !_f.done; _f = _e.next()) {
-        var site = _f.value;
+      for (var _f = __values(this.buildings.siteCentres), _g = _f.next(); !_g.done; _g = _f.next()) {
+        var site = _g.value;
 
         if (site.kind === 'mall' || site.kind === 'strip_mall') {
           this.worldPlaceLabels.push({
@@ -146913,7 +148577,7 @@ function () {
       };
     } finally {
       try {
-        if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
+        if (_g && !_g.done && (_b = _f["return"])) _b.call(_f);
       } finally {
         if (e_12) throw e_12.error;
       }
@@ -146988,6 +148652,21 @@ function () {
       }
     }
   };
+
+  Object.defineProperty(MainGUI.prototype, "generationArea", {
+    /**
+     * Where the current map was generated, world space: the view when it was generated, enlarged a little
+     */
+    get: function get() {
+      var area = this._generationArea || this.domainController.generationArea;
+      return {
+        origin: area.origin.clone(),
+        size: area.size.clone()
+      };
+    },
+    enumerable: true,
+    configurable: true
+  });
 
   MainGUI.prototype.roadsEmpty = function () {
     return this.majorRoads.roadsEmpty() && this.highways.roadsEmpty() && this.minorRoads.roadsEmpty() && this.mainRoads.roadsEmpty() && this.coastline.roadsEmpty();
@@ -147069,7 +148748,7 @@ function () {
 
 exports["default"] = MainGUI;
 
-},{"../impl/graph":106,"../impl/hydrology":109,"../impl/integrator":111,"../impl/park_paths":113,"../impl/place_names":114,"../impl/points_of_interest":115,"../impl/polygon_finder":116,"../impl/polygon_util":117,"../impl/port":118,"../impl/railway":119,"../impl/scene_export":120,"../impl/zoning":126,"../util":139,"../vector":140,"./buildings":128,"./domain_controller":130,"./highway_gui":132,"./road_gui":135,"./style":136,"./water_gui":138}],135:[function(require,module,exports){
+},{"../impl/graph":107,"../impl/hydrology":110,"../impl/integrator":112,"../impl/park_paths":114,"../impl/place_names":115,"../impl/points_of_interest":116,"../impl/polygon_finder":117,"../impl/polygon_util":118,"../impl/port":119,"../impl/railway":120,"../impl/scene_export":122,"../impl/zoning":128,"../util":141,"../vector":142,"./buildings":130,"./domain_controller":132,"./highway_gui":134,"./road_gui":137,"./style":138,"./water_gui":140}],137:[function(require,module,exports){
 "use strict";
 
 var __awaiter = void 0 && (void 0).__awaiter || function (thisArg, _arguments, P, generator) {
@@ -147519,7 +149198,7 @@ function () {
 
 exports["default"] = RoadGUI;
 
-},{"../impl/streamlines":121,"../util":139,"./domain_controller":130}],136:[function(require,module,exports){
+},{"../impl/streamlines":123,"../util":141,"./domain_controller":132}],138:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -147620,9 +149299,21 @@ var labeller_1 = require("./labeller");
 
 var points_of_interest_1 = require("../impl/points_of_interest");
 /**
- * Controls how screen-space data is drawn
+ * How high floating labels hover, in world units as the pseudo 3D view draws them.
+ * Clear of the tallest buildings, and the more important the place the higher
  */
 
+
+exports.FLOATING_LABEL_HEIGHT = {
+  neighbourhood: 75,
+  mall: 55,
+  river: 50,
+  park: 45,
+  apartments: 45
+};
+/**
+ * Controls how screen-space data is drawn
+ */
 
 var Style =
 /** @class */
@@ -147834,6 +149525,13 @@ function () {
     enumerable: true,
     configurable: true
   });
+  Object.defineProperty(Style.prototype, "floatingLabels", {
+    set: function set(b) {
+      this.colourScheme.floatingLabels = b;
+    },
+    enumerable: true,
+    configurable: true
+  });
   Object.defineProperty(Style.prototype, "showBuildingModels", {
     get: function get() {
       return this.colourScheme.buildingModels;
@@ -147865,6 +149563,160 @@ function () {
 }();
 
 exports["default"] = Style;
+/**
+ * Place names hovering over the city on stems, projected with the same camera as the
+ * pseudo 3D buildings so they lean and drift with them as the view moves
+ */
+
+function drawFloatingLabelsOn(canvas, labels, cs, domainController) {
+  var e_4, _a, e_5, _b, e_6, _c, e_7, _d, e_8, _e;
+
+  var screen = domainController.screenDimensions;
+  var labeller = new labeller_1["default"](canvas, screen.x, screen.y);
+  var fontFamily = cs.fontFamily || '"Noto Sans", "DejaVu Sans", "Helvetica Neue", Arial, sans-serif';
+  var halo = 'rgba(255,255,255,0.85)';
+  var looks = {
+    neighbourhood: {
+      size: 16,
+      fill: cs.placeLabelColour || '#4a4a4a',
+      extra: 'bold',
+      wrap: 14
+    },
+    mall: {
+      size: 13,
+      fill: cs.shopLabelColour || '#ac39ac',
+      extra: 'bold',
+      wrap: 16
+    },
+    river: {
+      size: 13,
+      fill: cs.waterLabelColour || '#4d80b3',
+      extra: 'italic',
+      wrap: 30
+    },
+    park: {
+      size: 12.5,
+      fill: cs.parkLabelColour || '#3c7a43',
+      extra: '',
+      wrap: 14
+    },
+    apartments: {
+      size: 11.5,
+      fill: '#555555',
+      extra: '',
+      wrap: 16
+    }
+  };
+  var order = ['neighbourhood', 'mall', 'river', 'park', 'apartments']; // Room is claimed most important first; stems are drawn under every label
+
+  var placed = [];
+
+  try {
+    for (var order_1 = __values(order), order_1_1 = order_1.next(); !order_1_1.done; order_1_1 = order_1.next()) {
+      var kind = order_1_1.value;
+      var look = looks[kind];
+      var labelStyle = {
+        font: (look.extra + " " + look.size + "px " + fontFamily).trim(),
+        size: look.size,
+        fill: look.fill,
+        halo: halo,
+        haloWidth: 3
+      };
+
+      try {
+        for (var labels_1 = (e_5 = void 0, __values(labels)), labels_1_1 = labels_1.next(); !labels_1_1.done; labels_1_1 = labels_1.next()) {
+          var l = labels_1_1.value;
+          if (l.kind !== kind) continue;
+          var top_1 = domainController.heightToScreen(l.at, exports.FLOATING_LABEL_HEIGHT[kind]); // The text sits just above the top of its stem
+
+          var at = new vector_1["default"](top_1.x, top_1.y - look.size);
+          var draw = labeller.placePoint(at, l.text, labelStyle, look.wrap);
+          if (draw !== null) placed.push({
+            ground: l.at,
+            top: top_1,
+            draw: draw
+          });
+        }
+      } catch (e_5_1) {
+        e_5 = {
+          error: e_5_1
+        };
+      } finally {
+        try {
+          if (labels_1_1 && !labels_1_1.done && (_b = labels_1["return"])) _b.call(labels_1);
+        } finally {
+          if (e_5) throw e_5.error;
+        }
+      }
+    }
+  } catch (e_4_1) {
+    e_4 = {
+      error: e_4_1
+    };
+  } finally {
+    try {
+      if (order_1_1 && !order_1_1.done && (_a = order_1["return"])) _a.call(order_1);
+    } finally {
+      if (e_4) throw e_4.error;
+    }
+  }
+
+  canvas.setStrokeStyle(cs.labelStemColour || 'rgba(70,70,70,0.45)');
+  canvas.setLineWidth(1);
+
+  try {
+    for (var placed_1 = __values(placed), placed_1_1 = placed_1.next(); !placed_1_1.done; placed_1_1 = placed_1.next()) {
+      var p = placed_1_1.value;
+      canvas.drawPolyline([p.ground, p.top]);
+    }
+  } catch (e_6_1) {
+    e_6 = {
+      error: e_6_1
+    };
+  } finally {
+    try {
+      if (placed_1_1 && !placed_1_1.done && (_c = placed_1["return"])) _c.call(placed_1);
+    } finally {
+      if (e_6) throw e_6.error;
+    }
+  }
+
+  canvas.setFillStyle(cs.labelStemColour || 'rgba(70,70,70,0.45)');
+
+  try {
+    for (var placed_2 = __values(placed), placed_2_1 = placed_2.next(); !placed_2_1.done; placed_2_1 = placed_2.next()) {
+      var p = placed_2_1.value;
+      canvas.drawSquare(p.ground, 3);
+    }
+  } catch (e_7_1) {
+    e_7 = {
+      error: e_7_1
+    };
+  } finally {
+    try {
+      if (placed_2_1 && !placed_2_1.done && (_d = placed_2["return"])) _d.call(placed_2);
+    } finally {
+      if (e_7) throw e_7.error;
+    }
+  }
+
+  try {
+    for (var placed_3 = __values(placed), placed_3_1 = placed_3.next(); !placed_3_1.done; placed_3_1 = placed_3.next()) {
+      var p = placed_3_1.value;
+      p.draw();
+    }
+  } catch (e_8_1) {
+    e_8 = {
+      error: e_8_1
+    };
+  } finally {
+    try {
+      if (placed_3_1 && !placed_3_1.done && (_e = placed_3["return"])) _e.call(placed_3);
+    } finally {
+      if (e_8) throw e_8.error;
+    }
+  }
+}
 
 var DefaultStyle =
 /** @class */
@@ -147895,8 +149747,12 @@ function (_super) {
     return new canvas_wrapper_1.DefaultCanvasWrapper(c, scale, resizeToWindow);
   };
 
+  DefaultStyle.prototype.drawFloatingLabels = function (canvas) {
+    drawFloatingLabelsOn(canvas, this.placeLabels, this.colourScheme, this.domainController);
+  };
+
   DefaultStyle.prototype.draw = function (canvas) {
-    var e_4, _a, e_5, _b, e_6, _c, e_7, _d, e_8, _e, e_9, _f, e_10, _g, e_11, _h, e_12, _j, e_13, _k, e_14, _l, e_15, _m, e_16, _o, e_17, _p, e_18, _q, e_19, _r, e_20, _s, e_21, _t, e_22, _u, e_23, _v, e_24, _w, e_25, _x, e_26, _y, e_27, _z, e_28, _0, e_29, _1, e_30, _2, e_31, _3, e_32, _4, e_33, _5, e_34, _6, e_35, _7, e_36, _8, e_37, _9, e_38, _10, e_39, _11, e_40, _12, e_41, _13, e_42, _14;
+    var e_9, _a, e_10, _b, e_11, _c, e_12, _d, e_13, _e, e_14, _f, e_15, _g, e_16, _h, e_17, _j, e_18, _k, e_19, _l, e_20, _m, e_21, _o, e_22, _p, e_23, _q, e_24, _r, e_25, _s, e_26, _t, e_27, _u, e_28, _v, e_29, _w, e_30, _x, e_31, _y, e_32, _z, e_33, _0, e_34, _1, e_35, _2, e_36, _3, e_37, _4, e_38, _5, e_39, _6, e_40, _7, e_41, _8, e_42, _9, e_43, _10, e_44, _11, e_45, _12, e_46, _13, e_47, _14;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -147932,15 +149788,15 @@ function (_super) {
         var p = _16.value;
         canvas.drawPolygon(p);
       }
-    } catch (e_4_1) {
-      e_4 = {
-        error: e_4_1
+    } catch (e_9_1) {
+      e_9 = {
+        error: e_9_1
       };
     } finally {
       try {
         if (_16 && !_16.done && (_a = _15["return"])) _a.call(_15);
       } finally {
-        if (e_4) throw e_4.error;
+        if (e_9) throw e_9.error;
       }
     }
 
@@ -147952,15 +149808,15 @@ function (_super) {
         var p = _18.value;
         canvas.drawPolygon(p);
       }
-    } catch (e_5_1) {
-      e_5 = {
-        error: e_5_1
+    } catch (e_10_1) {
+      e_10 = {
+        error: e_10_1
       };
     } finally {
       try {
         if (_18 && !_18.done && (_b = _17["return"])) _b.call(_17);
       } finally {
-        if (e_5) throw e_5.error;
+        if (e_10) throw e_10.error;
       }
     } // Parks
 
@@ -147973,15 +149829,15 @@ function (_super) {
         var p = _20.value;
         canvas.drawPolygon(p);
       }
-    } catch (e_6_1) {
-      e_6 = {
-        error: e_6_1
+    } catch (e_11_1) {
+      e_11 = {
+        error: e_11_1
       };
     } finally {
       try {
         if (_20 && !_20.done && (_c = _19["return"])) _c.call(_19);
       } finally {
-        if (e_6) throw e_6.error;
+        if (e_11) throw e_11.error;
       }
     } // Beaches, over any park that reaches the water
 
@@ -147995,15 +149851,15 @@ function (_super) {
           var b = _22.value;
           canvas.drawPolygon(b);
         }
-      } catch (e_7_1) {
-        e_7 = {
-          error: e_7_1
+      } catch (e_12_1) {
+        e_12 = {
+          error: e_12_1
         };
       } finally {
         try {
           if (_22 && !_22.done && (_d = _21["return"])) _d.call(_21);
         } finally {
-          if (e_7) throw e_7.error;
+          if (e_12) throw e_12.error;
         }
       }
     } // River
@@ -148019,15 +149875,15 @@ function (_super) {
         var l = _24.value;
         canvas.drawPolygon(l);
       }
-    } catch (e_8_1) {
-      e_8 = {
-        error: e_8_1
+    } catch (e_13_1) {
+      e_13 = {
+        error: e_13_1
       };
     } finally {
       try {
         if (_24 && !_24.done && (_e = _23["return"])) _e.call(_23);
       } finally {
-        if (e_8) throw e_8.error;
+        if (e_13) throw e_13.error;
       }
     }
 
@@ -148041,15 +149897,15 @@ function (_super) {
           var w = _26.value;
           canvas.drawPolygon(w);
         }
-      } catch (e_9_1) {
-        e_9 = {
-          error: e_9_1
+      } catch (e_14_1) {
+        e_14 = {
+          error: e_14_1
         };
       } finally {
         try {
           if (_26 && !_26.done && (_f = _25["return"])) _f.call(_25);
         } finally {
-          if (e_9) throw e_9.error;
+          if (e_14) throw e_14.error;
         }
       }
 
@@ -148061,15 +149917,15 @@ function (_super) {
           var b = _28.value;
           canvas.drawPolygon(b);
         }
-      } catch (e_10_1) {
-        e_10 = {
-          error: e_10_1
+      } catch (e_15_1) {
+        e_15 = {
+          error: e_15_1
         };
       } finally {
         try {
           if (_28 && !_28.done && (_g = _27["return"])) _g.call(_27);
         } finally {
-          if (e_10) throw e_10.error;
+          if (e_15) throw e_15.error;
         }
       } // Footpaths
 
@@ -148082,15 +149938,15 @@ function (_super) {
           var p = _30.value;
           canvas.drawPolyline(p);
         }
-      } catch (e_11_1) {
-        e_11 = {
-          error: e_11_1
+      } catch (e_16_1) {
+        e_16 = {
+          error: e_16_1
         };
       } finally {
         try {
           if (_30 && !_30.done && (_h = _29["return"])) _h.call(_29);
         } finally {
-          if (e_11) throw e_11.error;
+          if (e_16) throw e_16.error;
         }
       }
 
@@ -148099,15 +149955,15 @@ function (_super) {
           var p = _32.value;
           canvas.drawPolyline(p);
         }
-      } catch (e_12_1) {
-        e_12 = {
-          error: e_12_1
+      } catch (e_17_1) {
+        e_17 = {
+          error: e_17_1
         };
       } finally {
         try {
           if (_32 && !_32.done && (_j = _31["return"])) _j.call(_31);
         } finally {
-          if (e_12) throw e_12.error;
+          if (e_17) throw e_17.error;
         }
       }
 
@@ -148124,15 +149980,15 @@ function (_super) {
           var p = _34.value;
           canvas.drawPolygon(p);
         }
-      } catch (e_13_1) {
-        e_13 = {
-          error: e_13_1
+      } catch (e_18_1) {
+        e_18 = {
+          error: e_18_1
         };
       } finally {
         try {
           if (_34 && !_34.done && (_k = _33["return"])) _k.call(_33);
         } finally {
-          if (e_13) throw e_13.error;
+          if (e_18) throw e_18.error;
         }
       }
 
@@ -148144,15 +150000,15 @@ function (_super) {
           var p = _36.value;
           canvas.drawPolygon(p);
         }
-      } catch (e_14_1) {
-        e_14 = {
-          error: e_14_1
+      } catch (e_19_1) {
+        e_19 = {
+          error: e_19_1
         };
       } finally {
         try {
           if (_36 && !_36.done && (_l = _35["return"])) _l.call(_35);
         } finally {
-          if (e_14) throw e_14.error;
+          if (e_19) throw e_19.error;
         }
       }
     } // Road outline
@@ -148166,15 +150022,15 @@ function (_super) {
         var s = _38.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_15_1) {
-      e_15 = {
-        error: e_15_1
+    } catch (e_20_1) {
+      e_20 = {
+        error: e_20_1
       };
     } finally {
       try {
         if (_38 && !_38.done && (_m = _37["return"])) _m.call(_37);
       } finally {
-        if (e_15) throw e_15.error;
+        if (e_20) throw e_20.error;
       }
     }
 
@@ -148183,15 +150039,15 @@ function (_super) {
         var s = _40.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_16_1) {
-      e_16 = {
-        error: e_16_1
+    } catch (e_21_1) {
+      e_21 = {
+        error: e_21_1
       };
     } finally {
       try {
         if (_40 && !_40.done && (_o = _39["return"])) _o.call(_39);
       } finally {
-        if (e_16) throw e_16.error;
+        if (e_21) throw e_21.error;
       }
     }
 
@@ -148200,15 +150056,15 @@ function (_super) {
         var s = _42.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_17_1) {
-      e_17 = {
-        error: e_17_1
+    } catch (e_22_1) {
+      e_22 = {
+        error: e_22_1
       };
     } finally {
       try {
         if (_42 && !_42.done && (_p = _41["return"])) _p.call(_41);
       } finally {
-        if (e_17) throw e_17.error;
+        if (e_22) throw e_22.error;
       }
     }
 
@@ -148220,15 +150076,15 @@ function (_super) {
         var s = _44.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_18_1) {
-      e_18 = {
-        error: e_18_1
+    } catch (e_23_1) {
+      e_23 = {
+        error: e_23_1
       };
     } finally {
       try {
         if (_44 && !_44.done && (_q = _43["return"])) _q.call(_43);
       } finally {
-        if (e_18) throw e_18.error;
+        if (e_23) throw e_23.error;
       }
     }
 
@@ -148241,15 +150097,15 @@ function (_super) {
         var s = _46.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_19_1) {
-      e_19 = {
-        error: e_19_1
+    } catch (e_24_1) {
+      e_24 = {
+        error: e_24_1
       };
     } finally {
       try {
         if (_46 && !_46.done && (_r = _45["return"])) _r.call(_45);
       } finally {
-        if (e_19) throw e_19.error;
+        if (e_24) throw e_24.error;
       }
     }
 
@@ -148258,15 +150114,15 @@ function (_super) {
         var s = _48.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_20_1) {
-      e_20 = {
-        error: e_20_1
+    } catch (e_25_1) {
+      e_25 = {
+        error: e_25_1
       };
     } finally {
       try {
         if (_48 && !_48.done && (_s = _47["return"])) _s.call(_47);
       } finally {
-        if (e_20) throw e_20.error;
+        if (e_25) throw e_25.error;
       }
     } // Road inline
 
@@ -148279,15 +150135,15 @@ function (_super) {
         var s = _50.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_21_1) {
-      e_21 = {
-        error: e_21_1
+    } catch (e_26_1) {
+      e_26 = {
+        error: e_26_1
       };
     } finally {
       try {
         if (_50 && !_50.done && (_t = _49["return"])) _t.call(_49);
       } finally {
-        if (e_21) throw e_21.error;
+        if (e_26) throw e_26.error;
       }
     }
 
@@ -148296,15 +150152,15 @@ function (_super) {
         var s = _52.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_22_1) {
-      e_22 = {
-        error: e_22_1
+    } catch (e_27_1) {
+      e_27 = {
+        error: e_27_1
       };
     } finally {
       try {
         if (_52 && !_52.done && (_u = _51["return"])) _u.call(_51);
       } finally {
-        if (e_22) throw e_22.error;
+        if (e_27) throw e_27.error;
       }
     }
 
@@ -148313,15 +150169,15 @@ function (_super) {
         var s = _54.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_23_1) {
-      e_23 = {
-        error: e_23_1
+    } catch (e_28_1) {
+      e_28 = {
+        error: e_28_1
       };
     } finally {
       try {
         if (_54 && !_54.done && (_v = _53["return"])) _v.call(_53);
       } finally {
-        if (e_23) throw e_23.error;
+        if (e_28) throw e_28.error;
       }
     }
 
@@ -148332,15 +150188,15 @@ function (_super) {
         var s = _56.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_24_1) {
-      e_24 = {
-        error: e_24_1
+    } catch (e_29_1) {
+      e_29 = {
+        error: e_29_1
       };
     } finally {
       try {
         if (_56 && !_56.done && (_w = _55["return"])) _w.call(_55);
       } finally {
-        if (e_24) throw e_24.error;
+        if (e_29) throw e_29.error;
       }
     }
 
@@ -148352,15 +150208,15 @@ function (_super) {
         var s = _58.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_25_1) {
-      e_25 = {
-        error: e_25_1
+    } catch (e_30_1) {
+      e_30 = {
+        error: e_30_1
       };
     } finally {
       try {
         if (_58 && !_58.done && (_x = _57["return"])) _x.call(_57);
       } finally {
-        if (e_25) throw e_25.error;
+        if (e_30) throw e_30.error;
       }
     }
 
@@ -148373,15 +150229,15 @@ function (_super) {
         var s = _60.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_26_1) {
-      e_26 = {
-        error: e_26_1
+    } catch (e_31_1) {
+      e_31 = {
+        error: e_31_1
       };
     } finally {
       try {
         if (_60 && !_60.done && (_y = _59["return"])) _y.call(_59);
       } finally {
-        if (e_26) throw e_26.error;
+        if (e_31) throw e_31.error;
       }
     }
 
@@ -148390,15 +150246,15 @@ function (_super) {
         var s = _62.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_27_1) {
-      e_27 = {
-        error: e_27_1
+    } catch (e_32_1) {
+      e_32 = {
+        error: e_32_1
       };
     } finally {
       try {
         if (_62 && !_62.done && (_z = _61["return"])) _z.call(_61);
       } finally {
-        if (e_27) throw e_27.error;
+        if (e_32) throw e_32.error;
       }
     } // Railways
 
@@ -148411,15 +150267,15 @@ function (_super) {
         var r = _64.value;
         canvas.drawPolyline(r);
       }
-    } catch (e_28_1) {
-      e_28 = {
-        error: e_28_1
+    } catch (e_33_1) {
+      e_33 = {
+        error: e_33_1
       };
     } finally {
       try {
         if (_64 && !_64.done && (_0 = _63["return"])) _0.call(_63);
       } finally {
-        if (e_28) throw e_28.error;
+        if (e_33) throw e_33.error;
       }
     } // Highways go over everything else
 
@@ -148433,15 +150289,15 @@ function (_super) {
         var s = _66.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_29_1) {
-      e_29 = {
-        error: e_29_1
+    } catch (e_34_1) {
+      e_34 = {
+        error: e_34_1
       };
     } finally {
       try {
         if (_66 && !_66.done && (_1 = _65["return"])) _1.call(_65);
       } finally {
-        if (e_29) throw e_29.error;
+        if (e_34) throw e_34.error;
       }
     }
 
@@ -148453,15 +150309,15 @@ function (_super) {
         var s = _68.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_30_1) {
-      e_30 = {
-        error: e_30_1
+    } catch (e_35_1) {
+      e_35 = {
+        error: e_35_1
       };
     } finally {
       try {
         if (_68 && !_68.done && (_2 = _67["return"])) _2.call(_67);
       } finally {
-        if (e_30) throw e_30.error;
+        if (e_35) throw e_35.error;
       }
     }
 
@@ -148473,15 +150329,15 @@ function (_super) {
         var s = _70.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_31_1) {
-      e_31 = {
-        error: e_31_1
+    } catch (e_36_1) {
+      e_36 = {
+        error: e_36_1
       };
     } finally {
       try {
         if (_70 && !_70.done && (_3 = _69["return"])) _3.call(_69);
       } finally {
-        if (e_31) throw e_31.error;
+        if (e_36) throw e_36.error;
       }
     }
 
@@ -148493,15 +150349,15 @@ function (_super) {
         var s = _72.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_32_1) {
-      e_32 = {
-        error: e_32_1
+    } catch (e_37_1) {
+      e_37 = {
+        error: e_37_1
       };
     } finally {
       try {
         if (_72 && !_72.done && (_4 = _71["return"])) _4.call(_71);
       } finally {
-        if (e_32) throw e_32.error;
+        if (e_37) throw e_37.error;
       }
     } // Central reservation of a dual carriageway
 
@@ -148514,15 +150370,15 @@ function (_super) {
         var s = _74.value;
         canvas.drawPolyline(s);
       }
-    } catch (e_33_1) {
-      e_33 = {
-        error: e_33_1
+    } catch (e_38_1) {
+      e_38 = {
+        error: e_38_1
       };
     } finally {
       try {
         if (_74 && !_74.done && (_5 = _73["return"])) _5.call(_73);
       } finally {
-        if (e_33) throw e_33.error;
+        if (e_38) throw e_38.error;
       }
     }
 
@@ -148547,15 +150403,15 @@ function (_super) {
 
           _loop_1(b);
         }
-      } catch (e_34_1) {
-        e_34 = {
-          error: e_34_1
+      } catch (e_39_1) {
+        e_39 = {
+          error: e_39_1
         };
       } finally {
         try {
           if (_76 && !_76.done && (_6 = _75["return"])) _6.call(_75);
         } finally {
-          if (e_34) throw e_34.error;
+          if (e_39) throw e_39.error;
         }
       }
     } else {
@@ -148569,15 +150425,15 @@ function (_super) {
             var b = _78.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_35_1) {
-          e_35 = {
-            error: e_35_1
+        } catch (e_40_1) {
+          e_40 = {
+            error: e_40_1
           };
         } finally {
           try {
             if (_78 && !_78.done && (_7 = _77["return"])) _7.call(_77);
           } finally {
-            if (e_35) throw e_35.error;
+            if (e_40) throw e_40.error;
           }
         }
 
@@ -148586,15 +150442,15 @@ function (_super) {
             var b = _80.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_36_1) {
-          e_36 = {
-            error: e_36_1
+        } catch (e_41_1) {
+          e_41 = {
+            error: e_41_1
           };
         } finally {
           try {
             if (_80 && !_80.done && (_8 = _79["return"])) _8.call(_79);
           } finally {
-            if (e_36) throw e_36.error;
+            if (e_41) throw e_41.error;
           }
         }
 
@@ -148605,15 +150461,15 @@ function (_super) {
             var f = _82.value;
             canvas.drawPolyline(f);
           }
-        } catch (e_37_1) {
-          e_37 = {
-            error: e_37_1
+        } catch (e_42_1) {
+          e_42 = {
+            error: e_42_1
           };
         } finally {
           try {
             if (_82 && !_82.done && (_9 = _81["return"])) _9.call(_81);
           } finally {
-            if (e_37) throw e_37.error;
+            if (e_42) throw e_42.error;
           }
         }
 
@@ -148625,15 +150481,15 @@ function (_super) {
             var b = _84.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_38_1) {
-          e_38 = {
-            error: e_38_1
+        } catch (e_43_1) {
+          e_43 = {
+            error: e_43_1
           };
         } finally {
           try {
             if (_84 && !_84.done && (_10 = _83["return"])) _10.call(_83);
           } finally {
-            if (e_38) throw e_38.error;
+            if (e_43) throw e_43.error;
           }
         }
 
@@ -148644,15 +150500,15 @@ function (_super) {
             var b = _86.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_39_1) {
-          e_39 = {
-            error: e_39_1
+        } catch (e_44_1) {
+          e_44 = {
+            error: e_44_1
           };
         } finally {
           try {
             if (_86 && !_86.done && (_11 = _85["return"])) _11.call(_85);
           } finally {
-            if (e_39) throw e_39.error;
+            if (e_44) throw e_44.error;
           }
         }
       } // Pseudo-3D
@@ -148669,31 +150525,31 @@ function (_super) {
             var b = _88.value;
 
             try {
-              for (var _89 = (e_41 = void 0, __values(b.sides)), _90 = _89.next(); !_90.done; _90 = _89.next()) {
+              for (var _89 = (e_46 = void 0, __values(b.sides)), _90 = _89.next(); !_90.done; _90 = _89.next()) {
                 var s = _90.value;
                 canvas.drawPolygon(s);
               }
-            } catch (e_41_1) {
-              e_41 = {
-                error: e_41_1
+            } catch (e_46_1) {
+              e_46 = {
+                error: e_46_1
               };
             } finally {
               try {
                 if (_90 && !_90.done && (_13 = _89["return"])) _13.call(_89);
               } finally {
-                if (e_41) throw e_41.error;
+                if (e_46) throw e_46.error;
               }
             }
           }
-        } catch (e_40_1) {
-          e_40 = {
-            error: e_40_1
+        } catch (e_45_1) {
+          e_45 = {
+            error: e_45_1
           };
         } finally {
           try {
             if (_88 && !_88.done && (_12 = _87["return"])) _12.call(_87);
           } finally {
-            if (e_40) throw e_40.error;
+            if (e_45) throw e_45.error;
           }
         }
 
@@ -148705,18 +150561,20 @@ function (_super) {
             canvas.setFillStyle(this.roofColour(b.zone));
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_42_1) {
-          e_42 = {
-            error: e_42_1
+        } catch (e_47_1) {
+          e_47 = {
+            error: e_47_1
           };
         } finally {
           try {
             if (_92 && !_92.done && (_14 = _91["return"])) _14.call(_91);
           } finally {
-            if (e_42) throw e_42.error;
+            if (e_47) throw e_47.error;
           }
         }
       }
+
+      if (this.colourScheme.floatingLabels) this.drawFloatingLabels(canvas);
     }
 
     if (this.showFrame) {
@@ -148764,7 +150622,7 @@ function (_super) {
   };
 
   RoughStyle.prototype.draw = function (canvas) {
-    var e_43, _a, e_44, _b, e_45, _c, e_46, _d, e_47, _e, e_48, _f, e_49, _g, e_50, _h, e_51, _j;
+    var e_48, _a, e_49, _b, e_50, _c, e_51, _d, e_52, _e, e_53, _f, e_54, _g, e_55, _h, e_56, _j;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -148950,15 +150808,15 @@ function (_super) {
             var b = _l.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_43_1) {
-          e_43 = {
-            error: e_43_1
+        } catch (e_48_1) {
+          e_48 = {
+            error: e_48_1
           };
         } finally {
           try {
             if (_l && !_l.done && (_a = _k["return"])) _a.call(_k);
           } finally {
-            if (e_43) throw e_43.error;
+            if (e_48) throw e_48.error;
           }
         }
 
@@ -148967,15 +150825,15 @@ function (_super) {
             var b = _o.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_44_1) {
-          e_44 = {
-            error: e_44_1
+        } catch (e_49_1) {
+          e_49 = {
+            error: e_49_1
           };
         } finally {
           try {
             if (_o && !_o.done && (_b = _m["return"])) _b.call(_m);
           } finally {
-            if (e_44) throw e_44.error;
+            if (e_49) throw e_49.error;
           }
         }
 
@@ -148984,15 +150842,15 @@ function (_super) {
             var b = _q.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_45_1) {
-          e_45 = {
-            error: e_45_1
+        } catch (e_50_1) {
+          e_50 = {
+            error: e_50_1
           };
         } finally {
           try {
             if (_q && !_q.done && (_c = _p["return"])) _c.call(_p);
           } finally {
-            if (e_45) throw e_45.error;
+            if (e_50) throw e_50.error;
           }
         }
 
@@ -149001,15 +150859,15 @@ function (_super) {
             var b = _s.value;
             canvas.drawPolygon(b);
           }
-        } catch (e_46_1) {
-          e_46 = {
-            error: e_46_1
+        } catch (e_51_1) {
+          e_51 = {
+            error: e_51_1
           };
         } finally {
           try {
             if (_s && !_s.done && (_d = _r["return"])) _d.call(_r);
           } finally {
-            if (e_46) throw e_46.error;
+            if (e_51) throw e_51.error;
           }
         }
 
@@ -149022,15 +150880,15 @@ function (_super) {
             var f = _u.value;
             canvas.drawPolyline(f);
           }
-        } catch (e_47_1) {
-          e_47 = {
-            error: e_47_1
+        } catch (e_52_1) {
+          e_52 = {
+            error: e_52_1
           };
         } finally {
           try {
             if (_u && !_u.done && (_e = _t["return"])) _e.call(_t);
           } finally {
-            if (e_47) throw e_47.error;
+            if (e_52) throw e_52.error;
           }
         }
       } // Pseudo-3D
@@ -149053,32 +150911,32 @@ function (_super) {
             var b = _w.value;
 
             try {
-              for (var _x = (e_49 = void 0, __values(b.sides)), _y = _x.next(); !_y.done; _y = _x.next()) {
+              for (var _x = (e_54 = void 0, __values(b.sides)), _y = _x.next(); !_y.done; _y = _x.next()) {
                 var s = _y.value;
                 var averagePoint = s[0].clone().add(s[1]).divideScalar(2);
                 allSidesDistances.push([averagePoint.distanceToSquared(camera), s]);
               }
-            } catch (e_49_1) {
-              e_49 = {
-                error: e_49_1
+            } catch (e_54_1) {
+              e_54 = {
+                error: e_54_1
               };
             } finally {
               try {
                 if (_y && !_y.done && (_g = _x["return"])) _g.call(_x);
               } finally {
-                if (e_49) throw e_49.error;
+                if (e_54) throw e_54.error;
               }
             }
           }
-        } catch (e_48_1) {
-          e_48 = {
-            error: e_48_1
+        } catch (e_53_1) {
+          e_53 = {
+            error: e_53_1
           };
         } finally {
           try {
             if (_w && !_w.done && (_f = _v["return"])) _f.call(_v);
           } finally {
-            if (e_48) throw e_48.error;
+            if (e_53) throw e_53.error;
           }
         }
 
@@ -149091,15 +150949,15 @@ function (_super) {
             var p = allSidesDistances_1_1.value;
             canvas.drawPolygon(p[1]);
           }
-        } catch (e_50_1) {
-          e_50 = {
-            error: e_50_1
+        } catch (e_55_1) {
+          e_55 = {
+            error: e_55_1
           };
         } finally {
           try {
             if (allSidesDistances_1_1 && !allSidesDistances_1_1.done && (_h = allSidesDistances_1["return"])) _h.call(allSidesDistances_1);
           } finally {
-            if (e_50) throw e_50.error;
+            if (e_55) throw e_55.error;
           }
         }
 
@@ -149115,15 +150973,15 @@ function (_super) {
             var b = _0.value;
             canvas.drawPolygon(b.roof);
           }
-        } catch (e_51_1) {
-          e_51 = {
-            error: e_51_1
+        } catch (e_56_1) {
+          e_56 = {
+            error: e_56_1
           };
         } finally {
           try {
             if (_0 && !_0.done && (_j = _z["return"])) _j.call(_z);
           } finally {
-            if (e_51) throw e_51.error;
+            if (e_56) throw e_56.error;
           }
         }
       }
@@ -149179,7 +151037,7 @@ function (_super) {
 
 
   OsmStyle.prototype.waterMask = function (width, height) {
-    var e_52, _a, e_53, _b;
+    var e_57, _a, e_58, _b;
 
     var c = document.createElement('canvas');
     c.width = Math.ceil(width);
@@ -149195,34 +151053,34 @@ function (_super) {
         ctx.moveTo(poly[0].x, poly[0].y);
 
         try {
-          for (var poly_1 = (e_53 = void 0, __values(poly)), poly_1_1 = poly_1.next(); !poly_1_1.done; poly_1_1 = poly_1.next()) {
+          for (var poly_1 = (e_58 = void 0, __values(poly)), poly_1_1 = poly_1.next(); !poly_1_1.done; poly_1_1 = poly_1.next()) {
             var v = poly_1_1.value;
             ctx.lineTo(v.x, v.y);
           }
-        } catch (e_53_1) {
-          e_53 = {
-            error: e_53_1
+        } catch (e_58_1) {
+          e_58 = {
+            error: e_58_1
           };
         } finally {
           try {
             if (poly_1_1 && !poly_1_1.done && (_b = poly_1["return"])) _b.call(poly_1);
           } finally {
-            if (e_53) throw e_53.error;
+            if (e_58) throw e_58.error;
           }
         }
 
         ctx.closePath();
         ctx.fill();
       }
-    } catch (e_52_1) {
-      e_52 = {
-        error: e_52_1
+    } catch (e_57_1) {
+      e_57 = {
+        error: e_57_1
       };
     } finally {
       try {
         if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
       } finally {
-        if (e_52) throw e_52.error;
+        if (e_57) throw e_57.error;
       }
     }
 
@@ -149279,7 +151137,7 @@ function (_super) {
   };
 
   OsmStyle.prototype.strokeAll = function (canvas, lines, colour, width) {
-    var e_54, _a;
+    var e_59, _a;
 
     canvas.setStrokeStyle(colour);
     canvas.setLineWidth(width);
@@ -149289,21 +151147,21 @@ function (_super) {
         var l = lines_1_1.value;
         canvas.drawPolyline(l);
       }
-    } catch (e_54_1) {
-      e_54 = {
-        error: e_54_1
+    } catch (e_59_1) {
+      e_59 = {
+        error: e_59_1
       };
     } finally {
       try {
         if (lines_1_1 && !lines_1_1.done && (_a = lines_1["return"])) _a.call(lines_1);
       } finally {
-        if (e_54) throw e_54.error;
+        if (e_59) throw e_59.error;
       }
     }
   };
 
   OsmStyle.prototype.draw = function (canvas) {
-    var e_55, _a, e_56, _b, e_57, _c, e_58, _d, e_59, _e, e_60, _f;
+    var e_60, _a, e_61, _b, e_62, _c, e_63, _d, e_64, _e, e_65, _f;
 
     if (canvas === void 0) {
       canvas = this.canvas;
@@ -149317,7 +151175,7 @@ function (_super) {
     canvas.clearCanvas();
 
     var fillAll = function fillAll(polygons, colour, stroke, width) {
-      var e_61, _a;
+      var e_66, _a;
 
       if (stroke === void 0) {
         stroke = colour;
@@ -149336,15 +151194,15 @@ function (_super) {
           var p = polygons_1_1.value;
           if (p.length >= 3) canvas.drawPolygon(p);
         }
-      } catch (e_61_1) {
-        e_61 = {
-          error: e_61_1
+      } catch (e_66_1) {
+        e_66 = {
+          error: e_66_1
         };
       } finally {
         try {
           if (polygons_1_1 && !polygons_1_1.done && (_a = polygons_1["return"])) _a.call(polygons_1);
         } finally {
-          if (e_61) throw e_61.error;
+          if (e_66) throw e_66.error;
         }
       }
     }; // Land use. Like OpenStreetMap's residential areas, it covers whole neighbourhoods,
@@ -149371,15 +151229,15 @@ function (_super) {
         var w_1 = _h.value;
         canvas.drawPolygon(w_1);
       }
-    } catch (e_55_1) {
-      e_55 = {
-        error: e_55_1
+    } catch (e_60_1) {
+      e_60 = {
+        error: e_60_1
       };
     } finally {
       try {
         if (_h && !_h.done && (_a = _g["return"])) _a.call(_g);
       } finally {
-        if (e_55) throw e_55.error;
+        if (e_60) throw e_60.error;
       }
     } // Water
 
@@ -149470,15 +151328,15 @@ function (_super) {
         var c = classes_1_1.value;
         this.strokeAll(canvas, c.lines, c.casing, c.width + c.casingWidth);
       }
-    } catch (e_56_1) {
-      e_56 = {
-        error: e_56_1
+    } catch (e_61_1) {
+      e_61 = {
+        error: e_61_1
       };
     } finally {
       try {
         if (classes_1_1 && !classes_1_1.done && (_b = classes_1["return"])) _b.call(classes_1);
       } finally {
-        if (e_56) throw e_56.error;
+        if (e_61) throw e_61.error;
       }
     }
 
@@ -149487,15 +151345,15 @@ function (_super) {
         var c = classes_2_1.value;
         this.strokeAll(canvas, c.lines, c.fill, c.width);
       }
-    } catch (e_57_1) {
-      e_57 = {
-        error: e_57_1
+    } catch (e_62_1) {
+      e_62 = {
+        error: e_62_1
       };
     } finally {
       try {
         if (classes_2_1 && !classes_2_1.done && (_c = classes_2["return"])) _c.call(classes_2);
       } finally {
-        if (e_57) throw e_57.error;
+        if (e_62) throw e_62.error;
       }
     } // Railway: grey with white dashes, over the smaller roads it crosses
 
@@ -149508,15 +151366,15 @@ function (_super) {
         var r = _k.value;
         railBridges.push.apply(railBridges, __spread(OsmStyle.bridgeRuns(r, wet)));
       }
-    } catch (e_58_1) {
-      e_58 = {
-        error: e_58_1
+    } catch (e_63_1) {
+      e_63 = {
+        error: e_63_1
       };
     } finally {
       try {
         if (_k && !_k.done && (_d = _j["return"])) _d.call(_j);
       } finally {
-        if (e_58) throw e_58.error;
+        if (e_63) throw e_63.error;
       }
     }
 
@@ -149548,19 +151406,19 @@ function (_super) {
         var runs = [];
 
         try {
-          for (var _l = (e_60 = void 0, __values(c.lines)), _m = _l.next(); !_m.done; _m = _l.next()) {
+          for (var _l = (e_65 = void 0, __values(c.lines)), _m = _l.next(); !_m.done; _m = _l.next()) {
             var l = _m.value;
             runs.push.apply(runs, __spread(OsmStyle.bridgeRuns(l, wet)));
           }
-        } catch (e_60_1) {
-          e_60 = {
-            error: e_60_1
+        } catch (e_65_1) {
+          e_65 = {
+            error: e_65_1
           };
         } finally {
           try {
             if (_m && !_m.done && (_f = _l["return"])) _f.call(_l);
           } finally {
-            if (e_60) throw e_60.error;
+            if (e_65) throw e_65.error;
           }
         }
 
@@ -149573,15 +151431,15 @@ function (_super) {
           this.strokeAll(canvas, runs, cs.highwayOutline, Math.max(1.5, 0.16 * hw));
         }
       }
-    } catch (e_59_1) {
-      e_59 = {
-        error: e_59_1
+    } catch (e_64_1) {
+      e_64 = {
+        error: e_64_1
       };
     } finally {
       try {
         if (classes_3_1 && !classes_3_1.done && (_e = classes_3["return"])) _e.call(classes_3);
       } finally {
-        if (e_59) throw e_59.error;
+        if (e_64) throw e_64.error;
       }
     }
 
@@ -149603,7 +151461,7 @@ function (_super) {
 
     for (var x = 60; x < width - 60; x += 24) {
       var _loop_2 = function _loop_2(y) {
-        var e_62, _a;
+        var e_67, _a;
 
         var p = new vector_1["default"](x, y);
         if (!polygon_util_1["default"].insidePolygon(p, this_2.seaPolygon)) return "continue";
@@ -149613,21 +151471,21 @@ function (_super) {
         var d = Infinity;
 
         try {
-          for (var shore_1 = (e_62 = void 0, __values(shore)), shore_1_1 = shore_1.next(); !shore_1_1.done; shore_1_1 = shore_1.next()) {
+          for (var shore_1 = (e_67 = void 0, __values(shore)), shore_1_1 = shore_1.next(); !shore_1_1.done; shore_1_1 = shore_1.next()) {
             var v = shore_1_1.value; // Edges of the screen count as shore, so the label stays in view
 
             if (v.x < 0 || v.y < 0 || v.x > width || v.y > height) continue;
             d = Math.min(d, v.distanceToSquared(p));
           }
-        } catch (e_62_1) {
-          e_62 = {
-            error: e_62_1
+        } catch (e_67_1) {
+          e_67 = {
+            error: e_67_1
           };
         } finally {
           try {
             if (shore_1_1 && !shore_1_1.done && (_a = shore_1["return"])) _a.call(shore_1);
           } finally {
-            if (e_62) throw e_62.error;
+            if (e_67) throw e_67.error;
           }
         }
 
@@ -149650,7 +151508,7 @@ function (_super) {
   };
 
   OsmStyle.prototype.drawLabels = function (canvas) {
-    var e_63, _a, e_64, _b, e_65, _c, e_66, _d, e_67, _e;
+    var e_68, _a, e_69, _b, e_70, _c, e_71, _d, e_72, _e;
 
     var names = this.names;
     if (!names) return;
@@ -149711,15 +151569,15 @@ function (_super) {
         var l = _g.value;
         if (l.kind === 'mall') labeller.labelPoint(l.at, l.text, style(11.5, cs.shopLabelColour, 'bold', 0, 1.5), 16);
       }
-    } catch (e_63_1) {
-      e_63 = {
-        error: e_63_1
+    } catch (e_68_1) {
+      e_68 = {
+        error: e_68_1
       };
     } finally {
       try {
         if (_g && !_g.done && (_a = _f["return"])) _a.call(_f);
       } finally {
-        if (e_63) throw e_63.error;
+        if (e_68) throw e_68.error;
       }
     }
 
@@ -149732,29 +151590,29 @@ function (_super) {
     };
 
     var _loop_3 = function _loop_3(lot) {
-      var e_68, _a;
+      var e_73, _a;
 
       if (polygon_util_1["default"].calcPolygonArea(lot) < 3000) return "continue"; // In the open part of the car park, towards the street
 
       var c = polygon_util_1["default"].averagePoint(lot);
 
       try {
-        for (var _b = (e_68 = void 0, __values(lot.filter(function (_, i) {
+        for (var _b = (e_73 = void 0, __values(lot.filter(function (_, i) {
           return i % Math.max(1, Math.floor(lot.length / 6)) === 0;
         }))), _c = _b.next(); !_c.done; _c = _b.next()) {
           var p = _c.value;
           var at = c.clone().add(p.clone().sub(c).multiplyScalar(0.6));
           if (labeller.labelPoint(at, 'P', parkingStyle)) break;
         }
-      } catch (e_68_1) {
-        e_68 = {
-          error: e_68_1
+      } catch (e_73_1) {
+        e_73 = {
+          error: e_73_1
         };
       } finally {
         try {
           if (_c && !_c.done && (_a = _b["return"])) _a.call(_b);
         } finally {
-          if (e_68) throw e_68.error;
+          if (e_73) throw e_73.error;
         }
       }
     };
@@ -149765,15 +151623,15 @@ function (_super) {
 
         _loop_3(lot);
       }
-    } catch (e_64_1) {
-      e_64 = {
-        error: e_64_1
+    } catch (e_69_1) {
+      e_69 = {
+        error: e_69_1
       };
     } finally {
       try {
         if (_j && !_j.done && (_b = _h["return"])) _b.call(_h);
       } finally {
-        if (e_64) throw e_64.error;
+        if (e_69) throw e_69.error;
       }
     }
 
@@ -149786,15 +151644,15 @@ function (_super) {
           labeller.labelPoint(l.at, l.text, style(13, cs.placeLabelColour, '', 0, 1.5), 12);
         }
       }
-    } catch (e_65_1) {
-      e_65 = {
-        error: e_65_1
+    } catch (e_70_1) {
+      e_70 = {
+        error: e_70_1
       };
     } finally {
       try {
         if (_l && !_l.done && (_c = _k["return"])) _c.call(_k);
       } finally {
-        if (e_65) throw e_65.error;
+        if (e_70) throw e_70.error;
       }
     } // River
 
@@ -149833,15 +151691,15 @@ function (_super) {
         var l = _o.value;
         if (l.kind === 'park') labeller.labelPoint(l.at, l.text, style(11, cs.parkLabelColour, '', 0, 1.2), 14);
       }
-    } catch (e_66_1) {
-      e_66 = {
-        error: e_66_1
+    } catch (e_71_1) {
+      e_71 = {
+        error: e_71_1
       };
     } finally {
       try {
         if (_o && !_o.done && (_d = _m["return"])) _d.call(_m);
       } finally {
-        if (e_66) throw e_66.error;
+        if (e_71) throw e_71.error;
       }
     }
 
@@ -149850,15 +151708,15 @@ function (_super) {
         var l = _q.value;
         if (l.kind === 'apartments') labeller.labelPoint(l.at, l.text, style(10, '#555555', '', 0, 1.2), 16);
       }
-    } catch (e_67_1) {
-      e_67 = {
-        error: e_67_1
+    } catch (e_72_1) {
+      e_72 = {
+        error: e_72_1
       };
     } finally {
       try {
         if (_q && !_q.done && (_e = _p["return"])) _e.call(_p);
       } finally {
-        if (e_67) throw e_67.error;
+        if (e_72) throw e_72.error;
       }
     }
 
@@ -149870,7 +151728,7 @@ function (_super) {
 
 
   OsmStyle.prototype.drawPointsOfInterest = function (canvas, labeller) {
-    var e_69, _a, e_70, _b;
+    var e_74, _a, e_75, _b;
 
     var zoom = this.domainController.zoom;
     var poi = points_of_interest_1["default"].select(this.residentialAreas, this.lots, this.industrialAreas, 60 * zoom);
@@ -149886,15 +151744,15 @@ function (_super) {
         canvas.drawPolyline([new vector_1["default"](at.x, at.y - 5.5), new vector_1["default"](at.x, at.y + 5.5)]);
         canvas.drawPolyline([new vector_1["default"](at.x - 3.5, at.y - 2), new vector_1["default"](at.x + 3.5, at.y - 2)]);
       }
-    } catch (e_69_1) {
-      e_69 = {
-        error: e_69_1
+    } catch (e_74_1) {
+      e_74 = {
+        error: e_74_1
       };
     } finally {
       try {
         if (_d && !_d.done && (_a = _c["return"])) _a.call(_c);
       } finally {
-        if (e_69) throw e_69.error;
+        if (e_74) throw e_74.error;
       }
     } // Car parks: a blue P
 
@@ -149912,15 +151770,15 @@ function (_super) {
         var p = _f.value;
         labeller.labelPoint(p, 'P', parking);
       }
-    } catch (e_70_1) {
-      e_70 = {
-        error: e_70_1
+    } catch (e_75_1) {
+      e_75 = {
+        error: e_75_1
       };
     } finally {
       try {
         if (_f && !_f.done && (_b = _e["return"])) _b.call(_e);
       } finally {
-        if (e_70) throw e_70.error;
+        if (e_75) throw e_75.error;
       }
     }
   };
@@ -149930,7 +151788,7 @@ function (_super) {
 
 exports.OsmStyle = OsmStyle;
 
-},{"../impl/points_of_interest":115,"../impl/polygon_util":117,"../util":139,"../vector":140,"./canvas_wrapper":129,"./domain_controller":130,"./labeller":133,"loglevel":54}],137:[function(require,module,exports){
+},{"../impl/points_of_interest":116,"../impl/polygon_util":118,"../util":141,"../vector":142,"./canvas_wrapper":131,"./domain_controller":132,"./labeller":135,"loglevel":54}],139:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -150163,7 +152021,7 @@ function (_super) {
 
 exports["default"] = TensorFieldGUI;
 
-},{"../impl/tensor_field":123,"../util":139,"../vector":140,"./domain_controller":130}],138:[function(require,module,exports){
+},{"../impl/tensor_field":125,"../util":141,"../vector":142,"./domain_controller":132}],140:[function(require,module,exports){
 "use strict";
 
 var __extends = void 0 && (void 0).__extends || function () {
@@ -150473,7 +152331,7 @@ function (_super) {
 
 exports["default"] = WaterGUI;
 
-},{"../impl/water_generator":124,"../util":139,"./road_gui":135}],139:[function(require,module,exports){
+},{"../impl/water_generator":126,"../util":141,"./road_gui":137}],141:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -150812,7 +152670,7 @@ function () {
 
 exports["default"] = Util;
 
-},{}],140:[function(require,module,exports){
+},{}],142:[function(require,module,exports){
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -151013,4 +152871,4 @@ function () {
 
 exports["default"] = Vector;
 
-},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,123,122,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140]);
+},{"loglevel":54}]},{},[102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,125,124,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142]);

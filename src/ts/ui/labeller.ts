@@ -200,6 +200,17 @@ export default class Labeller {
      * Horizontal label, split over lines at spaces when long
      */
     labelPoint(at: Vector, text: string, style: LabelStyle, wrap = 14): boolean {
+        const draw = this.placePoint(at, text, style, wrap);
+        if (draw === null) return false;
+        draw();
+        return true;
+    }
+
+    /**
+     * Claims room for a point label without drawing it yet
+     * @return draws the label, or null if there's no room
+     */
+    placePoint(at: Vector, text: string, style: LabelStyle, wrap = 14): () => void {
         const words = text.split(' ');
         const lines: string[] = [];
         for (const w of words) {
@@ -214,13 +225,12 @@ export default class Labeller {
         const halfW = Math.max(...widths) / 2 + 2;
         const halfH = lines.length * lineHeight / 2 + 1;
         const box = Labeller.boxAround(at, halfW, halfH);
-        if (!this.free(box)) return false;
+        if (!this.free(box)) return null;
         this.occupy(box);
-        lines.forEach((l, i) => {
+        return (): void => lines.forEach((l, i) => {
             const p = new Vector(at.x, at.y - halfH + 1 + lineHeight * (i + 0.5));
             this.canvas.drawText(l, p, 0, style.font, style.fill, style.halo, style.haloWidth);
         });
-        return true;
     }
 
     /**

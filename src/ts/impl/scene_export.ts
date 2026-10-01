@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/camelcase */  // Keys are the file format, which uses snake_case
 import Vector from '../vector';
 import PolygonUtil from './polygon_util';
+import RoadNetwork from './road_network';
 
 /**
  * Exports a generated city as a scene for 3D tools such as Blender Geometry Nodes.
@@ -85,6 +86,7 @@ export const CLASSES: {[name: string]: ClassInfo} = {
     park_label: {id: 91, layer: 'labels', geometry: 'Point', description: 'Park name'},
     mall_label: {id: 92, layer: 'labels', geometry: 'Point', description: 'Shopping mall name'},
     apartments_label: {id: 93, layer: 'labels', geometry: 'Point', description: 'Apartment complex name'},
+    river_label: {id: 94, layer: 'labels', geometry: 'Point', description: 'River name, halfway along the river on the map'},
 };
 
 /**
@@ -122,6 +124,10 @@ export interface SceneRoad {
 export interface SceneInput {
     viewOrigin: Vector;
     viewSize: Vector;
+    generationOrigin: Vector;  // Where the map was generated, also the origin of the scene
+    generationSize: Vector;
+    land: Vector[][];  // The generation area less the sea
+    camera: {heightExaggeration: number; cameraHeight: number; screenSize: Vector};  // The pseudo 3D view
     houses: Vector[][];
     lowIncomeHouses: Vector[][];
     industrialBuildings: Vector[][];
@@ -137,7 +143,7 @@ export interface SceneInput {
     areas: {polygon: Vector[]; cls: string; name?: string}[];
     bridgeWater: Vector[][];  // Polygons that roads and railways cross on bridges
     parking: Vector[];
-    labels: {at: Vector; cls: string; name: string}[];
+    labels: {at: Vector; cls: string; name: string; hoverHeight: number}[];  // Hover height in metres
 }
 
 const WORLD_UNIT_M = 2;
@@ -151,7 +157,8 @@ export default class SceneExport {
     private max = new Vector(-Infinity, -Infinity);
 
     private constructor(private input: SceneInput) {
-        this.centre = input.viewOrigin.clone().add(input.viewSize.clone().divideScalar(2));
+        // The middle of the generated area, so the scene doesn't move if the view is panned before exporting
+        this.centre = input.generationOrigin.clone().add(input.generationSize.clone().divideScalar(2));
     }
 
     static build(input: SceneInput): any {
@@ -205,12 +212,20 @@ export default class SceneExport {
         this.add(cls, {type: 'Polygon', coordinates: [ring]}, properties);
     }
 
-    private addLine(cls: string, line: Vector[], properties: {[k: string]: any}): void {
-        if (!line || line.length < 2) return;
-        const coords = line.map(v => this.toMetres(v))
+    /**
+     * @param dropTiny leave out lines shorter than a centimetre. Network edges are always kept, so every node's edges exist
+     * @return feature id, or null if nothing was added
+     */
+    private addLine(cls: string, line: Vector[], properties: {[k: string]: any}, dropTiny = true): number {
+        if (!line || line.length < 2) return null;
+        let coords = line.map(v => this.toMetres(v))
             .filter((c, i, all) => i === 0 || c[0] !== all[i - 1][0] || c[1] !== all[i - 1][1]);
-        if (coords.length < 2) return;
+        if (coords.length < 2) {
+            if (dropTiny) return null;
+            coords = [coords[0], coords[0].slice()];
+        }
         this.add(cls, {type: 'LineString', coordinates: coords}, properties);
+        return this.nextId - 1;
     }
 
     private addPoint(cls: string, at: Vector, properties: {[k: string]: any}): void {
@@ -280,6 +295,11 @@ export default class SceneExport {
         // Houses have storeys of about 3 m under a pitched roof, sheds and tanks are one tall storey
         const building = (cls: string, b: Vector[], h: number, roof: string): void => {
             const maxLevels = cls === 'apartments' ? 3 : 2;
+            // Too tall for a pitched roof house: an apartment or office block with a flat roof
+            if (roof === 'gabled' && h > 3 * maxLevels + 4) {
+                this.addPolygon(cls, b, {height: h, eave_height: h, levels: Math.round(h / 3), roof: 'flat'});
+                return;
+            }
             const levels = roof === 'gabled' ? Math.max(1, Math.min(maxLevels, Math.floor((h - 2.5) / 3))) : (cls === 'industrial_office' || cls === 'mall' ? 2 : 1);
             const eave = roof === 'gabled' ? Math.min(h, 3 * levels + 0.5) : h;
             this.addPolygon(cls, b, {height: h, eave_height: Math.round(eave * 10) / 10, levels, roof});
@@ -314,26 +334,47 @@ export default class SceneExport {
             else building('retail', s.polygon, height(s.polygon, 6), 'flat');
         }
 
-        // Roads, railways and paths, split at bridges
+        // Roads, split at bridges and where they meet, as the edges of a road network
+        const pieces: {line: Vector[]; cls: string; halfWidth: number; road: SceneRoad; bridge: boolean}[] = [];
         for (const r of input.roads) {
-            for (const s of this.bridgeStretches(r.line)) {
-                const props: {[k: string]: any} = {
-                    width: ROAD_WIDTH[r.cls],
-                    lanes: ROAD_LANES[r.cls],
-                    bridge: s.bridge ? 1 : 0,
-                    level: s.bridge ? 1 : 0,
-                    deck_height: s.bridge ? BRIDGE_DECK_M : 0,
-                };
-                if (r.cls === 'motorway') {
-                    props.dual_carriageway = 1;
-                    props.median_width = 2;
-                }
-                if (r.frontage) props.frontage = 1;
-                if (r.name) props.name = r.name;
-                if (r.ref) props.ref = r.ref;
-                this.addLine(r.cls, s.line, props);
-            }
+            const halfWidth = ROAD_WIDTH[r.cls] / WORLD_UNIT_M / 2;
+            for (const st of this.bridgeStretches(r.line)) pieces.push({line: st.line, cls: r.cls, halfWidth, road: r, bridge: st.bridge});
         }
+        const network = RoadNetwork.build(pieces);
+        const edgeFeature: number[] = [];
+        for (const e of network.edges) {
+            // Past the end of the pieces are driveways added to reach car parks
+            const piece = pieces[e.road] || {road: {line: e.line, cls: 'service'} as SceneRoad, bridge: false};
+            const r = piece.road;
+            const props: {[k: string]: any} = {
+                width: ROAD_WIDTH[r.cls],
+                lanes: ROAD_LANES[r.cls],
+                bridge: piece.bridge ? 1 : 0,
+                level: piece.bridge ? 1 : 0,
+                deck_height: piece.bridge ? BRIDGE_DECK_M : 0,
+                // Motorways and ramps pass over anything they cross, joining other roads only where a ramp ends
+                grade_separated: r.cls === 'motorway' || r.cls === 'motorway_link' ? 1 : 0,
+                from_node: e.from + 1,
+                to_node: e.to + 1,
+                length: Math.round(e.length * WORLD_UNIT_M * 100) / 100,
+            };
+            if (r.cls === 'motorway') {
+                props.dual_carriageway = 1;
+                props.median_width = 2;
+            }
+            if (r.frontage) props.frontage = 1;
+            if (!pieces[e.road]) props.driveway = 1;
+            if (r.name) props.name = r.name;
+            if (r.ref) props.ref = r.ref;
+            const id = this.addLine(r.cls, e.line, props, false);
+            edgeFeature.push(id);
+        }
+        const nodes = network.nodes.map((n, i) => ({
+            id: i + 1,
+            coordinates: this.toMetres(n.at),
+            edges: n.edges.map(e => edgeFeature[e]).filter(id => id !== null),
+        }));
+
         for (const r of input.railways) {
             for (const s of this.bridgeStretches(r)) {
                 this.addLine('rail', s.line, {width: ROAD_WIDTH.rail, gauge: 1.435, tracks: 1,
@@ -348,9 +389,15 @@ export default class SceneExport {
         // Points and labels
         for (const c of input.churches) this.addPoint('place_of_worship', PolygonUtil.averagePoint(c), {});
         for (const p of input.parking) this.addPoint('parking', p, {});
-        for (const l of input.labels) this.addPoint(l.cls, l.at, {name: l.name});
+        // Hover height is where the 2D map's floating labels float, at real (unexaggerated) building scale
+        for (const l of input.labels) this.addPoint(l.cls, l.at, {name: l.name, hover_height: Math.round(l.hoverHeight * 10) / 10});
 
         const view = [input.viewOrigin, input.viewOrigin.clone().add(input.viewSize)].map(v => this.toMetres(v));
+        const g0 = input.generationOrigin;
+        const g1 = g0.clone().add(input.generationSize);
+        const area = [g0, new Vector(g1.x, g0.y), g1, new Vector(g0.x, g1.y)];
+        const rect = (corners: number[][]): number[] => [Math.min(corners[0][0], corners[1][0]), Math.min(corners[0][1], corners[1][1]),
+            Math.max(corners[0][0], corners[1][0]), Math.max(corners[0][1], corners[1][1])];
         const classes = Object.keys(CLASSES).map(name => Object.assign({name}, CLASSES[name]))
             .sort((a, b) => a.id - b.id);
         return {
@@ -362,14 +409,28 @@ export default class SceneExport {
                 axes: 'x east, y north, z up; ground at z = 0',
                 world_unit_m: WORLD_UNIT_M,
                 // The view is what the 2D map shows, data reaches a little beyond it
-                view_bounds: [Math.min(view[0][0], view[1][0]), Math.min(view[0][1], view[1][1]),
-                    Math.max(view[0][0], view[1][0]), Math.max(view[0][1], view[1][1])],
+                view_bounds: rect(view),
+                // The area the map was generated in. Roads and buildings stop at its edge, so it's the edge of the world
+                boundary: {
+                    bounds: rect([this.toMetres(g0), this.toMetres(g1)]),
+                    polygon: this.ring(area),
+                    land: input.land.filter(l => l.length >= 3).map(l => this.ring(l)),
+                },
+                // How the 2D map's pseudo 3D view is drawn, to match it with a perspective camera, see docs/game-export.md
+                pseudo_3d: {
+                    height_exaggeration: input.camera.heightExaggeration,
+                    camera_height_m: Math.round(input.camera.cameraHeight * WORLD_UNIT_M * 10) / 10,
+                    viewport_px: [input.camera.screenSize.x, input.camera.screenSize.y],
+                    vertical_fov_deg: Math.round(2 * Math.atan(input.camera.screenSize.y / 2 / 1000) * 180 / Math.PI * 100) / 100,
+                },
                 data_bounds: [this.min.x, this.min.y, this.max.x, this.max.y],
                 layers: ['areas', 'waterways', 'paths', 'roads', 'railways', 'buildings', 'points', 'labels'],
                 classes,
                 feature_count: this.features.length,
             },
             features: this.features,
+            // Where roads meet. Each road feature is one edge between two nodes (from_node, to_node)
+            road_network: {nodes},
         };
     }
 }
