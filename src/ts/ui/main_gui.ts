@@ -13,9 +13,9 @@ import PolygonFinder from '../impl/polygon_finder';
 import {PolygonParams} from '../impl/polygon_finder';
 import StreamlineGenerator from '../impl/streamlines';
 import WaterGenerator from '../impl/water_generator';
-import Style from './style';
+import Style, {MapSvgInfo} from './style';
 import {DefaultStyle, RoughStyle} from './style';
-import CanvasWrapper from './canvas_wrapper';
+import CanvasWrapper, {SvgInfo} from './canvas_wrapper';
 import Buildings, {BuildingModel} from './buildings';
 import PolygonUtil from '../impl/polygon_util';
 import Util from '../util';
@@ -25,6 +25,19 @@ import Zoning, {Zone, ZoningParams} from '../impl/zoning';
 import PortPlanner, {Port} from '../impl/port';
 import ParkPaths from '../impl/park_paths';
 import {polylineLength, resampleEqual} from '../impl/hydrology';
+import Addressing from '../impl/addressing';
+
+/**
+ * Street names and building addresses for the SVG export
+ */
+export interface MapAddresses {
+    svgInfo: MapSvgInfo;
+    metadata: {
+        metresPerUnit: number;
+        streets: {name: string; kind: string; crossStreets: string[]}[];
+        buildings: {id: string; address: string; number: number; street: string; zone: string; x: number; y: number}[];
+    };
+}
 
 /**
  * Handles Map folder, glues together impl
@@ -720,7 +733,96 @@ export default class MainGUI {
         this.redraw = this.redraw || continueUpdate;
     }
 
-    draw(style: Style, forceDraw=false, customCanvas?: CanvasWrapper): void {
+    /**
+     * Names every street and gives every building an address
+     * Coordinates are in screen space, as drawn in an exported SVG
+     */
+    addresses(): MapAddresses {
+        const secondary = this.coastline.streamlinesWithSecondaryRoad;
+        const book = Addressing.build({
+            highway: this.highways.highwaysWorld,
+            ramp: this.highways.rampsWorld,
+            main: this.mainRoads.allStreamlines,
+            major: this.majorRoads.allStreamlines,
+            minor: this.minorRoads.allStreamlines,
+            coast: this.coastline.allStreamlines,
+            riverside: [secondary[secondary.length - 1] || []],
+            frontage: this.highways.frontageRoadsWorld,
+            service: this.buildings.industrialServiceRoadsWorld.concat(this.port ? this.port.roads : []),
+        }, {
+            residential: this.buildings.lotsWorld,
+            lowIncome: this.buildings.lowIncomeLotsWorld,
+            industrial: this.buildings.industrialLotsWorld,
+        });
+
+        const roadInfo = (kind: string): SvgInfo[] => book.roadNames[kind].map(name => name === null ? undefined : {
+            className: `road ${kind}`,
+            title: name,
+            data: {street: name, kind},
+        });
+
+        const zoneNames: {[group: string]: string} = {residential: 'residential', lowIncome: 'low-income', industrial: 'industrial'};
+        const buildingModels = new Map<Vector[], SvgInfo>();
+        const buildings: MapAddresses['metadata']['buildings'] = [];
+        let count = 0;
+        const buildingInfo = (group: string, polygons: Vector[][]): SvgInfo[] => polygons.map((polygon, i) => {
+            const address = book.addresses[group][i];
+            const id = `building-${++count}`;
+            const zone = zoneNames[group];
+            const info: SvgInfo = {id, className: `building ${zone}`, title: address ? address.address : 'No address', data: {zone}};
+            if (address) Object.assign(info.data, {address: address.address, number: address.number, street: address.street});
+            buildingModels.set(polygon, info);
+            const centre = this.domainController.worldToScreen(PolygonUtil.averagePoint(polygon));
+            buildings.push({
+                id,
+                address: address ? address.address : null,
+                number: address ? address.number : null,
+                street: address ? address.street : null,
+                zone,
+                x: Math.round(centre.x * 10) / 10,
+                y: Math.round(centre.y * 10) / 10,
+            });
+            return info;
+        });
+
+        // Ramps and frontage pieces share a name, list each name once
+        const streets = new Map<string, {name: string; kind: string; crossStreets: string[]}>();
+        for (const s of book.streets) {
+            const existing = streets.get(s.name);
+            if (existing) {
+                existing.crossStreets = Array.from(new Set(existing.crossStreets.concat(s.crossStreets))).sort();
+            } else {
+                streets.set(s.name, {name: s.name, kind: s.kind, crossStreets: s.crossStreets.slice()});
+            }
+        }
+
+        const svgInfo: MapSvgInfo = {
+            lots: buildingInfo('residential', this.buildings.lotsWorld),
+            lowIncomeLots: buildingInfo('lowIncome', this.buildings.lowIncomeLotsWorld),
+            industrialLots: buildingInfo('industrial', this.buildings.industrialLotsWorld),
+            buildingModels,
+            minorRoads: roadInfo('minor'),
+            majorRoads: roadInfo('major'),
+            mainRoads: roadInfo('main'),
+            coastlineRoads: roadInfo('coast'),
+            secondaryRiver: roadInfo('riverside')[0],
+            highways: roadInfo('highway'),
+            frontageRoads: roadInfo('frontage'),
+            ramps: roadInfo('ramp'),
+            industrialRoads: roadInfo('service'),
+        };
+
+        return {
+            svgInfo,
+            metadata: {
+                metresPerUnit: 2 / this.domainController.zoom,  // 1 world unit = 2 m
+                streets: Array.from(streets.values()),
+                buildings,
+            },
+        };
+    }
+
+    draw(style: Style, forceDraw=false, customCanvas?: CanvasWrapper, svgInfo: MapSvgInfo=null): void {
         if (!style.needsUpdate && !forceDraw && !this.redraw && !this.domainController.moved) {
             return;
         }
@@ -764,7 +866,9 @@ export default class MainGUI {
         style.frontageRoads = this.highways.frontageRoads;
         style.ramps = this.highways.ramps;
         style.secondaryRiver = this.coastline.secondaryRiver;
+        style.svgInfo = svgInfo;
         style.draw(customCanvas);
+        style.svgInfo = null;
 
         // Drawing an export shouldn't stop the screen from catching up
         if (customCanvas) this.redraw = true;

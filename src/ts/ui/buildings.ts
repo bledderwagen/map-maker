@@ -192,15 +192,26 @@ export default class Buildings {
     }
 
     get lots(): Vector[][] {
+        return this.toScreen(this.lotsWorld);
+    }
+
+    /**
+     * World space, in the same order as lots
+     */
+    get lotsWorld(): Vector[][] {
         // Until houses are placed, show the plain lots so animation still works
-        if (this.residentialHouses.length === 0) return this.toScreen(this.polygonFinders[Zone.Residential].polygons);
-        return this.toScreen(this.residentialHouses);
+        if (this.residentialHouses.length === 0) return this.polygonFinders[Zone.Residential].polygons;
+        return this.residentialHouses;
     }
 
     get lowIncomeLots(): Vector[][] {
+        return this.toScreen(this.lowIncomeLotsWorld);
+    }
+
+    get lowIncomeLotsWorld(): Vector[][] {
         // Until the yards are laid out, show the plain lots so animation still works
-        if (this.lowIncomeFences.length === 0) return this.toScreen(this.polygonFinders[Zone.LowIncome].polygons);
-        return this.toScreen(this.lowIncomeHouses);
+        if (this.lowIncomeFences.length === 0) return this.polygonFinders[Zone.LowIncome].polygons;
+        return this.lowIncomeHouses;
     }
 
     get lowIncomeFenceLines(): Vector[][] {
@@ -209,6 +220,10 @@ export default class Buildings {
 
     get industrialLots(): Vector[][] {
         return this.toScreen(this.industrialBuildings);
+    }
+
+    get industrialLotsWorld(): Vector[][] {
+        return this.industrialBuildings;
     }
 
     get industrialServiceRoads(): Vector[][] {

@@ -2,7 +2,7 @@ import * as log from 'loglevel';
 import * as dat from 'dat.gui';
 import TensorFieldGUI from './tensor_field_gui';
 import {NoiseParams} from '../impl/tensor_field';
-import CanvasWrapper from './canvas_wrapper';
+import CanvasWrapper, {SvgInfo} from './canvas_wrapper';
 import {DefaultCanvasWrapper, RoughCanvasWrapper} from './canvas_wrapper';
 import Util from '../util';
 import PolygonUtil from '../impl/polygon_util';
@@ -11,6 +11,25 @@ import DomainController from './domain_controller';
 import Vector from '../vector';
 import {BuildingModel} from './buildings';
 import {Zone} from '../impl/zoning';
+
+/**
+ * Names and addresses for the SVG export, each list matches the drawn list of the same name
+ */
+export interface MapSvgInfo {
+    lots: SvgInfo[];
+    lowIncomeLots: SvgInfo[];
+    industrialLots: SvgInfo[];
+    buildingModels: Map<Vector[], SvgInfo>;  // Keyed by BuildingModel.lotWorld
+    minorRoads: SvgInfo[];
+    majorRoads: SvgInfo[];
+    mainRoads: SvgInfo[];
+    coastlineRoads: SvgInfo[];
+    secondaryRiver: SvgInfo;
+    highways: SvgInfo[];
+    frontageRoads: SvgInfo[];
+    ramps: SvgInfo[];
+    industrialRoads: SvgInfo[];
+}
 
 export interface ColourScheme {
     bgColour: string;
@@ -92,6 +111,7 @@ export default abstract class Style {
     public industrialRoads: Vector[][] = [];
     public showFrame: boolean;
     public showZones = true;
+    public svgInfo: MapSvgInfo = null;
 
     constructor(protected dragController: DragController, protected colourScheme: ColourScheme) {
         if (!colourScheme.bgColour) log.error("ColourScheme Error - bgColour not defined");
@@ -174,6 +194,23 @@ export default abstract class Style {
         }
         this.woodTile = tile;
         return tile;
+    }
+
+    /**
+     * SVG names and addresses for item i of a drawn list, if there are any
+     */
+    protected info(list: keyof MapSvgInfo, i: number): SvgInfo {
+        if (this.svgInfo === null) return undefined;
+        const infos = this.svgInfo[list];
+        return Array.isArray(infos) ? infos[i] : undefined;
+    }
+
+    protected modelInfo(b: BuildingModel, roof: boolean): SvgInfo {
+        if (this.svgInfo === null) return undefined;
+        const info = this.svgInfo.buildingModels.get(b.lotWorld);
+        // The footprint has the id, the roof refers to it
+        if (!info || !roof) return info;
+        return {className: info.className, title: info.title, data: Object.assign({building: info.id}, info.data)};
     }
 
     protected roofColour(zone: Zone): string {
@@ -313,22 +350,22 @@ export class DefaultStyle extends Style {
         for (const s of this.mainRoads) canvas.drawPolyline(s);
         for (const s of this.coastlineRoads) canvas.drawPolyline(s);
 
-        // Road inline
+        // Road inline, carries the street names in an SVG
         canvas.setStrokeStyle(this.colourScheme.minorRoadColour);
         canvas.setLineWidth(this.colourScheme.minorWidth * this.domainController.zoom);
-        for (const s of this.minorRoads) canvas.drawPolyline(s);
-        for (const s of this.frontageRoads) canvas.drawPolyline(s);
-        for (const s of this.industrialRoads) canvas.drawPolyline(s);
+        this.minorRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('minorRoads', i)));
+        this.frontageRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('frontageRoads', i)));
+        this.industrialRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('industrialRoads', i)));
 
         canvas.setStrokeStyle(this.colourScheme.majorRoadColour);
         canvas.setLineWidth(this.colourScheme.majorWidth * this.domainController.zoom);
-        for (const s of this.majorRoads) canvas.drawPolyline(s);
-        canvas.drawPolyline(this.secondaryRiver);
+        this.majorRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('majorRoads', i)));
+        canvas.drawPolyline(this.secondaryRiver, this.svgInfo ? this.svgInfo.secondaryRiver : undefined);
 
         canvas.setStrokeStyle(this.colourScheme.mainRoadColour);
         canvas.setLineWidth(this.colourScheme.mainWidth * this.domainController.zoom);
-        for (const s of this.mainRoads) canvas.drawPolyline(s);
-        for (const s of this.coastlineRoads) canvas.drawPolyline(s);
+        this.mainRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('mainRoads', i)));
+        this.coastlineRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('coastlineRoads', i)));
 
         // Highways go over everything else
         const zoom = this.domainController.zoom;
@@ -337,14 +374,14 @@ export class DefaultStyle extends Style {
         for (const s of this.ramps) canvas.drawPolyline(s);
         canvas.setStrokeStyle(this.colourScheme.highwayColour);
         canvas.setLineWidth(this.colourScheme.rampWidth * zoom);
-        for (const s of this.ramps) canvas.drawPolyline(s);
+        this.ramps.forEach((s, i) => canvas.drawPolyline(s, this.info('ramps', i)));
 
         canvas.setStrokeStyle(this.colourScheme.highwayOutline);
         canvas.setLineWidth(2 * this.colourScheme.outlineSize + this.colourScheme.highwayWidth * zoom);
         for (const s of this.highways) canvas.drawPolyline(s);
         canvas.setStrokeStyle(this.colourScheme.highwayColour);
         canvas.setLineWidth(this.colourScheme.highwayWidth * zoom);
-        for (const s of this.highways) canvas.drawPolyline(s);
+        this.highways.forEach((s, i) => canvas.drawPolyline(s, this.info('highways', i)));
         // Central reservation of a dual carriageway
         canvas.setStrokeStyle(this.colourScheme.highwayOutline);
         canvas.setLineWidth(Math.max(0.5, 0.12 * this.colourScheme.highwayWidth * zoom));
@@ -359,21 +396,21 @@ export class DefaultStyle extends Style {
                 const parsedRgb = Util.parseCSSColor(this.colourScheme.bgColour).map(v => Math.min(255, v + (b.height * 18)));
                 canvas.setFillStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
                 canvas.setStrokeStyle(`rgb(${parsedRgb[0]},${parsedRgb[1]},${parsedRgb[2]})`);
-                canvas.drawPolygon(b.lotScreen);
+                canvas.drawPolygon(b.lotScreen, this.modelInfo(b, false));
             }
         } else {
             // Buildings
             if (!this.colourScheme.zoomBuildings || this.domainController.zoom >= 2) {
                 canvas.setFillStyle(this.colourScheme.buildingColour);
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
-                for (const b of this.lots) canvas.drawPolygon(b);
+                this.lots.forEach((b, i) => canvas.drawPolygon(b, this.info('lots', i)));
                 canvas.setLineWidth(Math.max(0.3, 0.25 * this.domainController.zoom));
                 for (const f of this.fences) canvas.drawPolyline(f);
                 canvas.setLineWidth(1);
                 canvas.setFillStyle(this.colourScheme.lowIncomeBuildingColour);
-                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
+                this.lowIncomeLots.forEach((b, i) => canvas.drawPolygon(b, this.info('lowIncomeLots', i)));
                 canvas.setFillStyle(this.colourScheme.industrialBuildingColour);
-                for (const b of this.industrialLots) canvas.drawPolygon(b);
+                this.industrialLots.forEach((b, i) => canvas.drawPolygon(b, this.info('industrialLots', i)));
             }
 
             // Pseudo-3D
@@ -389,7 +426,7 @@ export class DefaultStyle extends Style {
                 canvas.setStrokeStyle(this.colourScheme.buildingStroke);
                 for (const b of this.buildingModels) {
                     canvas.setFillStyle(this.roofColour(b.zone));
-                    canvas.drawPolygon(b.roof);
+                    canvas.drawPolygon(b.roof, this.modelInfo(b, true));
                 }
             }
         }
@@ -531,37 +568,37 @@ export class RoughStyle extends Style {
             fill: 'none',
         });
 
-        this.minorRoads.forEach(s => canvas.drawPolyline(s));
-        this.frontageRoads.forEach(s => canvas.drawPolyline(s));
-        this.industrialRoads.forEach(s => canvas.drawPolyline(s));
+        this.minorRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('minorRoads', i)));
+        this.frontageRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('frontageRoads', i)));
+        this.industrialRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('industrialRoads', i)));
 
         canvas.setOptions({
             strokeWidth: 2,
             stroke: this.colourScheme.majorRoadColour,
         });
 
-        this.majorRoads.forEach(s => canvas.drawPolyline(s));
-        canvas.drawPolyline(this.secondaryRiver);
+        this.majorRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('majorRoads', i)));
+        canvas.drawPolyline(this.secondaryRiver, this.svgInfo ? this.svgInfo.secondaryRiver : undefined);
 
         canvas.setOptions({
             strokeWidth: 3,
             stroke: this.colourScheme.mainRoadColour,
         });
 
-        this.mainRoads.forEach(s => canvas.drawPolyline(s));
-        this.coastlineRoads.forEach(s => canvas.drawPolyline(s));
+        this.mainRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('mainRoads', i)));
+        this.coastlineRoads.forEach((s, i) => canvas.drawPolyline(s, this.info('coastlineRoads', i)));
 
         canvas.setOptions({
             strokeWidth: 2,
             stroke: this.colourScheme.highwayColour,
         });
-        this.ramps.forEach(s => canvas.drawPolyline(s));
+        this.ramps.forEach((s, i) => canvas.drawPolyline(s, this.info('ramps', i)));
 
         canvas.setOptions({
             strokeWidth: 5,
             stroke: this.colourScheme.highwayColour,
         });
-        this.highways.forEach(s => canvas.drawPolyline(s));
+        this.highways.forEach((s, i) => canvas.drawPolyline(s, this.info('highways', i)));
 
         // Buildings
         if (!this.dragging) {
@@ -574,9 +611,9 @@ export class RoughStyle extends Style {
                     strokeWidth: 1,
                     fill: '',
                 });
-                for (const b of this.lots) canvas.drawPolygon(b);
-                for (const b of this.lowIncomeLots) canvas.drawPolygon(b);
-                for (const b of this.industrialLots) canvas.drawPolygon(b);
+                this.lots.forEach((b, i) => canvas.drawPolygon(b, this.info('lots', i)));
+                this.lowIncomeLots.forEach((b, i) => canvas.drawPolygon(b, this.info('lowIncomeLots', i)));
+                this.industrialLots.forEach((b, i) => canvas.drawPolygon(b, this.info('industrialLots', i)));
                 canvas.setOptions({
                     strokeWidth: 0.4,
                 });
@@ -612,7 +649,7 @@ export class RoughStyle extends Style {
                     fill: this.colourScheme.buildingColour,
                 });
 
-                for (const b of this.buildingModels) canvas.drawPolygon(b.roof);
+                for (const b of this.buildingModels) canvas.drawPolygon(b.roof, this.modelInfo(b, true));
             }
         }
     }
