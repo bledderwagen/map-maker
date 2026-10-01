@@ -1,0 +1,21 @@
+schema_version = "1.0.0"
+
+id = "map_maker_importer"
+version = "1.0.0"
+name = "map-maker Scene Importer"
+tagline = "Import map-maker cities as a Geometry Nodes scene"
+maintainer = "map-maker contributors"
+type = "add-on"
+website = "https://github.com/bledderwagen/map-maker"
+
+tags = ["Import-Export", "Geometry Nodes"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:LGPL-3.0-or-later"]
+
+[permissions]
+files = "Read map-maker scene files chosen in the file browser"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "*.pyc"]

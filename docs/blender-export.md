@@ -10,6 +10,9 @@ without running the generator.
 
 The exporter is `src/ts/impl/scene_export.ts`. Format changes go in both places.
 
+An importer that follows the mapping below is in [`blender/`](../blender/README.md): a Blender 4.2+
+extension that builds buildings, roads, bridges, areas and trees with Geometry Nodes.
+
 ## File
 
 The file is a GeoJSON `FeatureCollection` with one extra top-level member, `map_maker`.

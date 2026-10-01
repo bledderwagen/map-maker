@@ -60,7 +60,7 @@
 
 ![A mall in its car park next to apartment complexes and industry](docs/images/mall-apartments.png)
 
-* **Blender export** (Download → Blender): the city as a `.geojson` scene in metres, every building, road, railway, path, area and label tagged with a class id and attributes (heights, widths, lanes, bridges) for a Blender Geometry Nodes importer. See [docs/blender-export.md](docs/blender-export.md) and the sample [docs/blender/sample-map.geojson](docs/blender/sample-map.geojson).
+* **Blender export** (Download → Blender): the city as a `.geojson` scene in metres, every building, road, railway, path, area and label tagged with a class id and attributes (heights, widths, lanes, bridges) for a Blender Geometry Nodes importer. See [docs/blender-export.md](docs/blender-export.md) and the sample [docs/blender/sample-map.geojson](docs/blender/sample-map.geojson). The Blender add-on in [blender/](blender/README.md) imports it as a Geometry Nodes scene.
 
 ![Highways, a waterfront industrial district and low income housing](docs/images/highways-industry.png)
 
