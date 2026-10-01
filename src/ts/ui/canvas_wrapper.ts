@@ -237,6 +237,105 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
         this.ctx.strokeStyle = colour;
     }
 
+    /**
+     * Dash lengths in screen pixels, empty for a solid line
+     */
+    setLineDash(dash: number[]): void {
+        this.ctx.setLineDash(dash.map(d => d * this._scale));
+    }
+
+    /**
+     * Round ends and joins, as road maps draw roads
+     */
+    setRoundLines(round: boolean): void {
+        this.ctx.lineCap = round ? 'round' : 'butt';
+        this.ctx.lineJoin = round ? 'round' : 'miter';
+    }
+
+    /**
+     * Width of text in screen pixels
+     */
+    measureText(text: string, font: string): number {
+        this.ctx.save();
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.font = font;
+        const w = this.ctx.measureText(text).width;
+        this.ctx.restore();
+        return w;
+    }
+
+    /**
+     * Text centred on a point and rotated by angle, with a halo so it reads over roads
+     * @param font CSS font with the size in screen pixels
+     */
+    drawText(text: string, at: Vector, angle: number, font: string, fill: string,
+             halo: string, haloWidth: number): void {
+        const s = this._scale;
+        this.ctx.save();
+        this.ctx.translate(at.x * s, at.y * s);
+        this.ctx.rotate(angle);
+        this.ctx.scale(s, s);
+        this.ctx.font = font;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.setLineDash([]);
+        if (haloWidth > 0) {
+            this.ctx.lineJoin = 'round';
+            this.ctx.strokeStyle = halo;
+            this.ctx.lineWidth = 2 * haloWidth;
+            this.ctx.strokeText(text, 0, 0);
+        }
+        this.ctx.fillStyle = fill;
+        this.ctx.fillText(text, 0, 0);
+        this.ctx.restore();
+
+        if (this.svg) {
+            const degrees = angle * 180 / Math.PI;
+            this.svg.plain(text).attr({
+                x: 0,
+                y: 0,
+                transform: `translate(${at.x * s},${at.y * s}) rotate(${degrees}) scale(${s})`,
+                style: `font: ${font}`,
+                'text-anchor': 'middle',
+                'dominant-baseline': 'central',
+                fill: fill,
+                stroke: haloWidth > 0 ? halo : 'none',
+                'stroke-width': 2 * haloWidth,
+                'stroke-linejoin': 'round',
+                'paint-order': 'stroke',
+            });
+        }
+    }
+
+    /**
+     * Rounded rectangle centred on a point, for road number shields
+     */
+    drawRoundedRect(centre: Vector, width: number, height: number, radius: number): void {
+        const s = this._scale;
+        const x = (centre.x - width / 2) * s;
+        const y = (centre.y - height / 2) * s;
+        const w = width * s;
+        const h = height * s;
+        const r = radius * s;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + r, y);
+        this.ctx.arcTo(x + w, y, x + w, y + h, r);
+        this.ctx.arcTo(x + w, y + h, x, y + h, r);
+        this.ctx.arcTo(x, y + h, x, y, r);
+        this.ctx.arcTo(x, y, x + w, y, r);
+        this.ctx.closePath();
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        if (this.svg) {
+            this.svg.rect(w, h).move(x, y).radius(r).attr({
+                fill: this.svgFillValue(),
+                stroke: this.ctx.strokeStyle,
+                'stroke-width': this.ctx.lineWidth,
+            });
+        }
+    }
+
     drawPolyline(line: Vector[]): void {
         if (line.length < 2) {
             return;
@@ -255,10 +354,14 @@ export class DefaultCanvasWrapper extends CanvasWrapper {
 
         if (this.svg) {
             const vectorArray = line.map(v => [v.x, v.y]);
+            const dash = this.ctx.getLineDash();
             this.svg.polyline(vectorArray).attr({
                 'fill-opacity': 0,
                 stroke: this.ctx.strokeStyle,
                 'stroke-width': this.ctx.lineWidth,
+                'stroke-linecap': this.ctx.lineCap,
+                'stroke-linejoin': this.ctx.lineJoin,
+                'stroke-dasharray': dash.length > 0 ? dash.join(' ') : 'none',
             });
         }
     }

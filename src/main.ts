@@ -8,7 +8,7 @@ import Util from './ts/util';
 import DragController from './ts/ui/drag_controller';
 import DomainController from './ts/ui/domain_controller';
 import Style from './ts/ui/style';
-import {ColourScheme, DefaultStyle, RoughStyle} from './ts/ui/style';
+import {ColourScheme, DefaultStyle, OsmStyle, RoughStyle} from './ts/ui/style';
 import * as ColourSchemes from './colour_schemes.json';
 import Vector from './ts/vector';
 import { SVG } from '@svgdotjs/svg.js';
@@ -39,7 +39,7 @@ class Main {
     private canvas: HTMLCanvasElement;
     private tensorCanvas: DefaultCanvasWrapper;
     private _style: Style;
-    private colourScheme: string = "Default";  // See colour_schemes.json
+    private colourScheme: string = "OpenStreetMap";  // See colour_schemes.json
     private zoomBuildings: boolean = false;  // Show buildings only when zoomed in?
     private buildingModels: boolean = false;  // Draw pseudo-3D buildings?
     private showFrame: boolean = false;
@@ -153,7 +153,9 @@ class Main {
         this.zoomBuildings = colourScheme.zoomBuildings;
         this.buildingModels = colourScheme.buildingModels;
         Util.updateGui(this.styleFolder);
-        if (scheme.startsWith("Drawn")) {
+        if (scheme.startsWith("OpenStreetMap")) {
+            this._style = new OsmStyle(this.canvas, this.dragController, Object.assign({}, colourScheme));
+        } else if (scheme.startsWith("Drawn")) {
             this._style = new RoughStyle(this.canvas, this.dragController, Object.assign({}, colourScheme));
         } else {
             this._style = new DefaultStyle(this.canvas, this.dragController, Object.assign({}, colourScheme), scheme.startsWith("Heightmap"));

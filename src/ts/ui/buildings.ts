@@ -233,6 +233,13 @@ export default class Buildings {
         return this.toScreen(this.zoneBlocks[Zone.LowIncome]);
     }
 
+    /**
+     * All housing, low income included
+     */
+    get residentialBlocks(): Vector[][] {
+        return this.toScreen(this.zoneBlocks[Zone.Residential].concat(this.zoneBlocks[Zone.LowIncome]));
+    }
+
     get industrialBlocks(): Vector[][] {
         return this.toScreen(this.zoneBlocks[Zone.Industrial]);
     }

@@ -25,6 +25,9 @@ import Zoning, {Zone, ZoningParams} from '../impl/zoning';
 import PortPlanner, {Port} from '../impl/port';
 import ParkPaths from '../impl/park_paths';
 import {polylineLength, resampleEqual} from '../impl/hydrology';
+import PlaceNames, {StreetNameSets} from '../impl/place_names';
+import Railway from '../impl/railway';
+import {PlaceLabel} from './style';
 
 /**
  * Handles Map folder, glues together impl
@@ -38,6 +41,8 @@ export default class MainGUI {
     private intersections: Vector[] = [];
     private bigParks: Vector[][] = [];
     private parkPaths: Vector[][] = [];  // World space
+    private pitchLines: Vector[][] = [];  // Outline first, then markings
+    private railway: Vector[] = [];  // World space
     private waterfrontPaths: Vector[][] = [];
     private ponds: Vector[][] = [];
     private trees: Vector[][] = [];
@@ -83,6 +88,14 @@ export default class MainGUI {
     };
 
     private redraw: boolean = true;
+
+    // Names for labelling, world space, made again whenever the map changes
+    private placeNames = new PlaceNames();
+    private namesKey = '';
+    private streetNames: StreetNameSets = null;
+    private riverName = '';
+    private seaName = '';
+    private worldPlaceLabels: {text: string; at: Vector; kind: 'neighbourhood' | 'park'}[] = [];
 
     constructor(private guiFolder: dat.GUI, private tensorField: TensorField, private closeTensorFolder: () => void) {
         guiFolder.add(this, 'generateEverything');
@@ -188,6 +201,7 @@ export default class MainGUI {
             add(this.highways.highwaysWorld, widths.highway);
             add(this.highways.frontageRoadsWorld, widths.minor);
             add(this.highways.rampsWorld, widths.ramp);
+            add([this.railway], 6);
             this.buildings.setRoadClearance(clearance);
             this.buildings.setAllStreamlines(allStreamlines);
             this.buildings.setWaterfront(this.coastline.shoreDetailedWorld, this.coastline.shoreBeachWidths, this.coastline.beachesWorld);
@@ -216,6 +230,7 @@ export default class MainGUI {
             this.bigParks = [];
             this.smallParks = [];
             this.parkPaths = [];
+            this.pitchLines = [];
             this.ponds = [];
             this.trees = [];
             this.buildings.reset();
@@ -233,6 +248,7 @@ export default class MainGUI {
             this.bigParks = [];
             this.smallParks = [];
             this.parkPaths = [];
+            this.pitchLines = [];
             this.ponds = [];
             this.trees = [];
             this.buildings.reset();
@@ -246,6 +262,7 @@ export default class MainGUI {
             this.bigParks = [];
             this.smallParks = [];
             this.parkPaths = [];
+            this.pitchLines = [];
             this.ponds = [];
             this.trees = [];
             this.buildings.reset();
@@ -264,6 +281,7 @@ export default class MainGUI {
             this.bigParks = [];
             this.smallParks = [];
             this.parkPaths = [];
+            this.pitchLines = [];
             this.ponds = [];
             this.trees = [];
             this.buildings.reset();
@@ -281,6 +299,7 @@ export default class MainGUI {
 
         this.minorRoads.setPreGenerateCallback(() => {
             this.buildings.reset();
+            this.railway = [];
             this.smallParks = [];
             tensorField.parks = this.bigParks;
         });
@@ -288,6 +307,7 @@ export default class MainGUI {
         this.minorRoads.setPostGenerateCallback(() => {
             this.trimMinorRoads();
             this.addParks();
+            this.planRailway();
         });
     }
 
@@ -335,6 +355,26 @@ export default class MainGUI {
             || !PolygonUtil.insidePolygon(l[k], park) !== !PolygonUtil.insidePolygon(l[Math.min(l.length - 1, k + 1)], park)
             || l[k].distanceTo(l[Math.min(l.length - 1, k + 1)]) > 6
             || l[k].distanceTo(l[Math.max(0, k - 1)]) > 6)));
+    }
+
+    /**
+     * A railway across the city, through industry where it can
+     */
+    private planRailway(): void {
+        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
+        const origin = this.domainController.origin;
+        const size = this.domainController.worldDimensions;
+        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+        const floodplain = this.coastline.floodplainWorld;
+        this.railway = Railway.plan({
+            origin,
+            size,
+            // Bridges carry it over the river, it only stops at the sea
+            onLand: p => !PolygonUtil.insidePolygon(p, this.tensorField.sea),
+            industrial: p => this.zoning.enabled && this.zoning.zoneAt(p) === Zone.Industrial,
+            highways: this.highways.highwaysWorld,
+            parks: this.bigParks.concat(floodplain && floodplain.length >= 3 ? [floodplain] : []),
+        });
     }
 
     private roadHalfWidths(): {minor: number; major: number; main: number; highway: number; ramp: number} {
@@ -618,6 +658,7 @@ export default class MainGUI {
             this.bigParks = [];
             this.smallParks = [];
             this.parkPaths = [];
+            this.pitchLines = [];
             this.ponds = [];
             this.trees = [];
             if (polygons.length > this.numBigParks) {
@@ -653,11 +694,13 @@ export default class MainGUI {
 
     private layoutParks(): void {
         this.parkPaths = [];
+        this.pitchLines = [];
         this.ponds = [];
         this.trees = [];
         for (const park of this.bigParks.concat(this.smallParks)) {
             const layout = ParkPaths.layout(park);
-            this.parkPaths.push(...layout.paths, ...layout.pitches);
+            this.parkPaths.push(...layout.paths);
+            this.pitchLines.push(...layout.pitches);
             this.ponds.push(...layout.ponds);
             this.trees.push(...layout.woods);
         }
@@ -764,6 +807,18 @@ export default class MainGUI {
         style.frontageRoads = this.highways.frontageRoads;
         style.ramps = this.highways.ramps;
         style.secondaryRiver = this.coastline.secondaryRiver;
+        style.residentialAreas = this.buildings.residentialBlocks;
+        style.corridors = this.zoning.enabled ? this.toScreen(this.zoning.exclusionAreas) : [];
+        style.railways = this.railway.length >= 2 ? this.toScreen([this.railway]) : [];
+        style.pitchMarkings = this.toScreen(this.pitchLines);
+        style.pitches = this.toScreen(this.pitchLines.filter(l => l.length === 5));
+
+        this.updateNames();
+        style.names = this.streetNames;
+        style.riverName = this.riverName;
+        style.seaName = this.seaName;
+        style.riverCentreline = this.toScreen([this.coastline.riverCentrelineWorld])[0];
+        style.placeLabels = this.worldPlaceLabels.map(l => ({text: l.text, kind: l.kind, at: this.domainController.worldToScreen(l.at.clone())}) as PlaceLabel);
         style.draw(customCanvas);
 
         // Drawing an export shouldn't stop the screen from catching up
@@ -772,6 +827,58 @@ export default class MainGUI {
 
     private toScreen(polygons: Vector[][]): Vector[][] {
         return polygons.map(p => p.map(v => this.domainController.worldToScreen(v.clone())));
+    }
+
+    /**
+     * Names streets, water, parks and neighbourhoods when the map has changed
+     */
+    private updateNames(): void {
+        const first = (lines: Vector[][]): string => lines.length > 0 && lines[0].length > 0 ? `${lines[0][0].x.toFixed(1)}` : '';
+        const minor = this.minorRoads.allStreamlines;
+        const key = [minor.length, this.majorRoads.allStreamlines.length, this.mainRoads.allStreamlines.length,
+            this.highways.highwaysWorld.length, this.highways.frontageRoadsWorld.length, this.bigParks.length,
+            this.buildings.waterfrontParks.length, first(minor), first(this.mainRoads.allStreamlines),
+            first([this.coastline.riverWorld])].join('|');
+        if (key === this.namesKey) return;
+        this.namesKey = key;
+
+        this.domainController.zoom = this.domainController.zoom / Util.DRAW_INFLATE_AMOUNT;
+        const origin = this.domainController.origin;
+        const size = this.domainController.worldDimensions;
+        this.domainController.zoom = this.domainController.zoom * Util.DRAW_INFLATE_AMOUNT;
+        const centre = origin.clone().add(size.clone().divideScalar(2));
+
+        const river = this.coastline.riverCentrelineWorld;
+        this.streetNames = this.placeNames.nameStreets(minor, this.majorRoads.allStreamlines,
+            this.mainRoads.allStreamlines, this.coastline.streamlinesWithSecondaryRoad,
+            this.highways.frontageRoadsWorld, this.highways.highwaysWorld, centre, river);
+        this.riverName = river.length >= 2 ? this.placeNames.riverName() : '';
+        this.seaName = this.coastline.seaPolygonWorld.length >= 3 ? this.placeNames.seaName() : '';
+
+        this.worldPlaceLabels = [];
+        const parks = this.bigParks.concat(this.smallParks).concat(this.buildings.waterfrontParks);
+        for (const park of parks) {
+            if (park.length < 3 || PolygonUtil.calcPolygonArea(park) < 8000) continue;
+            this.worldPlaceLabels.push({text: this.placeNames.parkName(), at: PolygonUtil.averagePoint(park), kind: 'park'});
+        }
+
+        // Neighbourhoods spread over the built up land in view
+        const floodplain = this.coastline.floodplainWorld;
+        const candidates: Vector[] = [];
+        for (let i = 0; i < 600; i++) {
+            const p = new Vector(origin.x + (0.08 + 0.84 * Math.random()) * size.x, origin.y + (0.08 + 0.84 * Math.random()) * size.y);
+            if (!this.tensorField.onLand(p)) continue;
+            if (floodplain && floodplain.length >= 3 && PolygonUtil.insidePolygon(p, floodplain)) continue;
+            if (parks.some(park => PolygonUtil.insidePolygon(p, park))) continue;
+            if (this.zoning.enabled && this.zoning.zoneAt(p) === Zone.Industrial) continue;
+            candidates.push(p);
+        }
+        const spacing = 0.3 * Math.min(size.x, size.y) + 150;
+        const chosen: Vector[] = [];
+        for (const p of candidates) {
+            if (chosen.every(c => c.distanceTo(p) > spacing)) chosen.push(p);
+        }
+        for (const p of chosen) this.worldPlaceLabels.push({text: this.placeNames.neighbourhoodName(), at: p, kind: 'neighbourhood'});
     }
 
     roadsEmpty(): boolean {
